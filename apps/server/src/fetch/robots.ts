@@ -9,7 +9,7 @@ export const ROBOTS_TOKEN = "ClearPathLeadConsole";
 export const MAX_CRAWL_DELAY_S = 10;
 
 type RobotsState =
-  | { kind: "rules"; allows: (url: string) => boolean }
+  | { kind: "rules"; allows: (url: string) => boolean; sitemaps: string[] }
   | { kind: "missing" } // 4xx: no restrictions
   | { kind: "unavailable"; reason: string }; // 5xx, unreachable, or excessive Crawl-delay: disallow this run
 
@@ -76,7 +76,7 @@ export class RobotsPolicy {
       this.limiter.setInterval(new URL(origin).hostname, delay * 1000);
     }
     // robots-parser returns undefined for URLs outside this origin; treat that as not allowed.
-    return { kind: "rules", allows: (url) => robots.isAllowed(url, ROBOTS_TOKEN) === true };
+    return { kind: "rules", allows: (url) => robots.isAllowed(url, ROBOTS_TOKEN) === true, sitemaps: robots.getSitemaps() };
   }
 
   private async fetchRobots(origin: string): Promise<RobotsState> {
@@ -99,6 +99,12 @@ export class RobotsPolicy {
       return this.fromSnapshot(origin, snapshot);
     }
     return this.unavailable(origin, `HTTP ${outcome.status}`);
+  }
+
+  /** Sitemap URLs listed in robots.txt for this origin (empty when none or robots.txt is missing). */
+  async sitemapsFor(origin: string): Promise<string[]> {
+    const state = await this.load(origin);
+    return state.kind === "rules" ? state.sitemaps : [];
   }
 
   async check(url: URL): Promise<RobotsDecision> {

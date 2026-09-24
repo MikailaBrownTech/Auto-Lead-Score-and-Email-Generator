@@ -1,0 +1,263 @@
+{
+  "capturedAt": "2026-09-24T03:54:06.620Z",
+  "input": "cehcpas.com",
+  "routes": {
+    "https://cehcpas.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "file": "body-0.txt"
+    },
+    "https://cehcpas.com/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html"
+      },
+      "file": "body-1.html"
+    },
+    "https://www.cehcpas.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "file": "body-2.txt"
+    },
+    "https://www.cehcpas.com/about/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-3.html"
+    },
+    "https://cehcpas.com/sitemap.xml": {
+      "status": 301,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8",
+        "location": "https://www.cehcpas.com/wp-sitemap.xml"
+      }
+    },
+    "https://www.cehcpas.com/wp-sitemap.xml": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/xml; charset=UTF-8"
+      },
+      "file": "body-5.xml"
+    }
+  },
+  "hosts": {
+    "cehcpas.com": [
+      "66.96.147.195",
+      "66.96.147.96"
+    ],
+    "www.cehcpas.com": [
+      "66.96.147.96"
+    ]
+  },
+  "dns": {
+    "MX cehcpas.com": {
+      "answer": [
+        {
+          "exchange": "cehcpas-com.mail.protection.outlook.com",
+          "priority": 0
+        }
+      ]
+    },
+    "TXT cehcpas.com": {
+      "answer": [
+        [
+          "v=spf1 include:spf.protection.outlook.com -all"
+        ],
+        [
+          "MS=ms96139579"
+        ],
+        [
+          "duo_sso_verification=PimorLIHSNGV3wfZzH0nGpRTURvbUryp2jmri4d7ifEhx9qhWIqiqinPvBa9dZMq"
+        ]
+      ]
+    },
+    "TXT _dmarc.cehcpas.com": {
+      "code": "ENODATA"
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "Charles E. Harris & Associates",
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "Charles E. Harris & Associates is a government and nonprofit-only firm"
+        },
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": []
+          },
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "specializing in federal, state and local governments and nonprofit organizations"
+        },
+        "location": {
+          "value": {
+            "city": "Independence",
+            "state": "OH",
+            "country": "United States"
+          },
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "6200 Rockside Woods Blvd. North Suite 215 Independence, OH, 44131"
+        },
+        "size_signal": {
+          "value": {
+            "staff_count": 27,
+            "text": "We currently employ 27 employees between our offices in Cleveland and Columbus Ohio"
+          },
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "We currently employ 27 employees between our offices in Cleveland and Columbus Ohio"
+        },
+        "services": {
+          "value": [
+            "auditing",
+            "accounting",
+            "consulting"
+          ],
+          "evidence": [
+            {
+              "evidence_url": "https://www.cehcpas.com/about/",
+              "evidence_quote": "provide outstanding auditing, accounting and consulting services to our clients"
+            }
+          ]
+        },
+        "software_mentioned": {
+          "value": [
+            "Practitioner's Publishing Company Engagement Manager",
+            "Smart E-Practice Aids",
+            "USAS",
+            "UAN"
+          ],
+          "evidence": [
+            {
+              "evidence_url": "https://cehcpas.com/",
+              "evidence_quote": "Practitioner's Publishing Company's \"Engagement Manager\" and \"Smart E-Practice Aids.\""
+            },
+            {
+              "evidence_url": "https://cehcpas.com/",
+              "evidence_quote": "audit workbench software programs such as USAS and UAN systems"
+            }
+          ]
+        },
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [
+          {
+            "name": "James Bates",
+            "title": "President/Shareholder",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "James Bates, President/Shareholder"
+          },
+          {
+            "name": "John J. Phillips",
+            "title": "V.P./Shareholder",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "John J. Phillips, V.P./Shareholder"
+          },
+          {
+            "name": "Joe Machol",
+            "title": "Audit Senior",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "Joe Machol, Audit Senior"
+          },
+          {
+            "name": "Kunal Parikh",
+            "title": "Audit Senior",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "Kunal Parikh, Audit Senior"
+          },
+          {
+            "name": "Anne Spicer",
+            "title": "Senior Auditor",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "Anne Spicer, CPA, Senior Auditor"
+          }
+        ],
+        "public_contact_email": {
+          "value": {
+            "address": "john.phillips@cehcpas.com",
+            "owner_name": "John Phillips"
+          },
+          "evidence_url": "https://www.cehcpas.com/about/",
+          "evidence_quote": "To contact our Cleveland or Columbus offices, email: john.phillips@cehcpas.com"
+        },
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "recent_signal": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "(216) 575-1630",
+            "contact_form": false
+          },
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "Cleveland Office: 6200 Rockside Woods Blvd. North Suite 215 Independence, OH, 44131 (216) 575-1630"
+        },
+        "exclusion_signals": [
+          {
+            "signal": "government_or_nonprofit_only",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "Charles E. Harris & Associates is a government and nonprofit-only firm specializing in federal, state and local governments and nonprofit organizations"
+          }
+        ],
+        "suspected_prompt_injection": false
+      }
+    },
+    {
+      "callIndex": 1,
+      "toolInput": {
+        "firm_name": "NOT_FOUND",
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": []
+          },
+          "evidence_url": "https://cehcpas.com/",
+          "evidence_quote": "Charles E. Harris & Associates is a government and nonprofit-only firm specializing in federal, state and local governments and nonprofit organizations"
+        },
+        "location": "NOT_FOUND",
+        "size_signal": "NOT_FOUND",
+        "services": "NOT_FOUND",
+        "software_mentioned": {
+          "value": [
+            "Engagement Manager",
+            "Smart E-Practice Aids",
+            "USAS",
+            "UAN"
+          ],
+          "evidence": [
+            {
+              "evidence_url": "https://cehcpas.com/",
+              "evidence_quote": "Practitioner's Publishing Company's \"Engagement Manager\"and \"Smart E-Practice Aids.\""
+            },
+            {
+              "evidence_url": "https://cehcpas.com/",
+              "evidence_quote": "We also utilize various audit workbench software programs such as USAS and UAN systems"
+            }
+          ]
+        },
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "recent_signal": "NOT_FOUND",
+        "phone_or_contact_form": "NOT_FOUND",
+        "exclusion_signals": [
+          {
+            "signal": "government_or_nonprofit_only",
+            "evidence_url": "https://cehcpas.com/",
+            "evidence_quote": "Charles E. Harris & Associates is a government and nonprofit-only firm"
+          }
+        ],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

@@ -10,7 +10,15 @@ export interface PageLink {
   text: string;
 }
 
+/** A machine-readable date found in the page markup (never a date written in the prose). */
+export interface PageDate {
+  date: string;
+  source: "time_element" | "article_published_time" | "jsonld_date_published" | "jsonld_date_modified";
+  raw: string;
+}
+
 export interface CleanedPage {
+  dates: PageDate[];
   title: string;
   /** Visible text with paragraph breaks ("\n\n") preserved, for extraction and quote checks. */
   text: string;
@@ -69,6 +77,71 @@ function tidy(text: string): string {
     .trim();
 }
 
+/** Cloudflare email obfuscation: first byte is the XOR key for the rest. */
+export function decodeCfEmail(hex: string): string | null {
+  if (!/^[0-9a-f]+$/i.test(hex) || hex.length < 4 || hex.length % 2 !== 0) return null;
+  const key = parseInt(hex.slice(0, 2), 16);
+  let out = "";
+  for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out) ? out : null;
+}
+
+/** Replaces Cloudflare-protected addresses with the real address, in text and in links. */
+function decodeCloudflareEmails(doc: Document): void {
+  for (const el of Array.from(doc.querySelectorAll("[data-cfemail]"))) {
+    const email = decodeCfEmail(el.getAttribute("data-cfemail") ?? "");
+    if (email) el.replaceWith(doc.createTextNode(email));
+  }
+  for (const a of Array.from(doc.querySelectorAll('a[href*="/cdn-cgi/l/email-protection"]'))) {
+    const hash = (a.getAttribute("href") ?? "").split("#")[1] ?? "";
+    const email = decodeCfEmail(hash);
+    if (!email) continue;
+    a.setAttribute("href", `mailto:${email}`);
+    if (/email.?protected/i.test(a.textContent ?? "")) a.textContent = email;
+  }
+}
+
+function toPartialDate(raw: string): string | null {
+  const m = /^\s*(\d{4})-(\d{2})(?:-(\d{2}))?/.exec(raw);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  if (Number(mo) < 1 || Number(mo) > 12) return null;
+  if (d !== undefined && (Number(d) < 1 || Number(d) > 31)) return null;
+  return d ? `${y}-${mo}-${d}` : `${y}-${mo}`;
+}
+
+/**
+ * Machine-readable dates only: <time datetime>, article:published_time, JSON-LD datePublished and
+ * dateModified. Year-only values (a copyright year) never parse; foundingDate is never read.
+ */
+function extractDates(doc: Document): PageDate[] {
+  const out: PageDate[] = [];
+  const push = (raw: string | null | undefined, source: PageDate["source"]) => {
+    const date = raw ? toPartialDate(raw) : null;
+    if (date) out.push({ date, source, raw: raw!.trim().slice(0, 80) });
+  };
+  for (const t of Array.from(doc.querySelectorAll("time[datetime]"))) push(t.getAttribute("datetime"), "time_element");
+  for (const m of Array.from(doc.querySelectorAll('meta[property="article:published_time"]'))) push(m.getAttribute("content"), "article_published_time");
+  for (const s of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
+    let data: unknown;
+    try {
+      data = JSON.parse(s.textContent ?? "");
+    } catch {
+      continue;
+    }
+    const visit = (node: unknown, depth: number) => {
+      if (depth > 6 || node === null || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach((n) => visit(n, depth + 1));
+      const o = node as Record<string, unknown>;
+      if (typeof o.datePublished === "string") push(o.datePublished, "jsonld_date_published");
+      if (typeof o.dateModified === "string") push(o.dateModified, "jsonld_date_modified");
+      for (const v of Object.values(o)) if (typeof v === "object") visit(v, depth + 1);
+    };
+    visit(data, 0);
+  }
+  return out;
+}
+
 /**
  * HTML -> clean text. jsdom never runs scripts or loads subresources here (no runScripts, no
  * resources option). Hidden elements are removed from the visible text and returned separately.
@@ -76,6 +149,8 @@ function tidy(text: string): string {
 export function cleanHtml(html: string, pageUrl: string): CleanedPage {
   const dom = new JSDOM(html, { url: pageUrl, virtualConsole: new VirtualConsole() });
   const doc = dom.window.document;
+  decodeCloudflareEmails(doc);
+  const dates = extractDates(doc);
 
   const links: PageLink[] = Array.from(doc.querySelectorAll("a[href]")).map((a) => ({
     href: (a as HTMLAnchorElement).href,
@@ -129,6 +204,7 @@ export function cleanHtml(html: string, pageUrl: string): CleanedPage {
   const title = (doc.title ?? "").trim();
   dom.window.close();
   return {
+    dates,
     title,
     text,
     hiddenText: tidy(hiddenParts.join("\n\n")),

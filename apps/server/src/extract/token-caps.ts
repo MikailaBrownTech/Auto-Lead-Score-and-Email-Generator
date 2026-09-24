@@ -10,7 +10,7 @@ export interface CappedText {
 }
 
 /** Pages are admitted to the per-lead budget in this order. */
-const KIND_ORDER: PageKind[] = ["home", "about", "team", "services", "contact", "privacy", "security", "other"];
+const KIND_ORDER: PageKind[] = ["home", "about", "team", "services", "contact", "privacy", "security", "news", "other"];
 
 /** A page is not worth sending if only this many tokens of budget are left for it. */
 const MIN_USEFUL_TOKENS = 300;
@@ -50,6 +50,7 @@ export async function truncateToTokens(text: string, cap: number, count: CountTo
 export interface CapInputPage {
   url: string;
   kind: PageKind | "pasted";
+  title: string;
   text: string;
   nearEmpty: boolean;
 }
@@ -57,6 +58,7 @@ export interface CapInputPage {
 export interface SentPage {
   url: string;
   kind: PageKind | "pasted";
+  title: string;
   /** Exactly the text sent to the model (possibly truncated); quotes are verified against this. */
   text: string;
   tokens: number;
@@ -101,7 +103,7 @@ export async function applyTokenCaps(
       failures.push(`not sent to the model: ${page.url} could not be cut to fit the token cap`);
       continue;
     }
-    sent.push({ url: page.url, kind: page.kind, text: capped.text, tokens: capped.tokens, truncated: capped.truncated });
+    sent.push({ url: page.url, kind: page.kind, title: page.title, text: capped.text, tokens: capped.tokens, truncated: capped.truncated });
     total += capped.tokens;
   }
   return { sent, failures, totalTokens: total };

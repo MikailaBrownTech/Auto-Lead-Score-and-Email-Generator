@@ -77,27 +77,34 @@ export async function lookupDns(
 
   const findings: DnsFindings = {
     mx_provider: NOT_FOUND,
+    no_domain_email: NOT_FOUND,
     spf_present: NOT_FOUND,
     dmarc_present: NOT_FOUND,
     dmarc_policy: NOT_FOUND,
     dkim: "NOT_CHECKED",
   };
 
-  // MX
-  if (mx.kind === "records" && mx.records.length > 0) {
-    const top = [...mx.records].sort((a, b) => a.priority - b.priority)[0]!;
+  // MX. A definitive "no MX" (NXDOMAIN/NODATA, or a null MX "0 .") means the domain receives no
+  // email: recorded as no_domain_email, and SPF/DMARC then score nothing. Lookup errors decide nothing.
+  const realMx = mx.kind === "records" ? mx.records.filter((r) => r.exchange && r.exchange !== ".") : [];
+  if (realMx.length > 0) {
+    const top = [...realMx].sort((a, b) => a.priority - b.priority)[0]!;
     findings.mx_provider = {
       value: mxProviderName(top.exchange, providers),
       evidence_url: `dns:MX ${domain}`,
       evidence_quote: quote(`${top.priority} ${top.exchange}`),
     };
+    findings.no_domain_email = { value: false, evidence_url: `dns:MX ${domain}`, evidence_quote: quote(`${top.priority} ${top.exchange}`) };
   } else if (mx.kind === "error") {
-    failures.push(`DNS MX ${domain}: ${mx.message}`);
+    failures.push(`DNS MX ${domain}: lookup failed (${mx.message}); email findings not scored`);
+  } else {
+    const why = mx.kind === "none" ? `no MX record (${mx.code})` : "null MX record: domain accepts no email";
+    findings.no_domain_email = { value: true, evidence_url: `dns:MX ${domain}`, evidence_quote: why };
   }
 
   // SPF
   if (txt.kind === "error") {
-    failures.push(`DNS TXT ${domain}: ${txt.message}`);
+    failures.push(`DNS TXT ${domain}: lookup failed (${txt.message}); SPF not scored`);
   } else {
     const records = txt.kind === "records" ? txt.records.map((chunks) => chunks.join("")) : [];
     const spf = records.filter((r) => /^v=spf1(\s|$)/i.test(r.trim()));
@@ -110,7 +117,7 @@ export async function lookupDns(
 
   // DMARC
   if (dmarcTxt.kind === "error") {
-    failures.push(`DNS TXT ${dmarcName}: ${dmarcTxt.message}`);
+    failures.push(`DNS TXT ${dmarcName}: lookup failed (${dmarcTxt.message}); DMARC not scored`);
   } else {
     const records = dmarcTxt.kind === "records" ? dmarcTxt.records.map((c) => c.join("")) : [];
     const dmarc = records.filter((r) => /^v=DMARC1(\s*;|\s*$)/i.test(r.trim()));

@@ -4,6 +4,7 @@ import {
   NOT_FOUND,
   type Dossier,
   type DnsFindings,
+  type EvidenceConfig,
   type ExtractedFacts,
   type InjectionFinding,
   type ScoringConfig,
@@ -17,8 +18,11 @@ import { createPageCache, createRobotsStore, createTokenCounter } from "../extra
 import { extractFacts, type ExtractionResult } from "../extract/extract";
 import { applyTokenCaps, type CapInputPage, type SentPage } from "../extract/token-caps";
 import { scanForInjection } from "../extract/untrusted";
-import { fetchSite, type FetchedPage, type SiteFetchDeps } from "../fetch/site";
-import { BudgetExceededError, type LlmClient } from "../llm/client";
+import type { PageDate } from "../fetch/clean";
+import { fetchSite, type FetchedPage, type LinkReport, type SiteFetchDeps, type SitemapResult } from "../fetch/site";
+import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
+import { chooseDecisionMaker, computeGate, supportedSecondaryTypes, targetIndustryFit, usLocation } from "../scoring/derive";
+import { computeFreshness } from "../scoring/freshness";
 import { scoreDossier, type ScoreResult } from "../scoring/score";
 import { searchSecurityMentions } from "../scoring/security-search";
 
@@ -28,14 +32,15 @@ export interface ResearchDeps {
   modelExtract: string;
   systemPrompt: string;
   caps: { perPage: number; perLead: number };
-  fetch: Omit<SiteFetchDeps, "pageCache">;
+  fetch: Omit<SiteFetchDeps, "pageCache" | "robotsStore">;
   dns: DnsResolver;
   mxProviders: MxProvider[];
   pageCacheDays: number;
   injectionPatterns: RegExp[];
   scoring: ScoringConfig;
+  evidence: EvidenceConfig;
   now: () => Date;
-  /** Ignore the page and extraction caches (fresh fetch and fresh model call). */
+  /** Ignore the page, robots, and extraction caches (fresh fetch and fresh model call). */
   refresh?: boolean;
 }
 
@@ -47,19 +52,39 @@ export interface ResearchReport {
   score: ScoreResult;
   pages: FetchedPage[];
   sent: SentPage[];
+  links: LinkReport[];
+  sitemap: SitemapResult | null;
   extraction: ExtractionResult | null;
+}
+
+/** Everything gathered before the model is called (fetch, DNS, keyword search). */
+export interface PreparedLead {
+  leadId: string;
+  source: "web" | "pasted";
+  url: string;
+  domain: string;
+  pages: FetchedPage[];
+  links: LinkReport[];
+  sitemap: SitemapResult | null;
+  capInputs: CapInputPage[];
+  scanPages: { url: string; text: string; hiddenText: string }[];
+  datedPages: { url: string; kind: FetchedPage["kind"]; dates: PageDate[] }[];
+  dns: DnsFindings;
+  securitySearch: SecurityMentionSearch;
+  failures: string[];
 }
 
 const EMPTY_DNS: DnsFindings = {
   mx_provider: NOT_FOUND,
+  no_domain_email: NOT_FOUND,
   spf_present: NOT_FOUND,
   dmarc_present: NOT_FOUND,
   dmarc_policy: NOT_FOUND,
   dkim: "NOT_CHECKED",
 };
 
-function allNotFound(): ExtractedFacts {
-  return Object.fromEntries(FACT_FIELDS.map((f) => [f, NOT_FOUND])) as ExtractedFacts;
+function emptyFacts(): ExtractedFacts {
+  return Object.fromEntries(FACT_FIELDS.map((f) => [f, f === "people" || f === "exclusion_signals" ? [] : NOT_FOUND])) as unknown as ExtractedFacts;
 }
 
 function saveLead(db: Db, id: string, values: Partial<typeof leads.$inferInsert>): void {
@@ -76,31 +101,106 @@ function startLead(db: Db, id: string, source: "web" | "pasted", inputUrl: strin
     .run();
 }
 
-interface CoreInput {
-  leadId: string;
-  source: "web" | "pasted";
-  url: string;
-  domain: string;
-  pagesOpened: string[];
-  capInputs: CapInputPage[];
-  scanPages: { url: string; text: string; hiddenText: string }[];
-  dns: DnsFindings;
-  securitySearch: SecurityMentionSearch;
-  failures: string[];
+/**
+ * Model facts -> dossier: keeps only secondary types the services show, picks the decision maker by
+ * title preference, computes US location, target industry fit, freshness, and the gate. All code.
+ */
+export function assembleDossier(p: PreparedLead, facts: ExtractedFacts, extra: { failures: string[]; findings: InjectionFinding[] }, deps: Pick<ResearchDeps, "scoring" | "evidence" | "now">): Dossier {
+  const failures = [...extra.failures];
+  const secondary = supportedSecondaryTypes(facts.firm_type, facts.services, deps.evidence.firm_type_keywords);
+  failures.push(...secondary.notes);
+  const firmType = secondary.firmType;
+  const fit = targetIndustryFit(firmType, facts.services, deps.scoring, deps.evidence.firm_type_keywords);
+  const gate = computeGate({ sizeSignal: facts.size_signal, targetIndustryFit: fit, exclusionSignals: facts.exclusion_signals, scoring: deps.scoring });
+  return DossierSchema.parse({
+    lead_id: p.leadId,
+    source: p.source,
+    url: p.url,
+    domain: p.domain,
+    pages_opened: p.pages.map((pg) => pg.url),
+    failures: [...new Set(failures)],
+    prompt_injection_flag: extra.findings.length > 0,
+    injection_findings: extra.findings,
+    ...facts,
+    firm_type: firmType,
+    decision_maker: chooseDecisionMaker(facts.people, deps.evidence.decision_maker_title_preferences),
+    latest_dated_content: p.source === "web" ? computeFreshness(p.datedPages, p.sitemap, deps.now()) : NOT_FOUND,
+    us_location: usLocation(facts.location),
+    target_industry_fit: fit,
+    gate,
+    dns: p.dns,
+    security_mention_search: p.securitySearch,
+  });
 }
 
-async function extractAndAssemble(input: CoreInput, deps: ResearchDeps): Promise<Omit<ResearchReport, "pages">> {
-  const failures = [...input.failures];
-  const findings: InjectionFinding[] = scanForInjection(input.scanPages, deps.injectionPatterns);
+/** Phase 1 for a website lead: fetch (cache-aware), DNS, and the full-text keyword search. No model calls. */
+export async function prepareWebLead(leadId: string, inputUrl: string, deps: ResearchDeps): Promise<PreparedLead> {
+  startLead(deps.db, leadId, "web", inputUrl);
+  const cache = createPageCache(deps.db, deps.pageCacheDays, deps.now);
+  const robotsStore = createRobotsStore(deps.db, deps.pageCacheDays, deps.now);
+  const site = await fetchSite(inputUrl, {
+    ...deps.fetch,
+    // With refresh, nothing is read from the caches, but fresh answers are still written for next time.
+    pageCache: deps.refresh ? { get: () => null, put: cache.put } : cache,
+    robotsStore: deps.refresh ? { get: () => null, put: robotsStore.put } : robotsStore,
+  });
+
+  const failures = [...site.failures];
+  let dns = EMPTY_DNS;
+  if (site.domain) {
+    const r = await lookupDns(mailDomainFor(site.domain), deps.dns, deps.mxProviders);
+    dns = r.dns;
+    failures.push(...r.failures);
+  }
+
+  // Runs on the full cleaned text of every page opened, never on the token-capped copy.
+  const securitySearch: SecurityMentionSearch =
+    site.pages.length > 0
+      ? searchSecurityMentions(
+          site.pages.map((p) => ({
+            url: p.url,
+            kind: p.kind,
+            httpStatus: p.httpStatus,
+            contentType: p.contentType,
+            truncated: p.truncated,
+            text: p.text,
+            sha256: p.textSha256,
+          })),
+          deps.scoring.wisp_keywords,
+        )
+      : "NOT_CHECKED";
+
+  return {
+    leadId,
+    source: "web",
+    url: site.homeUrl ?? inputUrl,
+    domain: site.domain ?? "",
+    pages: site.pages,
+    links: site.links,
+    sitemap: site.sitemap,
+    capInputs: site.pages.map((p) => ({ url: p.url, kind: p.kind, title: p.title, text: p.text, nearEmpty: p.nearEmpty })),
+    scanPages: site.pages.map((p) => ({ url: p.url, text: p.text, hiddenText: p.hiddenText })),
+    datedPages: site.pages.map((p) => ({ url: p.url, kind: p.kind, dates: p.dates })),
+    dns,
+    securitySearch,
+    failures,
+  };
+}
+
+/** Phase 2: token caps, extraction (with its one targeted retry), dossier, gate, score. */
+export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise<ResearchReport> {
+  const failures = [...p.failures];
+  const findings: InjectionFinding[] = scanForInjection(p.scanPages, deps.injectionPatterns);
   let status: LeadStatus = "extracted";
   let error: string | null = null;
-  let facts = allNotFound();
+  let facts = emptyFacts();
   let extraction: ExtractionResult | null = null;
   let sent: SentPage[] = [];
 
+  const budgetSinceRunId = lastRunId(deps.db);
   try {
     const count = createTokenCounter(deps.db, deps.llm, deps.modelExtract);
-    const capped = await applyTokenCaps(input.capInputs, deps.caps, count);
+    const capped = await applyTokenCaps(p.capInputs, deps.caps, count);
     sent = capped.sent;
     failures.push(...capped.failures);
     if (sent.length > 0) {
@@ -109,7 +209,9 @@ async function extractAndAssemble(input: CoreInput, deps: ResearchDeps): Promise
         db: deps.db,
         model: deps.modelExtract,
         systemPrompt: deps.systemPrompt,
-        leadId: input.leadId,
+        evidence: deps.evidence,
+        leadId: p.leadId,
+        budgetSinceRunId,
         refresh: deps.refresh,
       });
       facts = extraction.facts;
@@ -130,85 +232,26 @@ async function extractAndAssemble(input: CoreInput, deps: ResearchDeps): Promise
   }
 
   if (extraction?.modelFlaggedInjection) {
-    findings.push({ url: input.url || "pasted", where: "model", snippet: "the extraction model reported suspected prompt injection" });
+    findings.push({ url: p.url || "pasted", where: "model", snippet: "the extraction model reported suspected prompt injection" });
   }
 
-  const dossier = DossierSchema.parse({
-    lead_id: input.leadId,
-    source: input.source,
-    url: input.url,
-    domain: input.domain,
-    pages_opened: input.pagesOpened,
-    failures: [...new Set(failures)],
-    prompt_injection_flag: findings.length > 0,
-    injection_findings: findings,
-    ...facts,
-    dns: input.dns,
-    security_mention_search: input.securitySearch,
-  });
+  const dossier = assembleDossier(p, facts, { failures, findings }, deps);
   const score = scoreDossier(dossier, deps.scoring, deps.now());
-  saveLead(deps.db, input.leadId, {
+  saveLead(deps.db, p.leadId, {
     status,
     error,
     dossierJson: JSON.stringify(dossier),
     score: score.total,
     tier: score.tier,
+    gateStatus: dossier.gate.status,
+    gateReasonsJson: JSON.stringify(dossier.gate.reasons),
   });
-  return { leadId: input.leadId, status, error, dossier, score, sent, extraction };
+  return { leadId: p.leadId, status, error, dossier, score, sent, extraction, pages: p.pages, links: p.links, sitemap: p.sitemap };
 }
 
-/** Research a lead from its website: fetch, DNS, keyword search, injection scan, extraction, score. */
+/** Research a lead from its website: fetch, DNS, keyword search, injection scan, extraction, gate, score. */
 export async function researchWebLead(leadId: string, inputUrl: string, deps: ResearchDeps): Promise<ResearchReport> {
-  startLead(deps.db, leadId, "web", inputUrl);
-  const cache = createPageCache(deps.db, deps.pageCacheDays, deps.now);
-  const robotsStore = createRobotsStore(deps.db, deps.pageCacheDays, deps.now);
-  const site = await fetchSite(inputUrl, {
-    ...deps.fetch,
-    // With refresh, nothing is read from the caches, but fresh answers are still written for next time.
-    pageCache: deps.refresh ? { get: () => null, put: cache.put } : cache,
-    robotsStore: deps.refresh ? { get: () => null, put: robotsStore.put } : robotsStore,
-  });
-
-  const failures = [...site.failures];
-  let dns = EMPTY_DNS;
-  if (site.domain) {
-    const r = await lookupDns(mailDomainFor(site.domain), deps.dns, deps.mxProviders);
-    dns = r.dns;
-    failures.push(...r.failures);
-  }
-
-  const securitySearch: SecurityMentionSearch =
-    site.pages.length > 0
-      ? searchSecurityMentions(
-          site.pages.map((p) => ({
-            url: p.url,
-            kind: p.kind,
-            httpStatus: p.httpStatus,
-            contentType: p.contentType,
-            truncated: p.truncated,
-            text: p.text,
-            sha256: p.textSha256,
-          })),
-          deps.scoring.wisp_keywords,
-        )
-      : "NOT_CHECKED";
-
-  const core = await extractAndAssemble(
-    {
-      leadId,
-      source: "web",
-      url: site.homeUrl ?? inputUrl,
-      domain: site.domain ?? "",
-      pagesOpened: site.pages.map((p) => p.url),
-      capInputs: site.pages.map((p) => ({ url: p.url, kind: p.kind, text: p.text, nearEmpty: p.nearEmpty })),
-      scanPages: site.pages.map((p) => ({ url: p.url, text: p.text, hiddenText: p.hiddenText })),
-      dns,
-      securitySearch,
-      failures,
-    },
-    deps,
-  );
-  return { ...core, pages: site.pages };
+  return completeLead(await prepareWebLead(leadId, inputUrl, deps), deps);
 }
 
 /**
@@ -218,20 +261,22 @@ export async function researchWebLead(leadId: string, inputUrl: string, deps: Re
 export async function researchPastedLead(leadId: string, pastedText: string, deps: ResearchDeps): Promise<ResearchReport> {
   startLead(deps.db, leadId, "pasted", null);
   const text = pastedText.replace(/\r\n/g, "\n").trim();
-  const core = await extractAndAssemble(
+  return completeLead(
     {
       leadId,
       source: "pasted",
       url: "",
       domain: "",
-      pagesOpened: [],
-      capInputs: [{ url: "pasted", kind: "pasted", text, nearEmpty: text.length === 0 }],
+      pages: [],
+      links: [],
+      sitemap: null,
+      capInputs: [{ url: "pasted", kind: "pasted", title: "", text, nearEmpty: text.length === 0 }],
       scanPages: [{ url: "pasted", text, hiddenText: "" }],
+      datedPages: [],
       dns: EMPTY_DNS,
       securitySearch: "NOT_CHECKED",
       failures: ["source is pasted text only; no pages fetched and no DNS lookup"],
     },
     deps,
   );
-  return { ...core, pages: [] };
 }

@@ -217,6 +217,24 @@ ${sentence}` }))).toContain("dollar_amount");
     );
   });
 
+  it("greets the decision maker by name only when the public address is theirs", () => {
+    // strongDossier: decision maker Jane Smith, address jane@smithtax.example -> "Hi Jane," is right.
+    expect(codes(sequence())).not.toContain("greeting_contact_mismatch");
+    const mismatch = strongDossier({
+      public_contact_email: { value: { address: "john.phillips@smithtax.example", owner_name: null }, evidence_url: "https://smithtax.example/", evidence_quote: "john.phillips@smithtax.example" },
+    });
+    const c = { ...ctx, dossier: mismatch };
+    const errs = validateSequence(sequence(), c).issues.filter((i) => i.code === "greeting_contact_mismatch");
+    expect(errs).toHaveLength(5);
+    expect(errs[0]!.message).toMatch(/john\.phillips@smithtax\.example is not tied to Jane Smith; use "Hi,"/);
+    const neutral = sequence({}, [1, 2, 3, 4, 5].map((n) => email(n, { body: email(n).body.replace("Hi Jane,", "Hi,") })));
+    expect(codes(neutral, c)).not.toContain("greeting_contact_mismatch");
+    // Wrong name entirely.
+    expect(codes(withEmail(2, { body: "Hi Bob,\nThe Safeguards Rule expects a Qualified Individual. Is that written down?" }))).toContain(
+      "greeting_contact_mismatch",
+    );
+  });
+
   it("blocks any DKIM claim", () => {
     expect(codes(withEmail(2, { body: "Hi Jane,\nYour DKIM looks fine." }))).toContain("dkim_claim");
   });
@@ -272,7 +290,7 @@ describe("docs/09 templates pass the same validators", () => {
       emails,
     };
     const dossier = strongDossier({
-      firm_type: { value: firmType, evidence_url: "https://smithtax.example/", evidence_quote: "x" },
+      firm_type: { value: { primary: firmType, secondary: [] }, evidence_url: "https://smithtax.example/", evidence_quote: "x" },
     });
     const r = validateSequence(seq, { style, offer, dossier });
     expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);

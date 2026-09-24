@@ -17,6 +17,7 @@ export const OfferConfigSchema = z
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
 
 const wordLimit = z.number().int().positive();
+const keywordList = z.array(z.string().trim().min(1)).min(1);
 const angles = z.array(z.string().regex(/^[a-z0-9_]+$/)).min(1);
 
 /** docs/03 `clearpath:style` block. */
@@ -49,6 +50,7 @@ export const StyleConfigSchema = z
         payroll: angles,
         credit_counseling: angles,
         collections: angles,
+        credit_repair: angles,
         other: angles,
       } satisfies Record<(typeof FIRM_TYPES)[number], typeof angles>)
       .strict(),
@@ -62,7 +64,8 @@ export type StyleConfig = z.infer<typeof StyleConfigSchema>;
 export const SCORING_KEYS = [
   "firm_type_in_target",
   "size_in_range",
-  "us_in_scope",
+  "us_location",
+  "target_industry_fit",
   "decision_maker_named",
   "no_wisp_mention",
   "dmarc_missing_or_none",
@@ -99,6 +102,12 @@ export const ScoringConfigSchema = z
     wisp_keywords: z.array(z.string().trim().min(1)).min(1),
     /** A searched page with less cleaned text than this is treated as near-empty and does not count. */
     wisp_search_min_text_chars: z.number().int().positive(),
+    /** Without a privacy or security page, the search needs at least this many complete pages. */
+    wisp_min_pages: z.number().int().positive(),
+    /** Fit points below this cap the tier at C. */
+    fit_threshold: z.number().int().nonnegative(),
+    /** Staff counts above this make the lead out_of_icp (no sequence without approval). */
+    max_staff_for_sequence: z.number().int().positive(),
   })
   .strict()
   .superRefine((c, ctx) => {
@@ -113,6 +122,31 @@ export const ScoringConfigSchema = z
     if (c.staff_range.min > c.staff_range.max) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["staff_range"], message: "staff_range.min must be <= max" });
   });
 export type ScoringConfig = z.infer<typeof ScoringConfigSchema>;
+
+/**
+ * docs/06 `clearpath:evidence` block: editable lists the code uses to check and interpret facts.
+ */
+export const EvidenceConfigSchema = z
+  .object({
+    /** A firm_type quote must contain one of its type's keywords. Also used to find secondary types in services. */
+    firm_type_keywords: z
+      .object({
+        cpa: keywordList,
+        tax_preparer: keywordList,
+        bookkeeper: keywordList,
+        payroll: keywordList,
+        credit_counseling: keywordList,
+        collections: keywordList,
+        credit_repair: keywordList,
+      } satisfies Record<Exclude<(typeof FIRM_TYPES)[number], "other">, typeof keywordList>)
+      .strict(),
+    /** An evidence quote containing any of these is rejected and re-selected (family and personal details). */
+    personal_terms: keywordList,
+    /** Decision maker = the named person whose title matches the earliest entry. */
+    decision_maker_title_preferences: keywordList,
+  })
+  .strict();
+export type EvidenceConfig = z.infer<typeof EvidenceConfigSchema>;
 
 /** A docs/02 line carrying the exact VERIFIED marker. Only these may reach the writer. */
 export interface RegulatoryFact {

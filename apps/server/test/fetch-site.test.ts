@@ -61,9 +61,9 @@ describe("fetchSite on saved fixtures (no live network)", () => {
     const web = sampleWeb();
     const { deps: d, lim } = deps(web);
     await fetchSite("smithtax.example", d);
-    // robots.txt + 5 pages = 6 requests to one host -> 5 waits of 1s on the fake clock.
-    expect(web.requests).toHaveLength(6);
-    expect(lim.sleeps).toEqual([1000, 1000, 1000, 1000, 1000]);
+    // robots.txt + 5 pages + sitemap.xml = 7 requests to one host -> 6 waits of 1s on the fake clock.
+    expect(web.requests).toHaveLength(7);
+    expect(lim.sleeps).toEqual([1000, 1000, 1000, 1000, 1000, 1000]);
   });
 
   it("records every page with status 200, text/html, hashes, and fetch time", async () => {

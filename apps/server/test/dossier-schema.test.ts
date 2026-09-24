@@ -68,16 +68,18 @@ describe("dossier schema: evidence enforcement", () => {
   it("rejects firm types outside the docs/04 list and malformed dates", () => {
     expect(issues(strongDossier({ firm_type: ev("insurance" as never, "insurance") })).length).toBeGreaterThan(0);
     const bad = ev({ text: "news", date: "Feb 2026" }, "news");
-    expect(issues(strongDossier({ latest_dated_content: bad })).join()).toMatch(/YYYY-MM/);
+    expect(issues(strongDossier({ recent_signal: bad })).join()).toMatch(/YYYY-MM/);
   });
 
   it("rejects unknown fields (no smuggled extra claims)", () => {
     expect(issues({ ...strongDossier(), awards: ev("Best CPA", "Best CPA") }).length).toBeGreaterThan(0);
   });
 
-  it("includes the two fields added in Milestone 1", () => {
-    expect(FACT_FIELDS).toContain("phone_or_contact_form");
-    expect(FACT_FIELDS).toContain("latest_dated_content");
+  it("the model fills phone_or_contact_form, people, and exclusion_signals; code fills freshness, fit, and the gate", () => {
+    expect(FACT_FIELDS).toEqual(expect.arrayContaining(["phone_or_contact_form", "people", "exclusion_signals"]));
+    for (const codeField of ["latest_dated_content", "in_scope", "decision_maker", "us_location", "target_industry_fit", "gate"]) {
+      expect(FACT_FIELDS).not.toContain(codeField);
+    }
   });
 });
 
@@ -115,9 +117,15 @@ describe("extraction tool schema (generated from zod)", () => {
       injection_findings,
       dns,
       security_mention_search,
+      decision_maker,
+      latest_dated_content,
+      us_location,
+      target_industry_fit,
+      gate,
       ...facts
     } = strongDossier();
     void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, injection_findings, dns, security_mention_search];
+    void [decision_maker, latest_dated_content, us_location, target_industry_fit, gate];
     expect(ExtractedFactsSchema.safeParse(facts).success).toBe(true);
   });
 
@@ -125,6 +133,7 @@ describe("extraction tool schema (generated from zod)", () => {
     const props = Object.keys(extractionInputSchema().properties as object);
     expect(props).not.toContain("dns");
     expect(props).not.toContain("security_mention_search");
+    for (const f of ["decision_maker", "latest_dated_content", "in_scope", "us_location", "target_industry_fit", "gate"]) expect(props).not.toContain(f);
   });
 
   it("rejects a security search whose pages were not opened", () => {

@@ -2,10 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   OfferConfigSchema,
+  EvidenceConfigSchema,
   ScoringConfigSchema,
   StyleConfigSchema,
   type OfferConfig,
   type RegulatoryFact,
+  type EvidenceConfig,
   type ScoringConfig,
   type StyleConfig,
 } from "@clearpath/shared";
@@ -65,6 +67,10 @@ export function parseStyle(markdown: string): StyleConfig {
   return parseWith(StyleConfigSchema, readBlock(markdown, "style", DOC_FILES.style), `${DOC_FILES.style} clearpath:style`);
 }
 
+export function parseEvidence(markdown: string): EvidenceConfig {
+  return parseWith(EvidenceConfigSchema, readBlock(markdown, "evidence", DOC_FILES.scoring), `${DOC_FILES.scoring} clearpath:evidence`);
+}
+
 export function parseScoring(markdown: string): ScoringConfig {
   return parseWith(ScoringConfigSchema, readBlock(markdown, "scoring", DOC_FILES.scoring), `${DOC_FILES.scoring} clearpath:scoring`);
 }
@@ -98,6 +104,7 @@ export function writerFacts(facts: RegulatoryFact[]): RegulatoryFact[] {
 export const loadOffer = (docsDir = DOCS_DIR) => parseOffer(readDoc(docsDir, DOC_FILES.offer));
 export const loadStyle = (docsDir = DOCS_DIR) => parseStyle(readDoc(docsDir, DOC_FILES.style));
 export const loadScoring = (docsDir = DOCS_DIR) => parseScoring(readDoc(docsDir, DOC_FILES.scoring));
+export const loadEvidence = (docsDir = DOCS_DIR) => parseEvidence(readDoc(docsDir, DOC_FILES.scoring));
 export const loadVerifiedFacts = (docsDir = DOCS_DIR) => parseVerifiedFacts(readDoc(docsDir, DOC_FILES.regulatory));
 export const loadWriterFacts = (docsDir = DOCS_DIR) => writerFacts(loadVerifiedFacts(docsDir));
 
@@ -105,6 +112,7 @@ const BLOCKS = {
   offer: { file: DOC_FILES.offer, parse: parseOffer, schema: OfferConfigSchema },
   style: { file: DOC_FILES.style, parse: parseStyle, schema: StyleConfigSchema },
   scoring: { file: DOC_FILES.scoring, parse: parseScoring, schema: ScoringConfigSchema },
+  evidence: { file: DOC_FILES.scoring, parse: parseEvidence, schema: EvidenceConfigSchema },
 } as const;
 export type BlockName = keyof typeof BLOCKS;
 

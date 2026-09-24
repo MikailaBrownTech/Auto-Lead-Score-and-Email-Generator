@@ -1,6 +1,6 @@
 # Dossier schema
 
-Every field is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 words"} or the string "NOT_FOUND".
+A fact is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 words"} or the string "NOT_FOUND". List facts (services, software_mentioned) use {"value": [...], "evidence": [up to 3 × {"evidence_url", "evidence_quote"}]}: separate quotes, never text stitched together.
 
 ```json
 {
@@ -15,21 +15,26 @@ Every field is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 w
   "firm_name": {},
   "firm_type": {},
   "location": {},
-  "in_scope": {},
   "size_signal": {},
   "services": {},
   "software_mentioned": {},
   "client_portal_or_doc_exchange": {},
-  "decision_maker": {},
+  "people": [],
   "public_contact_email": {},
   "personal_email_domain_on_site": {},
   "privacy_policy_present": {},
   "security_or_wisp_mention": {},
   "recent_signal": {},
   "phone_or_contact_form": {},
+  "exclusion_signals": [],
+  "decision_maker": {},
   "latest_dated_content": {},
+  "us_location": {},
+  "target_industry_fit": {},
+  "gate": {},
   "dns": {
     "mx_provider": {},
+    "no_domain_email": {},
     "spf_present": {},
     "dmarc_present": {},
     "dmarc_policy": {},
@@ -39,37 +44,38 @@ Every field is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 w
 }
 ```
 
-Value shapes (what goes in "value"):
-- firm_name: text.
-- firm_type: one of cpa, tax_preparer, bookkeeper, payroll, credit_counseling, collections, other.
-- location: {"city", "state", "country"}; any part may be null.
-- in_scope: true/false.
-- size_signal: {"staff_count": number or null, "text": what the page says}.
-- services, software_mentioned: lists of text.
+Filled by the model from page text (every value must be supported by its own quote):
+- firm_name: text. The name must appear in the quote (or in the page title).
+- firm_type: {"primary", "secondary": []}; types are cpa, tax_preparer, bookkeeper, payroll, credit_counseling, collections, credit_repair, other. The quote must contain a keyword for the primary type (docs/06 evidence block). Secondary types are kept only when the verified services list shows them. Credit repair is its own type, never credit_counseling.
+- location: {"city", "state", "country"}; any part may be null. The city must appear in the quote.
+- size_signal: {"staff_count": number or null, "text"}; the number must appear in the quote.
+- services, software_mentioned: lists, each with 1-3 quotes. Every list item must appear in one of the quotes; unsupported items are dropped.
 - client_portal_or_doc_exchange: {"doc_exchange": true/false, "secure_portal": true/false}.
-- decision_maker: {"name", "title"}; title may be null.
-- public_contact_email, personal_email_domain_on_site: an email address shown on the site.
-- privacy_policy_present: true/false.
-- security_or_wisp_mention: text.
+- people: up to 5 × {"name", "title" (or null), "evidence_url", "evidence_quote"}; name and title must appear in the quote. Empty list if none.
+- public_contact_email: {"address", "owner_name"}; the address must appear in the quote. owner_name is the person the same quote ties the address to, or null.
+- personal_email_domain_on_site: an address at a consumer provider, used as a firm address; it must appear in the quote.
+- privacy_policy_present: true/false. security_or_wisp_mention: text.
 - recent_signal: {"text", "date"}; date as YYYY-MM or YYYY-MM-DD.
-- phone_or_contact_form: {"phone": text or null, "contact_form": true/false}.
-- latest_dated_content: {"text", "date"}; the most recent dated item on the site (post, news, copyright year does not count), date as YYYY-MM or YYYY-MM-DD.
-- dns.mx_provider: text; dns.spf_present, dns.dmarc_present: true/false; dns.dmarc_policy: none, quarantine, or reject.
+- phone_or_contact_form: {"phone": text or null, "contact_form": true/false}; the phone digits must appear in the quote.
+- exclusion_signals: list of {"signal", "evidence_url", "evidence_quote"}; signal is government_or_nonprofit_only, non_us, individual_practitioner, not_a_firm, closed_or_acquired, or other. Empty list if none.
 
-Evidence:
+Filled by code (never by the model):
+- decision_maker: chosen from people by the docs/06 title preference list.
+- latest_dated_content: {"date", "source"} from machine-readable dates only (<time datetime>, article:published_time, JSON-LD datePublished/dateModified, sitemap lastmod). Copyright years, "founded" dates, and policy-page dates never count. evidence_url is the page or sitemap the date came from.
+- us_location: {"value": true/false/null, "reason"} from the verified location.
+- target_industry_fit: {"value": true/false/null, "reason", "qualifying_type"} from firm type and services with the docs/06 keyword lists.
+- gate: {"status": qualified, out_of_icp, or needs_review, "reasons": []}. No sequence is written for out_of_icp or needs_review until the founder approves.
+- dns: filled from DNS lookups. no_domain_email is true when the domain definitively has no MX records. Evidence_url is "dns:<TYPE> <name>" and the quote is the record text or a note that no record exists. Lookup failures are NOT_FOUND and listed in failures.
+- security_mention_search: "NOT_CHECKED", or {keywords, pages: [{url, kind, http_status, content_type, truncated, text_chars, sha256}], matches: [{url, keyword}]}. It searches the full cleaned text of every page opened.
+- injection_findings: {url, where: "visible" | "hidden" | "model", snippet}. "hidden" covers display:none text, aria-hidden text, and HTML comments; hidden text is never sent to the model and never used as evidence. prompt_injection_flag is true when the list is not empty.
+
+Evidence rules:
 - evidence_url is a page listed in pages_opened, or "pasted" when source is "pasted".
-- evidence_quote is copied exactly from that page's text, 15 words or fewer.
-- DNS fields are filled by code, never by the LLM. Their evidence_url is "dns:<TYPE> <name>" (for example "dns:TXT _dmarc.example.com") and the quote is the record text, or a note that no record exists.
+- evidence_quote is copied exactly from that page's text, 15 words or fewer, one contiguous span.
+- A quote containing family or personal details (docs/06 personal_terms) is rejected and a professional quote is requested instead.
+- Quotes are for verification only and are never passed to the writer; the writer sees values only.
 
 Notes:
 - source is "web" (fetched pages) or "pasted" (a LinkedIn bio or About-page copy pasted by the user; it is then the only source of facts).
-- in_scope means a US business in a target industry.
-- size_signal only if stated or countable on a team page.
-- personal_email_domain_on_site means gmail, yahoo, aol, etc. used as a firm address.
-- recent_signal only if dated (new hire, new service, news).
-- phone_or_contact_form: a phone number shown on the site, or a contact form.
-- latest_dated_content: used to judge whether the site is maintained.
-- dns.dkim is always NOT_CHECKED. Never claim DKIM status.
-- security_mention_search is filled by code, not the LLM: "NOT_CHECKED", or {keywords, pages: [{url, kind, http_status, content_type, truncated, text_chars, sha256}], matches: [{url, keyword}]}. It is the evidence for the docs/06 "no WISP/security mention" score. Every searched URL must be in pages_opened.
 - pages_opened lists only pages actually fetched with HTTP 200 and an HTML content type.
-- prompt_injection_flag is true when injection_findings is not empty. injection_findings (filled by code) lists each suspected injection: {url, where: "visible" | "hidden" | "model", snippet}. "hidden" covers display:none text, aria-hidden text, and HTML comments; hidden text is never sent to the model and never used as evidence.
+- dns.dkim is always NOT_CHECKED. Never claim DKIM status.

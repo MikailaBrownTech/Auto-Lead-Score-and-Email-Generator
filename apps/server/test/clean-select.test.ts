@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { cleanHtml } from "../src/fetch/clean";
-import { classifyPage, loadSkipPatterns, selectSubpages } from "../src/fetch/select";
+import { classifyPage, loadSkipPatterns, selectSubpages, selectSubpagesDetailed } from "../src/fetch/select";
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "html");
 const read = (f: string) => fs.readFileSync(path.join(dir, f), "utf8");
@@ -93,11 +93,42 @@ describe("subpage selection", () => {
     expect(classifyPage(new URL("https://x.example/faq"))).toBe("other");
   });
 
-  it("never treats a blog or news article as the about, services, or security page", () => {
-    expect(classifyPage(new URL("https://x.example/blog/ftc-safeguards-rule-checklist"), "Safeguards checklist")).toBe("other");
-    expect(classifyPage(new URL("https://x.example/news/our-new-team-member"), "Meet our team")).toBe("other");
+  it("never treats a blog or news article as the about, services, or security page; it is the one news page", () => {
+    expect(classifyPage(new URL("https://x.example/blog/ftc-safeguards-rule-checklist"), "Safeguards checklist")).toBe("news");
+    expect(classifyPage(new URL("https://x.example/news/our-new-team-member"), "Meet our team")).toBe("news");
+    expect(classifyPage(new URL("https://x.example/blog/"), "Blog")).toBe("other");
     const skip = loadSkipPatterns();
-    const picked = selectSubpages("https://x.example/", [{ href: "https://x.example/blog/security-tips", text: "Security tips" }], skip);
-    expect(picked).toEqual([]);
+    const picked = selectSubpages(
+      "https://x.example/",
+      [
+        { href: "https://x.example/blog/security-tips", text: "Security tips" },
+        { href: "https://x.example/blog/tag/security/", text: "Security" },
+        { href: "https://x.example/blog/page/2", text: "Older posts" },
+        { href: "https://x.example/news/another-post", text: "Another" },
+      ],
+      skip,
+    );
+    expect(picked).toEqual([{ url: "https://x.example/blog/security-tips", kind: "news" }]);
+  });
+
+  it("reports every internal link with the decision made about it", () => {
+    const skip = loadSkipPatterns();
+    const r = selectSubpagesDetailed(
+      "https://x.example/",
+      [
+        { href: "/about", text: "About" },
+        { href: "/about-us", text: "About us" },
+        { href: "/careers", text: "Careers" },
+        { href: "/faq", text: "FAQ" },
+        { href: "https://other.example/", text: "Partner" },
+      ],
+      skip,
+    );
+    expect(r.discovered.map((d) => [d.url, d.decision])).toEqual([
+      ["https://x.example/about", "selected"],
+      ["https://x.example/about-us", "not selected (kind already chosen)"],
+      ["https://x.example/careers", "skipped by pattern"],
+      ["https://x.example/faq", "not a candidate kind"],
+    ]);
   });
 });

@@ -202,6 +202,9 @@ The app reads and writes only the block below (Settings screen). Validators enfo
       "audit_trails",
       "documented_access"
     ],
+    "credit_repair": [
+      "written_security_plan"
+    ],
     "other": [
       "written_security_plan"
     ]

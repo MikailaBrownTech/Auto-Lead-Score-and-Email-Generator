@@ -44,6 +44,11 @@ export const leads = sqliteTable("leads", {
   dossierJson: text("dossier_json"),
   score: integer("score"),
   tier: text("tier", { enum: ["A", "B", "C"] }),
+  /** qualified | out_of_icp | needs_review. No sequence is written for a gated lead until approved. */
+  gateStatus: text("gate_status", { enum: ["qualified", "out_of_icp", "needs_review"] }),
+  gateReasonsJson: text("gate_reasons_json"),
+  /** Set when the founder approves a gated lead (UI in Milestone 5). */
+  gateApproved: integer("gate_approved", { mode: "boolean" }).notNull().default(false),
   error: text("error"),
   createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -61,6 +66,7 @@ export const pages = sqliteTable(
     text: text("text").notNull(),
     hiddenText: text("hidden_text").notNull(),
     linksJson: text("links_json").notNull(),
+    datesJson: text("dates_json").notNull().default("[]"),
     textSha256: text("text_sha256").notNull(),
     rawSha256: text("raw_sha256").notNull(),
     bytes: integer("bytes").notNull(),

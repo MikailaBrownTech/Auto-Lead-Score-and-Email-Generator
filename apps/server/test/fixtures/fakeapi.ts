@@ -66,24 +66,35 @@ const ev = (value: unknown, url: string, quote: string) => ({ value, evidence_ur
 export function smithAnswer(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     firm_name: ev("Smith Tax Services", HOME, "Smith Tax Services"),
-    firm_type: ev("tax_preparer", HOME, "Tax preparation for individuals and small businesses in Columbus, Ohio since 2004."),
+    firm_type: ev({ primary: "tax_preparer", secondary: ["payroll"] }, HOME, "Tax preparation for individuals and small businesses in Columbus, Ohio since 2004."),
     location: ev({ city: "Columbus", state: "OH", country: "US" }, HOME, "small businesses in Columbus, Ohio since 2004"),
-    in_scope: ev(true, HOME, "Tax preparation for individuals and small businesses in Columbus, Ohio"),
     size_signal: ev({ staff_count: 6, text: "team of six" }, ABOUT, "Today our team of six includes three enrolled agents"),
-    services: ev(["Individual tax returns", "Payroll services"], SERVICES, "Individual tax returns, including multi-state returns"),
-    software_mentioned: ev(["Drake Tax"], SERVICES, "We file with Drake Tax and send your copies by email."),
+    services: {
+      value: ["Individual tax returns", "Payroll services"],
+      evidence: [
+        { evidence_url: SERVICES, evidence_quote: "Individual tax returns, including multi-state returns" },
+        { evidence_url: SERVICES, evidence_quote: "Payroll services and quarterly filings" },
+      ],
+    },
+    software_mentioned: { value: ["Drake Tax"], evidence: [{ evidence_url: SERVICES, evidence_quote: "We file with Drake Tax and send your copies by email." }] },
     client_portal_or_doc_exchange: ev({ doc_exchange: true, secure_portal: false }, HOME, "Email us your documents or drop them off at the office."),
-    decision_maker: ev({ name: "Jane Smith", title: "Owner" }, ABOUT, "She is the owner and still prepares returns every season."),
-    public_contact_email: ev("office@smithtax.example", HOME, "or email office@smithtax.example"),
+    people: [{ name: "Jane Smith", title: null, evidence_url: ABOUT, evidence_quote: "Jane Smith, EA, founded the firm in 2004" }],
+    public_contact_email: ev({ address: "office@smithtax.example", owner_name: null }, HOME, "or email office@smithtax.example"),
     personal_email_domain_on_site: ev("smithtaxes@gmail.com", HOME, "After hours: smithtaxes@gmail.com"),
     privacy_policy_present: ev(true, PRIVACY, "Privacy Policy"),
     security_or_wisp_mention: "NOT_FOUND",
     recent_signal: "NOT_FOUND",
     phone_or_contact_form: ev({ phone: "(614) 555-0100", contact_form: false }, HOME, "Call (614) 555-0100"),
-    latest_dated_content: ev({ text: "2026 tax deadlines", date: "2026-02-10" }, SERVICES, "Posted February 10, 2026."),
+    exclusion_signals: [],
     suspected_prompt_injection: false,
     ...overrides,
   };
+}
+
+/** A retry answer: NOT_FOUND everywhere except the given fields. */
+export function onlyFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const blank = Object.fromEntries(Object.keys(smithAnswer()).map((k) => [k, k === "people" || k === "exclusion_signals" ? [] : "NOT_FOUND"]));
+  return { ...blank, suspected_prompt_injection: false, ...fields };
 }
 
 export const SMITH = { HOME, ABOUT, SERVICES, PRIVACY };

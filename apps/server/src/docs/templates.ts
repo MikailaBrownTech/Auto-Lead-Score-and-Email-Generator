@@ -17,7 +17,7 @@ export type TemplateVars = Record<(typeof TEMPLATE_VARIABLES)[number], string>;
 
 export const REQUIRED_TEMPLATES = [
   "email1",
-  ...FIRM_TYPES.map((t) => `email2.${t}`),
+  ...FIRM_TYPES.filter((t) => t !== "credit_repair").map((t) => `email2.${t}`),
   "email3.checklist",
   "email3.scorecard",
   "email4",

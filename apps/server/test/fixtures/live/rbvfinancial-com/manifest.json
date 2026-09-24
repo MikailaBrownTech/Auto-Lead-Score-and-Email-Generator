@@ -1,0 +1,243 @@
+{
+  "capturedAt": "2026-09-24T03:54:14.638Z",
+  "input": "rbvfinancial.com",
+  "routes": {
+    "https://rbvfinancial.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "file": "body-0.txt"
+    },
+    "https://rbvfinancial.com/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "file": "body-1.html"
+    },
+    "https://rbvfinancial.com/about.html": {
+      "status": 301,
+      "headers": {
+        "location": "https://rbvfinancial.com/about"
+      }
+    },
+    "https://rbvfinancial.com/about": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "file": "body-3.html"
+    },
+    "https://rbvfinancial.com/services.html": {
+      "status": 301,
+      "headers": {
+        "location": "https://rbvfinancial.com/services"
+      }
+    },
+    "https://rbvfinancial.com/services": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "file": "body-5.html"
+    },
+    "https://rbvfinancial.com/contact.html": {
+      "status": 301,
+      "headers": {
+        "location": "https://rbvfinancial.com/contact"
+      }
+    },
+    "https://rbvfinancial.com/contact": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "file": "body-7.html"
+    },
+    "https://rbvfinancial.com/data-privacy-policy": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      },
+      "file": "body-8.html"
+    },
+    "https://rbvfinancial.com/sitemap.xml": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/xml; charset=utf-8"
+      },
+      "file": "body-9.xml"
+    }
+  },
+  "hosts": {
+    "rbvfinancial.com": [
+      "2606:4700:3037::ac43:a0df",
+      "2606:4700:3035::6815:5992",
+      "172.67.160.223",
+      "104.21.89.146"
+    ]
+  },
+  "dns": {
+    "MX rbvfinancial.com": {
+      "code": "ENODATA"
+    },
+    "TXT rbvfinancial.com": {
+      "code": "ENODATA"
+    },
+    "TXT _dmarc.rbvfinancial.com": {
+      "code": "ENOTFOUND"
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "RBV Financial",
+          "evidence_url": "https://rbvfinancial.com/",
+          "evidence_quote": "RBV Financial uses Advanced METRO2 Compliance Challenges to remove negatives"
+        },
+        "firm_type": {
+          "value": {
+            "primary": "credit_repair",
+            "secondary": [
+              "tax_preparer"
+            ]
+          },
+          "evidence_url": "https://rbvfinancial.com/",
+          "evidence_quote": "Real Credit Repair Help in Berea, Ohio"
+        },
+        "location": {
+          "value": {
+            "city": "Berea",
+            "state": "OH",
+            "country": "United States"
+          },
+          "evidence_url": "https://rbvfinancial.com/",
+          "evidence_quote": "398 W Bagley Rd. Ste 20A, Berea, OH 44017"
+        },
+        "size_signal": "NOT_FOUND",
+        "services": {
+          "value": [
+            "Credit repair",
+            "Credit building",
+            "Tax preparation",
+            "Notary services"
+          ],
+          "evidence": [
+            {
+              "evidence_url": "https://rbvfinancial.com/services",
+              "evidence_quote": "Credit Repair & Credit Building Services in Berea, Ohio"
+            },
+            {
+              "evidence_url": "https://rbvfinancial.com/",
+              "evidence_quote": "RBV Financial now handles individual and small business tax filing"
+            },
+            {
+              "evidence_url": "https://rbvfinancial.com/services",
+              "evidence_quote": "RBV Financial offers professional notary public services"
+            }
+          ]
+        },
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": {
+          "value": {
+            "secure_portal": true,
+            "doc_exchange": false
+          },
+          "evidence_url": "https://rbvfinancial.com/",
+          "evidence_quote": "24/7 access to your Secure Portal to monitor progress"
+        },
+        "people": [
+          {
+            "name": "Belinda Vazquez",
+            "title": "Owner",
+            "evidence_url": "https://rbvfinancial.com/about",
+            "evidence_quote": "I am the owner of RBV Financial"
+          }
+        ],
+        "public_contact_email": {
+          "value": {
+            "address": "rbvcreditsolutions@gmail.com",
+            "owner_name": null
+          },
+          "evidence_url": "https://rbvfinancial.com/data-privacy-policy",
+          "evidence_quote": "please contact us at rbvcreditsolutions@gmail.com"
+        },
+        "personal_email_domain_on_site": {
+          "value": "rbvcreditsolutions@gmail.com",
+          "evidence_url": "https://rbvfinancial.com/data-privacy-policy",
+          "evidence_quote": "please contact us at rbvcreditsolutions@gmail.com"
+        },
+        "privacy_policy_present": {
+          "value": true,
+          "evidence_url": "https://rbvfinancial.com/data-privacy-policy",
+          "evidence_quote": "Data Privacy Policy"
+        },
+        "security_or_wisp_mention": "NOT_FOUND",
+        "recent_signal": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "(440) 709-6182",
+            "contact_form": true
+          },
+          "evidence_url": "https://rbvfinancial.com/contact",
+          "evidence_quote": "Phone (440) 709-6182"
+        },
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    },
+    {
+      "callIndex": 1,
+      "toolInput": {
+        "firm_name": "NOT_FOUND",
+        "firm_type": "NOT_FOUND",
+        "location": "NOT_FOUND",
+        "size_signal": "NOT_FOUND",
+        "services": {
+          "value": [
+            "Credit Repair",
+            "Credit Building",
+            "Credit Monitoring",
+            "Notary Services",
+            "Tax Preparation"
+          ],
+          "evidence": [
+            {
+              "evidence_url": "https://rbvfinancial.com/services",
+              "evidence_quote": "Credit Repair & Credit Building Services in Berea, Ohio"
+            },
+            {
+              "evidence_url": "https://rbvfinancial.com/services",
+              "evidence_quote": "Enroll in free credit monitoring to track your scores in real time"
+            },
+            {
+              "evidence_url": "https://rbvfinancial.com/services",
+              "evidence_quote": "RBV Financial offers professional notary public services for individuals and businesses"
+            }
+          ]
+        },
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [
+          {
+            "name": "Belinda Vazquez",
+            "title": null,
+            "evidence_url": "https://rbvfinancial.com/about",
+            "evidence_quote": "Meet Belinda Vazquez"
+          }
+        ],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "recent_signal": "NOT_FOUND",
+        "phone_or_contact_form": "NOT_FOUND",
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

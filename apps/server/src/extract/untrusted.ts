@@ -15,8 +15,9 @@ function attr(value: string): string {
 }
 
 /** Wraps one page's text as an untrusted data block. Only ever placed in the user message. */
-export function pageBlock(page: { url: string; kind: string; text: string }): string {
-  return `<${BLOCK_TAG} url="${attr(page.url)}" kind="${attr(page.kind)}">\n${neutralize(page.text)}\n</${BLOCK_TAG}>`;
+export function pageBlock(page: { url: string; kind: string; title?: string; text: string }): string {
+  const title = page.title ? ` title="${attr(neutralize(page.title))}"` : "";
+  return `<${BLOCK_TAG} url="${attr(page.url)}" kind="${attr(page.kind)}"${title}>\n${neutralize(page.text)}\n</${BLOCK_TAG}>`;
 }
 
 const PatternsSchema = z.object({ patterns: z.array(z.string().min(1)).min(1) });

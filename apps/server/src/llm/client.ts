@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, gt, max, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { runs, type CallType } from "../db/schema";
 import { priceFor, type PriceTable } from "../config/prices";
@@ -34,6 +34,11 @@ export interface MessagesApi {
 export interface CallMeta {
   callType: CallType;
   leadId?: string;
+  /**
+   * The per-lead budget covers one research run: only calls logged after this runs.id count.
+   * Omitted = the lead's whole history.
+   */
+  budgetSinceRunId?: number;
 }
 
 export interface LlmClientDeps {
@@ -58,14 +63,19 @@ export function createAnthropic(apiKey: string): MessagesApi {
   return new Anthropic({ apiKey, maxRetries: 0, timeout: REQUEST_TIMEOUT_MS });
 }
 
+/** The newest runs.id, used as the start mark for a research run's per-lead budget. */
+export function lastRunId(db: Db): number {
+  return db.select({ id: max(runs.id) }).from(runs).get()?.id ?? 0;
+}
+
 /** Tokens a lead has consumed across all logged calls, from API usage numbers (every category counts). */
-export function leadTokensUsed(db: Db, leadId: string): number {
+export function leadTokensUsed(db: Db, leadId: string, sinceRunId = 0): number {
   const row = db
     .select({
       total: sql<number>`coalesce(sum(${runs.inputTokens} + ${runs.outputTokens} + ${runs.cacheReadTokens} + ${runs.cacheWriteTokens}), 0)`,
     })
     .from(runs)
-    .where(eq(runs.leadId, leadId))
+    .where(and(eq(runs.leadId, leadId), gt(runs.id, sinceRunId)))
     .get();
   return row?.total ?? 0;
 }
@@ -125,7 +135,7 @@ export function createLlmClient(deps: LlmClientDeps) {
     );
 
     if (meta.leadId) {
-      const used = leadTokensUsed(db, meta.leadId);
+      const used = leadTokensUsed(db, meta.leadId, meta.budgetSinceRunId ?? 0);
       const projected = used + inputTokens + params.max_tokens;
       if (projected > leadTokenBudget) {
         throw new BudgetExceededError(meta.leadId, used, projected, leadTokenBudget);

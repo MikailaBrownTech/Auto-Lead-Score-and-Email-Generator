@@ -21,6 +21,10 @@ export interface CriterionResult {
 export interface ScoreResult {
   total: number;
   tier: Tier;
+  fitPoints: number;
+  /** True when the tier was capped at C because fit points are below fit_threshold. */
+  tierCapped: boolean;
+  gate: Dossier["gate"];
   breakdown: CriterionResult[];
 }
 
@@ -60,13 +64,20 @@ type Rule = (d: Dossier, c: ScoringConfig, asOf: Date) => Verdict;
 const RULES: Record<ScoringKey, Rule> = {
   firm_type_in_target: (d, c) => {
     if (!isFound(d.firm_type)) return { met: false, reason: NOT_FOUND_REASON("firm_type"), fields: [] };
-    const met = c.target_firm_types.includes(d.firm_type.value);
-    return {
-      met,
-      reason: met ? `firm type ${d.firm_type.value} is a target` : `firm type ${d.firm_type.value} is not a target`,
-      fields: ["firm_type"],
-    };
+    const { primary, secondary } = d.firm_type.value;
+    if (c.target_firm_types.includes(primary)) return { met: true, reason: `primary type ${primary} is a target`, fields: ["firm_type"] };
+    const viaSecondary = secondary.find((t) => c.target_firm_types.includes(t));
+    if (viaSecondary) return { met: true, reason: `secondary type ${viaSecondary} (shown in services) is a target`, fields: ["firm_type", "services"] };
+    return { met: false, reason: `firm type ${primary} is not a target`, fields: ["firm_type"] };
   },
+
+  target_industry_fit: (d) => ({
+    met: d.target_industry_fit.value === true,
+    reason: d.target_industry_fit.reason,
+    fields: ["target_industry_fit"],
+  }),
+
+  us_location: (d) => ({ met: d.us_location.value === true, reason: d.us_location.reason, fields: ["location"] }),
 
   size_in_range: (d, c) => {
     if (!isFound(d.size_signal)) return { met: false, reason: NOT_FOUND_REASON("size_signal"), fields: [] };
@@ -77,29 +88,18 @@ const RULES: Record<ScoringKey, Rule> = {
     return { met, reason: `${n} staff (${met ? "within" : "outside"} ${min}-${max})`, fields: ["size_signal"] };
   },
 
-  us_in_scope: (d) => {
-    if (!isFound(d.in_scope)) return { met: false, reason: NOT_FOUND_REASON("in_scope"), fields: [] };
-    return {
-      met: d.in_scope.value,
-      reason: d.in_scope.value ? "US business in a target industry" : "not in scope",
-      fields: ["in_scope"],
-    };
-  },
-
   decision_maker_named: (d) =>
     isFound(d.decision_maker)
-      ? { met: true, reason: `decision maker named: ${d.decision_maker.value.name}`, fields: ["decision_maker"] }
+      ? { met: true, reason: `decision maker: ${d.decision_maker.value.name}${d.decision_maker.value.title ? `, ${d.decision_maker.value.title}` : ""}`, fields: ["decision_maker"] }
       : { met: false, reason: NOT_FOUND_REASON("decision_maker"), fields: [] },
 
-  // Evidenced by the code's recorded keyword search (docs/06), never by NOT_FOUND from the LLM.
+  // Evidenced by the code's recorded keyword search of the full page text (docs/06), never by NOT_FOUND.
   no_wisp_mention: (d, c) => {
     if (isFound(d.security_or_wisp_mention)) {
       return { met: false, reason: "site mentions security or a WISP", fields: ["security_or_wisp_mention"] };
     }
     const search = d.security_mention_search;
-    if (search === "NOT_CHECKED") {
-      return { met: false, reason: "no keyword search was recorded (scores 0)", fields: [] };
-    }
+    if (search === "NOT_CHECKED") return { met: false, reason: "no keyword search was recorded (scores 0)", fields: [] };
     const searched = new Set(search.keywords.map((k) => k.toLowerCase()));
     const missing = c.wisp_keywords.filter((k) => !searched.has(k.toLowerCase()));
     if (missing.length > 0) {
@@ -115,11 +115,11 @@ const RULES: Record<ScoringKey, Rule> = {
         p.text_chars >= c.wisp_search_min_text_chars,
     );
     const hasHome = complete.some((p) => p.kind === "home");
-    const hasSupporting = complete.some((p) => p.kind === "privacy" || p.kind === "security" || p.kind === "about");
-    if (!hasHome || !hasSupporting) {
+    const hasPolicyPage = complete.some((p) => p.kind === "privacy" || p.kind === "security");
+    if (!hasHome || (!hasPolicyPage && complete.length < c.wisp_min_pages)) {
       return {
         met: false,
-        reason: "search needs the homepage plus a privacy, security, or about page, each complete HTTP 200 HTML with real text",
+        reason: `search needs the homepage plus a privacy or security page, or at least ${c.wisp_min_pages} complete pages (had ${complete.length})`,
         fields: [],
       };
     }
@@ -129,12 +129,15 @@ const RULES: Record<ScoringKey, Rule> = {
     }
     return {
       met: true,
-      reason: `searched ${search.pages.length} pages for ${search.keywords.length} keywords: none found`,
+      reason: `searched ${complete.length} complete pages for ${search.keywords.length} keywords: none found`,
       fields: ["security_mention_search"],
     };
   },
 
   dmarc_missing_or_none: (d) => {
+    const noEmail = d.dns.no_domain_email;
+    if (!isFound(noEmail)) return { met: false, reason: "MX lookup failed or not run; DMARC not scored", fields: [] };
+    if (noEmail.value) return { met: false, reason: "domain has no MX records (no_domain_email); DMARC not scored", fields: ["dns.no_domain_email"] };
     const present = d.dns.dmarc_present;
     const policy = d.dns.dmarc_policy;
     if (isFound(present) && present.value === false) {
@@ -143,10 +146,8 @@ const RULES: Record<ScoringKey, Rule> = {
     if (isFound(policy) && policy.value === "none") {
       return { met: true, reason: "DMARC policy is none (DNS lookup)", fields: ["dns.dmarc_policy"] };
     }
-    if (!isFound(present) && !isFound(policy)) {
-      return { met: false, reason: NOT_FOUND_REASON("dns.dmarc_present"), fields: [] };
-    }
-    return { met: false, reason: "DMARC record present with an enforcing policy", fields: ["dns.dmarc_policy"] };
+    if (!isFound(present)) return { met: false, reason: "DMARC lookup failed; not scored", fields: [] };
+    return { met: false, reason: "DMARC record present with an enforcing (or unreadable) policy", fields: ["dns.dmarc_policy"] };
   },
 
   personal_email_domain: (d, c) => {
@@ -190,22 +191,19 @@ const RULES: Record<ScoringKey, Rule> = {
 
   public_business_email: (d) =>
     isFound(d.public_contact_email)
-      ? { met: true, reason: "public contact email on the site", fields: ["public_contact_email"] }
+      ? { met: true, reason: `public contact email ${d.public_contact_email.value.address}`, fields: ["public_contact_email"] }
       : { met: false, reason: NOT_FOUND_REASON("public_contact_email"), fields: [] },
 
+  // Deterministic: machine-readable dates only (latest_dated_content is filled by code).
   site_maintained: (d, c, asOf) => {
-    const dated = [
-      isFound(d.latest_dated_content) ? { field: "latest_dated_content", date: d.latest_dated_content.value.date } : null,
-      isFound(d.recent_signal) ? { field: "recent_signal", date: d.recent_signal.value.date } : null,
-    ].filter((x): x is { field: string; date: string } => x !== null);
-    if (dated.length === 0) return { met: false, reason: NOT_FOUND_REASON("latest_dated_content"), fields: [] };
-    const newest = dated.reduce((a, b) => (partialDateEnd(a.date) >= partialDateEnd(b.date) ? a : b));
+    const f = d.latest_dated_content;
+    if (!isFound(f)) return { met: false, reason: "no machine-readable date found (scores 0)", fields: [] };
     const cutoff = monthsBefore(asOf, c.site_maintained_months);
-    const met = partialDateEnd(newest.date) >= cutoff;
+    const met = partialDateEnd(f.value.date) >= cutoff;
     return {
       met,
-      reason: `newest dated content ${newest.date} (${met ? "within" : "older than"} ${c.site_maintained_months} months)`,
-      fields: [newest.field],
+      reason: `newest date ${f.value.date} from ${f.value.source} (${met ? "within" : "older than"} ${c.site_maintained_months} months)`,
+      fields: ["latest_dated_content"],
     };
   },
 
@@ -225,21 +223,26 @@ export function tierFor(total: number, config: ScoringConfig): Tier {
 
 /**
  * Deterministic lead score per docs/06. Pure: same dossier, config, and date always give the same
- * result. `asOf` is the date the "site maintained" window is measured from.
+ * result. Fit is scored first; signal points count only when the fit gates pass (the lead is not
+ * out_of_icp); a fit score below fit_threshold caps the tier at C.
  */
 export function scoreDossier(dossier: Dossier, config: ScoringConfig, asOf: Date): ScoreResult {
+  const gatesPass = dossier.gate.status !== "out_of_icp";
   const breakdown = config.criteria.map((criterion): CriterionResult => {
     const v = RULES[criterion.key](dossier, config, asOf);
+    const blocked = criterion.group === "signals" && !gatesPass;
     return {
       key: criterion.key,
       group: criterion.group,
       label: criterion.label,
       max: criterion.points,
-      points: v.met ? criterion.points : 0,
-      reason: v.reason,
+      points: v.met && !blocked ? criterion.points : 0,
+      reason: blocked && v.met ? `${v.reason} (not counted: lead is out_of_icp)` : v.reason,
       fields: v.fields,
     };
   });
   const total = breakdown.reduce((s, c) => s + c.points, 0);
-  return { total, tier: tierFor(total, config), breakdown };
+  const fitPoints = breakdown.filter((b) => b.group === "fit").reduce((s, b) => s + b.points, 0);
+  const tierCapped = fitPoints < config.fit_threshold && tierFor(total, config) !== "C";
+  return { total, tier: tierCapped ? "C" : tierFor(total, config), fitPoints, tierCapped, gate: dossier.gate, breakdown };
 }

@@ -10,6 +10,7 @@ import {
   type SequenceEmail,
   type StyleConfig,
 } from "@clearpath/shared";
+import { contactPlan } from "../scoring/contact";
 
 export { containsPhrase };
 
@@ -37,7 +38,7 @@ export interface ValidationContext {
 }
 
 /** Dossier fields used for addressing (greeting, firm name) that do not count as a personal detail. */
-const ADDRESSING_FIELDS: ReadonlySet<string> = new Set(["firm_name", "firm_type", "decision_maker", "in_scope"]);
+const ADDRESSING_FIELDS: ReadonlySet<string> = new Set(["firm_name", "firm_type", "decision_maker", "people"]);
 
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 const PLACEHOLDER_RE = /\{\{[^}]*\}\}|\[[^\]]*\]/;
@@ -215,7 +216,18 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   }
   if (ctx.dossier) {
     for (const f of e.grounding) {
-      if (!isFound(ctx.dossier[f as FactField])) err("grounding_not_found", `grounded on ${f}, which is NOT_FOUND`);
+      const value = (ctx.dossier as Record<string, unknown>)[f];
+      if (value === undefined || !isFound(value) || (Array.isArray(value) && value.length === 0)) {
+        err("grounding_not_found", `grounded on ${f}, which is NOT_FOUND`);
+      }
+    }
+    // Greet by name only when the public address belongs to the decision maker (docs/03 + contact rule).
+    const greeted = /^(?:hi|hello|dear)\s+([^\s,]+)\s*,/i.exec(e.body.trim())?.[1] ?? null;
+    if (greeted) {
+      const plan = contactPlan(ctx.dossier);
+      if (plan.greetFirstName === null || greeted.toLowerCase() !== plan.greetFirstName.toLowerCase()) {
+        err("greeting_contact_mismatch", `greets "${greeted}" but ${plan.reason}; use "${plan.greeting}"`);
+      }
     }
   }
   if (e.template && e.grounding.length > 0) {
@@ -232,8 +244,9 @@ export function validateSequence(seq: Sequence, ctx: ValidationContext): Validat
   for (const e of seq.emails) checkEmail(e, ctx, issues);
 
   const angles = ctx.style.firm_type_angles;
-  const firmType = ctx.dossier && isFound(ctx.dossier.firm_type) ? ctx.dossier.firm_type.value : null;
-  const allowedAngles = firmType ? angles[firmType] : Object.values(angles).flat();
+  const types = ctx.dossier && isFound(ctx.dossier.firm_type) ? [ctx.dossier.firm_type.value.primary, ...ctx.dossier.firm_type.value.secondary] : null;
+  const firmType = types ? types.join("/") : null;
+  const allowedAngles = types ? types.flatMap((t) => angles[t]) : Object.values(angles).flat();
   if (!allowedAngles?.includes(seq.angle)) {
     issues.push({
       severity: "error",

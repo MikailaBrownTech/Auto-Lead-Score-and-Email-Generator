@@ -5,7 +5,10 @@ export const TIERS = ["A", "B", "C"] as const;
 export const TierSchema = z.enum(TIERS);
 export type Tier = z.infer<typeof TierSchema>;
 
-export const FactFieldSchema = z.enum(FACT_FIELDS as [string, ...string[]]);
+/** Dossier fields an email may be grounded on: model facts plus the code-chosen decision maker and freshness date. */
+export const GROUNDING_FIELDS = [...FACT_FIELDS, "decision_maker", "latest_dated_content"] as const;
+export type GroundingField = (typeof GROUNDING_FIELDS)[number];
+export const FactFieldSchema = z.enum(GROUNDING_FIELDS as unknown as [string, ...string[]]);
 
 /**
  * One email. `body` runs from the greeting to the last sentence before the sign-off;

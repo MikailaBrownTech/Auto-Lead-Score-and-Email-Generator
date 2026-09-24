@@ -5,7 +5,7 @@ import type { HttpTransport, ResolvedAddress, Resolver } from "./transport";
 export const MAX_REDIRECTS = 5;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
-export type FetchPurpose = "html" | "robots";
+export type FetchPurpose = "html" | "robots" | "sitemap";
 
 export type FailureCategory = "blocked" | "robots" | "dns" | "network" | "http" | "type" | "redirects";
 
@@ -46,6 +46,7 @@ export interface GuardedFetchDeps {
 const ACCEPT: Record<FetchPurpose, string> = {
   html: "text/html,application/xhtml+xml;q=0.9",
   robots: "text/plain,*/*;q=0.1",
+  sitemap: "application/xml,text/xml;q=0.9,*/*;q=0.1",
 };
 
 /** Resolves and vets every address; all must be public, and the first one is used. */
@@ -144,6 +145,15 @@ export async function guardedFetch(
       if (mediaType(contentType) !== "text/html") {
         await res.discard();
         return fail("type", `skipped: content type ${contentType || "(none)"} is not text/html`, res.status);
+      }
+    } else if (purpose === "sitemap") {
+      if (res.status !== 200) {
+        await res.discard();
+        return fail("http", `HTTP ${res.status}`, res.status);
+      }
+      if (!/xml/.test(mediaType(contentType))) {
+        await res.discard();
+        return fail("type", `skipped: content type ${contentType || "(none)"} is not XML`, res.status);
       }
     } else if (res.status < 200 || res.status >= 300 || !mediaType(contentType).startsWith("text/")) {
       // robots.txt: callers only need the status for non-2xx or non-text answers.

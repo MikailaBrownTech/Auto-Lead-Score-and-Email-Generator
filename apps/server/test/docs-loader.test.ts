@@ -45,7 +45,7 @@ describe("real docs (tests run against the files in docs/)", () => {
     const style = loadStyle();
     expect(style.send_days).toEqual([0, 3, 7, 12, 18]);
     expect(Object.keys(style.firm_type_angles).sort()).toEqual(
-      ["bookkeeper", "collections", "cpa", "credit_counseling", "other", "payroll", "tax_preparer"],
+      ["bookkeeper", "collections", "cpa", "credit_counseling", "credit_repair", "other", "payroll", "tax_preparer"],
     );
   });
 
