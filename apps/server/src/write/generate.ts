@@ -22,7 +22,7 @@ import { readStoredDossier } from "../pipeline/stored-dossier";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
-import { leads, sequences, type SequenceStatus } from "../db/schema";
+import { leadEvents, leads, sequences, type SequenceStatus } from "../db/schema";
 import { templateEmail, type TemplateSet } from "../docs/templates";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
@@ -152,6 +152,19 @@ export function judgedContentHash(emails: SequenceEmail[]): string {
   return crypto.createHash("sha256").update(material).digest("hex");
 }
 
+/** The plain reason a gated lead gets no sequence, with what to do about it. */
+export function notWrittenReason(gate: Dossier["gate"]): string {
+  const why = gate.reasons.length ? ` (${gate.reasons.join("; ")})` : "";
+  if (gate.status === "out_of_icp") return `Not written: this lead is out of ICP${why}. Approve it with a reason to write anyway.`;
+  if (gate.status === "needs_review") return `Not written: this lead needs review${why}. Approve it with a reason to write anyway.`;
+  return "Not written.";
+}
+
+/** Keeps the outcome of a write attempt in the lead's log, so the lead page can say what happened. */
+export function logWriteAttempt(db: Db, leadId: string, detail: string): void {
+  db.insert(leadEvents).values({ leadId, kind: "write_attempt", detail: detail.slice(0, 1000) }).run();
+}
+
 /** Which emails the writer writes, by tier (docs/06): A all five, B emails 1-2, C none. */
 export function customEmailsFor(tier: Tier): number[] {
   return tier === "A" ? [1, 2, 3, 4, 5] : tier === "B" ? [1, 2] : [];
@@ -250,7 +263,9 @@ export async function generateSequence(
     exportBlockers: [],
   };
   if (dossier.gate.status !== "qualified" && !opts.gateApproved) {
-    return { ...base, reason: `gate is ${dossier.gate.status}; no sequence until the founder approves it (${dossier.gate.reasons.join("; ")})` };
+    const reason = notWrittenReason(dossier.gate);
+    logWriteAttempt(deps.db, leadId, reason);
+    return { ...base, reason };
   }
 
   // An overridden lead (no person-tied address) is always greeted neutrally.
@@ -274,6 +289,8 @@ export async function generateSequence(
   let judge: JudgeOutput | null = null;
   let writerCalls = 0;
   let judgeCalls = 0;
+  /** Why the result is not the model's clean draft (unusable rewrite, budget stop), shown on the lead page. */
+  let writeNote: string | null = null;
   const assemble = (persona: string, angle: string): Sequence => SequenceSchema.parse({ lead_id: leadId, tier, persona, angle, emails });
   const persona = customNs.length > 0 ? plan.context.persona : `template (${type})`;
   const angle = plan.context.angle;
@@ -318,36 +335,42 @@ export async function generateSequence(
         // Exactly one rewrite with the code's findings; never more.
         writerCalls++;
         const again = applyDraft(toolInput(await call("write", deps.writerSystem, writerTool(), rewriteMessage(plan, deps.style.subject_max_words, problems)), WRITER_TOOL_NAME), 2);
+        // An unusable rewrite never throws away what we have: the first draft (with its errors) stays
+        // on screen for editing, or the template emails when the first draft was unusable too.
         if (again.formatProblem) {
-          return save({ ...base, status: "blocked", reason: again.formatProblem, plan, drafts, firstPassValid: false, rewritesUsed: 1, writerCalls, judgeCalls });
+          writeNote = `The model's rewrite could not be used (${again.formatProblem}), so ${first.formatProblem ? "the template emails are shown instead" : "the first draft is shown with its errors"}. Edit it, or write again.`;
         }
       }
-      judgeCalls++;
-      const custom = emails.filter((e) => customNs.includes(e.n));
-      const judged = JudgeOutputSchema.safeParse(toolInput(await call("judge", deps.judgeSystem, judgeTool(), judgeMessage(plan, custom)), JUDGE_TOOL_NAME));
-      // An unreadable verdict never passes; the reason is kept for the report.
-      judge = judged.success
-        ? judged.data
-        : { unsupported_claims: [{ email: 1, claim: `judge output could not be read: ${judged.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`.slice(0, 200), reason: "other" }] };
-    } catch (err) {
-      if (err instanceof BudgetExceededError) {
-        return save({ ...base, status: "blocked", reason: `budget_exceeded: ${err.message}`, plan, drafts, firstPassValid: drafts[0] ? drafts[0].errors.length === 0 && !drafts[0].formatProblem : null, rewritesUsed: Math.max(0, drafts.length - 1), writerCalls, judgeCalls });
+      const custom = emails.filter((e) => !e.template);
+      if (custom.length > 0) {
+        judgeCalls++;
+        const judged = JudgeOutputSchema.safeParse(toolInput(await call("judge", deps.judgeSystem, judgeTool(), judgeMessage(plan, custom)), JUDGE_TOOL_NAME));
+        // An unreadable verdict never passes; the reason is kept for the report.
+        judge = judged.success
+          ? judged.data
+          : { unsupported_claims: [{ email: 1, claim: `judge output could not be read: ${judged.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`.slice(0, 200), reason: "other" }] };
       }
-      throw err;
+    } catch (err) {
+      if (!(err instanceof BudgetExceededError)) throw err;
+      // The lead's token budget stopped the run: keep whatever was drafted so far, blocked.
+      writeNote = `Stopped by the lead's token budget: ${err.message} What was drafted so far is shown.`;
     }
   }
 
   const sequence = assemble(persona, angle);
   const validation = validateSequence(sequence, vctx);
-  const judgePass = judge === null || judge.unsupported_claims.length === 0;
+  // Model-written emails need a clean judge verdict; templates-only sequences do not.
+  const needsJudge = sequence.emails.some((e) => !e.template);
+  const judgePass = !needsJudge || (judge !== null && judge.unsupported_claims.length === 0);
   const status: SequenceStatus = validation.pass && judgePass ? "passed" : "blocked";
   const reason =
     status === "passed"
-      ? customNs.length === 0
+      ? writeNote ??
+        (customNs.length === 0
         ? `tier ${tier}: templates only, no writer or judge call; validators passed`
-        : "validators and judge passed"
-      : [!validation.pass ? "code validators failed" : "", !judgePass ? "judge listed unsupported claims" : ""].filter(Boolean).join("; ");
-  return save({
+        : "validators and judge passed")
+      : [writeNote ?? "", !validation.pass ? "code validators failed" : "", !judgePass ? (judge ? "judge listed unsupported claims" : "the judge has not run on these emails") : ""].filter(Boolean).join("; ");
+  const saved = save({
     ...base,
     status,
     reason,
@@ -361,6 +384,9 @@ export async function generateSequence(
     writerCalls,
     judgeCalls,
   });
+  // Logged after the sequence row, so the lead page ties this note to the sequence it describes.
+  if (status !== "passed" || writeNote) logWriteAttempt(deps.db, leadId, `${status === "passed" ? "Written" : "Written, needs fixes"}: ${reason.replace(/\.$/, "")}.`);
+  return saved;
 
   function save(r: GenerateResult): GenerateResult {
     const row = deps.db

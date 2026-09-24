@@ -65,6 +65,10 @@ export interface LeadDetail {
   events: LeadEventView[];
   sequenceId: number | null;
   sequenceStatus: string | null;
+  /** Why "Write sequence" cannot run now (a gate that has not been approved), in plain words; null when it can. */
+  notWrittenReason: string | null;
+  /** The newest write attempt that did not end in a clean sequence (not written, error, needs fixes), if newer than the sequence. */
+  lastWriteAttempt: { at: string; detail: string } | null;
 }
 
 export interface ValidationIssueView {
@@ -96,6 +100,20 @@ export interface SequenceView {
   breakupSentences: { min: number; max: number };
   subjectMaxWords: number;
   signature: string[];
+  /** "template": every email is fixed docs/09 text (no model call). "custom": at least one model-written email. */
+  kind: "template" | "custom";
+  /** Every writer draft of this sequence, with the validator errors it got (blocked drafts included). */
+  drafts: { attempt: number; formatProblem: string | null; errors: ValidationIssueView[] }[];
+}
+
+export interface SequenceListItem {
+  id: number;
+  leadId: string;
+  firm: string | null;
+  tier: Tier;
+  status: string;
+  kind: "template" | "custom";
+  createdAt: string;
 }
 
 export interface JobItemView {

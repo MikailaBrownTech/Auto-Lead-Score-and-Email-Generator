@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import type { JobView } from "@clearpath/shared";
 import { api } from "../api";
+import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { href } from "../router";
 
 const MAX_URLS = 5;
 const POLL_MS = 1500;
+/** After this long, a running job shows a "still working" notice. */
+export const STALE_MINUTES = 3;
 
 const STATE_TEXT: Record<string, string> = {
   queued: "Waiting",
@@ -44,8 +47,15 @@ export function useJob(jobId: string | null): { job: JobView | null; error: stri
 
 export function JobStatus(props: { job: JobView; onCancel?: () => void }) {
   const running = props.job.items.some((i) => ["queued", "researching", "writing"].includes(i.state));
+  const minutes = Math.floor((Date.now() - Date.parse(props.job.createdAt)) / 60_000);
   return (
     <div className="card">
+      {/* A job that never completes is never silent: say how long it has been and where to look. */}
+      {running && minutes >= STALE_MINUTES && (
+        <NoticeBanner>
+          Still working after {minutes} minutes. Each site is read politely (1 request per second) and each model call can take up to 2 minutes. If nothing changes, open the lead page: it shows the last result, or restart the app.
+        </NoticeBanner>
+      )}
       <div className="row between">
         <strong>{running ? "Working…" : "Finished"}</strong>
         {running && props.onCancel && (
@@ -140,7 +150,7 @@ export function ImportPage() {
         </button>
         <span className="muted">Research runs one site at a time, politely (robots.txt, 1 request per second). Each lead's cost shows on the Leads page.</span>
       </div>
-      {(error ?? pollError) && <p className="error">{error ?? pollError}</p>}
+      <ErrorBanner message={error ?? pollError} />
       {job && (
         <JobStatus
           job={job}

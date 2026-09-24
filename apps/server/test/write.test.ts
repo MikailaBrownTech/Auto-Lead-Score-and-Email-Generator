@@ -383,7 +383,11 @@ describe("writer output tolerance", () => {
     expect((await generateSequence("L1", strongDossier(), "B", deps(scripted([extra])).deps)).status).toBe("passed");
     const missing = { emails: [{ n: 1, subject_a: "x", subject_b: "y" }, E2] };
     const r = await generateSequence("L1", strongDossier(), "B", deps(scripted([missing, missing])).deps);
-    expect(r).toMatchObject({ status: "blocked", rewritesUsed: 1 });
+    expect(r).toMatchObject({ rewritesUsed: 1 });
     expect(r.drafts[0]!.formatProblem).toMatch(/writer output invalid/);
+    // Nothing usable from the model twice: the template emails are shown (never an empty result), and
+    // the reason says so.
+    expect(r.sequence!.emails.every((e) => e.template)).toBe(true);
+    expect(r.reason).toMatch(/template emails are shown instead/);
   });
 });

@@ -24,11 +24,28 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - [x] M5 UI (local only): Import (URLs or paste, live job status, cancel), Leads table, Lead detail,
       Sequences editor (live validators, judge on demand, rewrite one email, approve gating), Export
       (blocked messages, suppression check, CSV copy/download), minimal Settings + suppression list,
-      spend meter on every page. AWAITING FOUNDER REVIEW.
+      spend meter on every page.
+- [x] Bug fix "Write sequence produces nothing" (see below). AWAITING FOUNDER REVIEW.
 - [ ] M6 Results + settings, M7 Hardening
 
-Tests: 475 passing in 28 files (vitest, incl. component tests and an offline end-to-end API test).
-Typecheck clean (strict). Month to date about $0.68 of $5.
+Tests: 491 passing in 30 files (vitest, incl. component tests, an offline end-to-end API test, and a
+UI end-to-end test: import -> click Write -> sequence or visible reason). Typecheck clean (strict).
+Month to date about $0.71 of $5.
+
+## Bug: "Write sequence" produced nothing (fixed)
+- Root cause: the write route and UI click work (reproduced with fixtures and one real write), but
+  results were hidden: for gated leads (out_of_icp/needs_review) LeadDetail.tsx disabled the button with
+  no reason next to it; server refusals showed only as a small inline span; and generate.ts discarded a
+  usable first draft whenever the rewrite came back unusable (the route then returned 409, no sequence).
+  The DB showed zero write/judge calls after the UI started, so no click reached the writer.
+- Now: every no-sequence path leaves a plain reason on the lead page (lead_events kind write_attempt;
+  LeadDetail.notWrittenReason / lastWriteAttempt): gate ("Not written: this lead is out of ICP (...).
+  Approve it with a reason to write anyway."), spend cap, budget, broken settings, API errors, job
+  failures. Unusable rewrite keeps the first draft (with errors); two unusable answers fall back to the
+  template emails, labeled. Tier C / template sequences are labeled "Template (no model call)" and listed
+  on the new Sequences screen. The sequence page shows every draft with its errors. All request
+  failures show as inline banners (role=alert) with plain wording for 401/403/5xx. Jobs running over
+  3 minutes show a "still working" notice.
 
 ## Key decisions and settings
 - Gates (docs/06): out_of_icp when staff_count > max_staff_for_sequence (60) or target_industry_fit

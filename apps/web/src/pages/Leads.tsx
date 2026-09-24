@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { LeadRow } from "@clearpath/shared";
 import { useApi, usd } from "../api";
+import { ErrorBanner } from "../components/ErrorBanner";
 import { href } from "../router";
 
 const FLAG_TEXT: Record<keyof LeadRow["flags"], string> = {
@@ -82,7 +83,7 @@ export function LeadsPage() {
           </select>
         </label>
       </div>
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} />
       {data && data.length === 0 && <p className="muted">No leads yet. Start on the Import page.</p>}
       {rows.length > 0 && (
         <table className="leads">

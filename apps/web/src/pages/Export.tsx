@@ -1,17 +1,20 @@
 import { useState } from "react";
 import type { ExportView } from "@clearpath/shared";
-import { ApiError, useApi } from "../api";
+import { ApiError, plainApiError, useApi } from "../api";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 /** Approved leads only. Blocked as a whole until the settings are complete; suppressed leads are left out. */
 export function ExportPanel(props: { data: ExportView; onReload?: () => void }) {
   const { data } = props;
   const [note, setNote] = useState<string | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
 
   async function download() {
     setNote(null);
+    setFailure(null);
     try {
       const res = await fetch("/api/export.csv");
-      if (!res.ok) throw new ApiError(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "The export could not be created.");
+      if (!res.ok) throw new ApiError(plainApiError(res.status, ((await res.json().catch(() => null)) as { error?: string } | null)?.error));
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement("a");
       a.href = url;
@@ -19,7 +22,7 @@ export function ExportPanel(props: { data: ExportView; onReload?: () => void }) 
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setNote((err as Error).message);
+      setFailure((err as Error).message);
     }
   }
 
@@ -68,6 +71,7 @@ export function ExportPanel(props: { data: ExportView; onReload?: () => void }) 
           </button>
         )}
       </div>
+      <ErrorBanner message={failure} onDismiss={() => setFailure(null)} />
       {note && <p className="muted">{note}</p>}
       <textarea className="csv" readOnly value={data.csv} rows={14} aria-label="CSV" />
     </>
@@ -79,7 +83,7 @@ export function ExportPage() {
   return (
     <section>
       <h2>Export</h2>
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} />
       {data && <ExportPanel data={data} onReload={reload} />}
     </section>
   );

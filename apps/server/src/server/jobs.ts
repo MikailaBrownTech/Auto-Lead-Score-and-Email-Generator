@@ -4,7 +4,7 @@ import PQueue from "p-queue";
 import { leads, type LeadStatus } from "../db/schema";
 import { researchPastedLead, researchWebLead } from "../pipeline/research";
 import { leadOverride } from "../scoring/direct-contact";
-import { generateSequence } from "../write/generate";
+import { generateSequence, logWriteAttempt } from "../write/generate";
 import { researchDeps, writeDeps, type Services } from "./services";
 
 export const MAX_URLS_PER_JOB = 5;
@@ -134,8 +134,11 @@ export class JobRunner {
       item.state = "done";
       item.message = g.status === "no_sequence" ? `Researched; no sequence (${g.reason})` : `Done: sequence ${g.status === "passed" ? "ready for review" : "needs fixes"}`;
     } catch (err) {
+      const wasWriting = item.state === "writing";
+      // A failed write leaves its reason on the lead page, not only in this job's status.
+      if (wasWriting) logWriteAttempt(s.db, item.leadId, `Not written: ${plainError(err)}`);
       item.state = "failed";
-      item.message = plainError(err);
+      item.message = wasWriting ? `Research done, but the sequence was not written: ${plainError(err)}` : plainError(err);
     }
   }
 }

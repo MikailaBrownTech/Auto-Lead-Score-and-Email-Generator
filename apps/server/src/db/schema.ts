@@ -152,7 +152,7 @@ export const leadEvents = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     leadId: text("lead_id").notNull(),
-    kind: text("kind", { enum: ["direct_contact_override", "gate_override", "paste_rerun"] }).notNull(),
+    kind: text("kind", { enum: ["direct_contact_override", "gate_override", "paste_rerun", "write_attempt"] }).notNull(),
     detail: text("detail").notNull(),
     createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
   },

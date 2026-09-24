@@ -87,22 +87,26 @@ const fakeDns: DnsResolver = {
  * The whole API in-process: saved HTML fixtures (smithtax.example), fake DNS, recorded model answers
  * (extraction, writer, judge by tool name), and a temporary copy of docs/ so settings saves stay local.
  */
-export function makeHarness(opts: { judge?: unknown; writer?: unknown } = {}) {
+export function makeHarness(opts: { judge?: unknown; writer?: unknown | ((call: number) => unknown); capUsd?: number } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "clearpath-e2e-"));
   const docsDir = path.join(tmp, "docs");
   fs.cpSync(fromRoot("docs"), docsDir, { recursive: true });
   const db = openDb(":memory:");
   const now = () => NOW;
   const calls: Anthropic.MessageCreateParamsNonStreaming[] = [];
+  let writerCall = 0;
   const f = fakeApi((p, i) => {
     calls.push(p);
     const tool = (p.tools![0] as Anthropic.Tool).name;
     if (tool === EXTRACTION_TOOL_NAME) return message(tool, userText(p).includes("doetax") ? doeAnswer() : smithAnswer(), i);
-    if (tool === WRITER_TOOL_NAME) return message(tool, opts.writer ?? WRITER_ANSWER, i);
+    if (tool === WRITER_TOOL_NAME) {
+      const w = opts.writer;
+      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(writerCall++) : (w ?? WRITER_ANSWER), i);
+    }
     if (tool === JUDGE_TOOL_NAME) return message(tool, opts.judge ?? { unsupported_claims: [] }, i);
     throw new Error(`unexpected tool ${tool}`);
   });
-  const gate = new SpendGate(db, 5, now);
+  const gate = new SpendGate(db, opts.capUsd ?? 5, now);
   const llm = createLlmClient({ api: f.api, db, prices: testPrices, gate, leadTokenBudget: 1_000_000, backoff: { sleep: async () => undefined } });
   const web = sampleWeb();
   const services: Services = {

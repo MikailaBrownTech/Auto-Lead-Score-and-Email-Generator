@@ -6,6 +6,22 @@ export class ApiError extends Error {
 }
 
 /**
+ * One plain sentence for a failed request. The guard's short codes (unauthorized, forbidden_origin,
+ * forbidden_host) and proxy errors become instructions; the server's own messages are already plain.
+ */
+export function plainApiError(status: number, error: string | undefined): string {
+  if (status === 401 || error === "unauthorized") {
+    return "The local server refused this request because its security token did not match (401). Restart the app with npm run app, then reload this page.";
+  }
+  if (status === 403 || error === "forbidden_origin" || error === "forbidden_host") {
+    return "The local server refused a request from this page's address (403). Open the app at http://127.0.0.1:5173 and try again.";
+  }
+  if (error) return error;
+  if (status >= 500) return `The local server did not answer properly (HTTP ${status}). Check that the API is running (npm run app), then try again.`;
+  return `The request failed (HTTP ${status}).`;
+}
+
+/**
  * Calls the local API. The Vite dev proxy adds the per-process token; the API key never reaches the
  * browser. Errors become one readable sentence.
  */
@@ -21,7 +37,7 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     throw new ApiError("The local server is not answering. Is `npm run dev:server` running?");
   }
   const data = (await res.json().catch(() => null)) as { error?: string } | null;
-  if (!res.ok) throw new ApiError(data?.error ?? `The server answered ${res.status}.`);
+  if (!res.ok) throw new ApiError(plainApiError(res.status, data?.error));
   return data as T;
 }
 

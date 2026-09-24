@@ -9,13 +9,13 @@ import { cacheHealth } from "../llm/cache-health";
 import { OutdatedDossierError } from "../pipeline/stored-dossier";
 import type { SpendGate } from "../llm/spend-gate";
 import { leadOverride, MIN_OVERRIDE_REASON, overrideDirectContact } from "../scoring/direct-contact";
-import { ApprovalBlockedError, approveSequence, generateSequence } from "../write/generate";
+import { ApprovalBlockedError, approveSequence, generateSequence, logWriteAttempt } from "../write/generate";
 import { checkEdits, loadSequenceContext, rewriteOne, runJudge, saveEdits, SequenceError, sequenceState } from "../write/edit";
 import { addSuppression, buildExport, listSuppressions, removeSuppression } from "./export";
 import { JobInputError, plainError, type JobRunner } from "./jobs";
 import { localGuard, type LocalGuardOptions } from "./local-guard";
 import { writeDeps, type Services } from "./services";
-import { costByLead, leadDetail, listLeads, NotFoundError, sequenceView, sequenceViewFrom } from "./views";
+import { costByLead, leadDetail, listLeads, listSequences, NotFoundError, sequenceView, sequenceViewFrom } from "./views";
 
 export interface AppDeps {
   guard: LocalGuardOptions;
@@ -178,12 +178,20 @@ export function createApp(deps: AppDeps) {
     if (!l?.dossierJson || !l.tier) throw new UserError(`Lead ${id} has no research yet.`, 404);
     const wd = writeDeps(s);
     const detail = leadDetail(s, id);
-    const g = await generateSequence(id, detail.dossier, detail.tier, wd, { gateApproved: l.gateApproved, directContactOverride: leadOverride(db, id) });
+    let g;
+    try {
+      g = await generateSequence(id, detail.dossier, detail.tier, wd, { gateApproved: l.gateApproved, directContactOverride: leadOverride(db, id) });
+    } catch (err) {
+      // Spend cap, settings, or API failures: keep the reason on the lead page, then report it.
+      logWriteAttempt(db, id, `Not written: ${plainError(err)}`);
+      throw err;
+    }
     if (g.status === "no_sequence" || !g.sequenceId || !g.sequence) throw new UserError(g.reason, 409);
     return c.json(sequenceView(db, g.sequenceId, wd));
   });
 
   // ---- sequences ----
+  app.get("/api/sequences", (c) => c.json(listSequences(db)));
   app.get("/api/sequences/:id", (c) => c.json(sequenceView(db, idParam(c), writeDeps(s))));
 
   /** Live check while typing: validates the edits without saving. */
@@ -193,7 +201,7 @@ export function createApp(deps: AppDeps) {
     const edits = editsOf(await body(c));
     const r = checkEdits(db, id, edits, wd);
     const ctx = loadSequenceContext(db, id, wd);
-    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd));
+    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.drafts));
   });
 
   app.put("/api/sequences/:id", async (c) => {

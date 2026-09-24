@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { OfferSettingsView, SuppressionView } from "@clearpath/shared";
 import { api, useApi } from "../api";
+import { ErrorBanner } from "../components/ErrorBanner";
 
 type SettingsData = { offer: OfferSettingsView; suppressions: SuppressionView[] };
 
@@ -23,7 +24,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (data && !form) setForm(data.offer);
   }, [data, form]);
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <ErrorBanner message={error} />;
   if (!data || !form) return <p className="muted">Loading…</p>;
 
   const set = <K extends keyof OfferSettingsView>(k: K, v: OfferSettingsView[K]) => setForm({ ...form, [k]: v });
@@ -116,7 +117,7 @@ export function SettingsPage() {
           </ul>
         )}
       </div>
-      {problem && <p className="error">{problem}</p>}
+      <ErrorBanner message={problem} onDismiss={() => setProblem(null)} />
     </section>
   );
 }

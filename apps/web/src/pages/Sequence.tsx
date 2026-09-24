@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { countWords, type SequenceView } from "@clearpath/shared";
+import { countWords, type SequenceListItem, type SequenceView } from "@clearpath/shared";
 import { api, useApi } from "../api";
+import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { href } from "../router";
 
 export interface EditableEmail {
@@ -50,7 +51,7 @@ export function markApproved(body: string, approved: { id: string; text: string 
 
 function origin(e: SequenceView["sequence"]["emails"][number]): string {
   if (e.edited) return "Edited by you";
-  return e.template ? "Template (docs/09)" : "Written by the model";
+  return e.template ? "Template (no model call)" : "Written by the model";
 }
 
 export function EmailCard(props: {
@@ -71,7 +72,7 @@ export function EmailCard(props: {
         <strong>
           Email {email.n} · day {props.meta.send_day}
         </strong>
-        <span className="badge">{origin(props.meta)}</span>
+        <span className={props.meta.template && !props.meta.edited ? "badge template" : "badge"}>{origin(props.meta)}</span>
       </header>
       {email.n === 1 && (
         <div className="row">
@@ -210,8 +211,12 @@ export function SequenceEditor(props: { initial: SequenceView }) {
           ))}
         </ul>
       )}
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} onDismiss={() => setError(null)} />
       {message && <p className="ok">{message}</p>}
+      {view.kind === "template" && (
+        <NoticeBanner tone="info">Template (no model call): every email is fixed docs/09 text with the greeting and firm name filled in. No model was used, so no judge is needed.</NoticeBanner>
+      )}
+      {!view.validationPass && <NoticeBanner>This draft is blocked by the validators. It is shown in full below with its errors: edit it and save, or rewrite an email.</NoticeBanner>}
       {view.issues.filter((i) => i.email === null).map((i, k) => (
         <p key={k} className={i.severity}>
           {i.message}
@@ -228,6 +233,27 @@ export function SequenceEditor(props: { initial: SequenceView }) {
             ))}
           </ul>
         </div>
+      )}
+      {view.drafts.length > 0 && (
+        <details className="card">
+          <summary>Model drafts for this sequence ({view.drafts.length})</summary>
+          {view.drafts.map((d) => (
+            <div key={d.attempt}>
+              <strong>{d.attempt === 1 ? "First draft" : "Rewrite"}</strong>:{" "}
+              {d.formatProblem ? `could not be used (${d.formatProblem})` : d.errors.length === 0 ? "passed the validators" : `${d.errors.length} validator error(s)`}
+              {d.errors.length > 0 && (
+                <ul className="issues">
+                  {d.errors.map((i, k) => (
+                    <li key={k} className="error">
+                      {i.email ? `Email ${i.email}: ` : ""}
+                      {i.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
+        </details>
       )}
       <p className="legend small">
         <mark className="approved">Highlighted</mark> sentences were inserted by code from docs/02. Everything else is model-written or template text.
@@ -251,7 +277,7 @@ export function SequenceEditor(props: { initial: SequenceView }) {
 
 export function SequencePage(props: { id: string }) {
   const { data, error } = useApi<SequenceView>(`/sequences/${encodeURIComponent(props.id)}`);
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <ErrorBanner message={error} />;
   if (!data) return <p className="muted">Loading…</p>;
   return (
     <section>
@@ -259,9 +285,53 @@ export function SequencePage(props: { id: string }) {
         <a href={href("leads", data.leadId)}>← {data.firm ?? data.leadId}</a>
       </p>
       <h2>
-        Sequence for {data.firm ?? data.leadId} <span className="muted">(tier {data.tier})</span>
+        Sequence for {data.firm ?? data.leadId} <span className="muted">(tier {data.tier})</span>{" "}
+        {data.kind === "template" && <span className="badge template">Template (no model call)</span>}
       </h2>
       <SequenceEditor key={data.id} initial={data} />
+    </section>
+  );
+}
+
+/** Every lead's newest sequence, templates included. */
+export function SequencesPage() {
+  const { data, error, reload } = useApi<SequenceListItem[]>("/sequences");
+  return (
+    <section>
+      <div className="row between">
+        <h2>Sequences</h2>
+        <button type="button" className="secondary" onClick={reload}>
+          Refresh
+        </button>
+      </div>
+      <ErrorBanner message={error} />
+      {data && data.length === 0 && <p className="muted">No sequences yet. Open a lead and choose Write sequence.</p>}
+      {data && data.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>Firm</th>
+              <th>Tier</th>
+              <th>Kind</th>
+              <th>Status</th>
+              <th>Written</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((s) => (
+              <tr key={s.id}>
+                <td>
+                  <a href={href("sequences", s.id)}>{s.firm ?? s.leadId}</a>
+                </td>
+                <td>{s.tier}</td>
+                <td>{s.kind === "template" ? <span className="badge template">Template (no model call)</span> : <span className="badge">Written by the model</span>}</td>
+                <td>{s.status}</td>
+                <td>{s.createdAt.slice(0, 16).replace("T", " ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </section>
   );
 }

@@ -37,6 +37,8 @@ function view(over: Partial<SequenceView> = {}): SequenceView {
     breakupSentences: { min: 2, max: 3 },
     subjectMaxWords: 5,
     signature: ["Mikaila Brown", "Founder", "ClearPath IT"],
+    kind: "custom",
+    drafts: [],
     ...over,
   };
 }

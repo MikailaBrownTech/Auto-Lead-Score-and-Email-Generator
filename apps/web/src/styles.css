@@ -348,3 +348,32 @@ dl dt {
 dl dd {
   margin: 2px 0 0 0;
 }
+
+.banner-error {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--bad);
+  background: #fdecec;
+  color: #7a1616;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 10px 0;
+}
+.banner-notice {
+  border: 1px solid #e0b060;
+  background: #fff7e6;
+  color: #4a3200;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 10px 0;
+}
+.banner-notice.info {
+  border-color: #9cc3ea;
+  background: #eef6ff;
+  color: #173a5e;
+}
+.badge.template {
+  background: #eef6ff;
+  color: #173a5e;
+}

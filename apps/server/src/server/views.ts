@@ -1,13 +1,13 @@
-import { isFound, type Dossier, type LeadDetail, type LeadFlags, type LeadRow, type SequenceView } from "@clearpath/shared";
+import { isFound, type Dossier, type LeadDetail, type LeadFlags, type LeadRow, type Sequence, type SequenceListItem, type SequenceView } from "@clearpath/shared";
 import { readStoredDossier, tryReadStoredDossier } from "../pipeline/stored-dossier";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads, runs, sequences } from "../db/schema";
 import { DOCS_DIR, loadScoring } from "../docs/loader";
 import { directContactChecklist, directContactReason, lacksDirectContact, leadOverride } from "../scoring/direct-contact";
 import { scoreDossier } from "../scoring/score";
 import { signatureLines } from "../validators/email";
-import { customEmailsFor, type WriteDeps } from "../write/generate";
+import { customEmailsFor, notWrittenReason, type WriteDeps } from "../write/generate";
 import { loadSequenceContext, sequenceState } from "../write/edit";
 import type { Services } from "./services";
 
@@ -25,12 +25,35 @@ export function costByLead(db: Db): Map<string, number> {
   return new Map(rows.filter((r) => r.leadId).map((r) => [r.leadId!, r.cost]));
 }
 
-function latestSequences(db: Db): Map<string, { id: number; status: string }> {
-  const out = new Map<string, { id: number; status: string }>();
-  for (const row of db.select({ id: sequences.id, leadId: sequences.leadId, status: sequences.status }).from(sequences).orderBy(asc(sequences.id)).all()) {
-    out.set(row.leadId, { id: row.id, status: row.status });
+function latestSequences(db: Db): Map<string, { id: number; status: string; createdAt: string }> {
+  const out = new Map<string, { id: number; status: string; createdAt: string }>();
+  for (const row of db
+    .select({ id: sequences.id, leadId: sequences.leadId, status: sequences.status, createdAt: sequences.createdAt, json: sequences.sequenceJson })
+    .from(sequences)
+    .orderBy(asc(sequences.id))
+    .all()) {
+    // A row without usable emails (an old unusable draft) is not a sequence to open.
+    if (row.json && row.json !== "null") out.set(row.leadId, { id: row.id, status: row.status, createdAt: row.createdAt });
   }
   return out;
+}
+
+export function sequenceKind(seq: Sequence): "template" | "custom" {
+  return seq.emails.every((e) => e.template && !e.edited) ? "template" : "custom";
+}
+
+/** The Sequences screen: each lead's newest sequence, templates included. */
+export function listSequences(db: Db): SequenceListItem[] {
+  const latest = latestSequences(db);
+  const out: SequenceListItem[] = [];
+  for (const [leadId, s] of latest) {
+    const row = db.select().from(sequences).where(eq(sequences.id, s.id)).get()!;
+    const seq = JSON.parse(row.sequenceJson) as Sequence;
+    const lead = db.select({ dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, leadId)).get();
+    const d = lead?.dossierJson ? tryReadStoredDossier(lead.dossierJson) : null;
+    out.push({ id: s.id, leadId, firm: d && isFound(d.firm_name) ? d.firm_name.value : null, tier: row.tier, status: row.status, kind: sequenceKind(seq), createdAt: row.createdAt });
+  }
+  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function flagsFor(d: Dossier | null, status: string, incompleteData: boolean): LeadFlags {
@@ -114,14 +137,31 @@ export function leadDetail(s: Services, id: string): LeadDetail {
       .all(),
     sequenceId: seq?.id ?? null,
     sequenceStatus: seq?.status ?? null,
+    notWrittenReason: dossier.gate.status !== "qualified" && !l.gateApproved ? notWrittenReason(dossier.gate) : null,
+    lastWriteAttempt: lastAttempt(s.db, id, seq?.createdAt ?? null),
   };
+}
+
+/** The newest logged write attempt, when it is newer than the lead's current sequence. */
+function lastAttempt(db: Db, leadId: string, sequenceAt: string | null): { at: string; detail: string } | null {
+  const e = db
+    .select({ at: leadEvents.createdAt, detail: leadEvents.detail })
+    .from(leadEvents)
+    .where(and(eq(leadEvents.leadId, leadId), eq(leadEvents.kind, "write_attempt")))
+    .orderBy(desc(leadEvents.id))
+    .limit(1)
+    .get();
+  if (!e) return null;
+  // Notes are logged after the sequence they describe; an older note belongs to an older attempt.
+  if (sequenceAt && e.at < sequenceAt) return null;
+  return e;
 }
 
 /** The sequence screen's data: content, live validator issues, judge state, blockers, approved sentences. */
 export function sequenceView(db: Db, sequenceId: number, deps: WriteDeps): SequenceView {
   const ctx = loadSequenceContext(db, sequenceId, deps);
   const state = sequenceState(ctx, ctx.sequence, ctx.judge, deps);
-  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps);
+  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.drafts);
 }
 
 export function sequenceViewFrom(
@@ -133,6 +173,7 @@ export function sequenceViewFrom(
   sequence: SequenceView["sequence"],
   state: ReturnType<typeof sequenceState>,
   deps: WriteDeps,
+  drafts: SequenceView["drafts"] = [],
 ): SequenceView {
   return {
     id,
@@ -153,5 +194,7 @@ export function sequenceViewFrom(
     breakupSentences: deps.style.breakup_sentences,
     subjectMaxWords: deps.style.subject_max_words,
     signature: signatureLines(deps.offer),
+    kind: sequenceKind(sequence),
+    drafts,
   };
 }

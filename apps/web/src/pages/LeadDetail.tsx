@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import type { JobView, LeadDetail, SequenceView } from "@clearpath/shared";
 import { api, useApi, usd } from "../api";
+import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { ReasonForm } from "../components/ReasonForm";
 import { href, navigate } from "../router";
 import { JobStatus, useJob } from "./Import";
@@ -137,7 +138,7 @@ function PasteForm(props: { leadId: string; onDone: () => void }) {
       <button type="submit" disabled={!!jobId && !finished}>
         Re-run with pasted text
       </button>
-      {error && <p className="error">{error}</p>}
+      <ErrorBanner message={error} />
       {job && <JobStatus job={job} />}
       {finished && (
         <button type="button" className="secondary" onClick={props.onDone}>
@@ -152,7 +153,7 @@ export function LeadDetailPage(props: { id: string }) {
   const { data: lead, error, reload, setData } = useApi<LeadDetail>(`/leads/${encodeURIComponent(props.id)}`);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <ErrorBanner message={error} />;
   if (!lead) return <p className="muted">Loading…</p>;
   const d = lead.dossier;
 
@@ -164,6 +165,7 @@ export function LeadDetailPage(props: { id: string }) {
       navigate("sequences", s.id);
     } catch (err) {
       setActionError((err as Error).message);
+      reload(); // picks up the logged reason, so it stays visible after leaving this page
     } finally {
       setBusy(false);
     }
@@ -198,11 +200,19 @@ export function LeadDetailPage(props: { id: string }) {
             Open sequence ({lead.sequenceStatus})
           </a>
         )}
-        <button type="button" onClick={writeSequence} disabled={busy || (gated && !lead.gateApproved)}>
-          {busy ? "Writing…" : lead.sequenceId ? "Write the sequence again" : "Write sequence"}
+        <button type="button" onClick={writeSequence} disabled={busy || !!lead.notWrittenReason}>
+          {busy ? "Writing… (about 10-30 seconds)" : lead.sequenceId ? "Write the sequence again" : "Write sequence"}
         </button>
-        {actionError && <span className="error">{actionError}</span>}
+        {lead.tier === "C" && !lead.notWrittenReason && <span className="muted">Tier C: template emails, no model call.</span>}
       </div>
+      {/* Why nothing was (or can be) written, always in words next to the button. */}
+      {lead.notWrittenReason && <NoticeBanner>{lead.notWrittenReason} (See the gate box below.)</NoticeBanner>}
+      {lead.lastWriteAttempt && (
+        <NoticeBanner>
+          Last write attempt ({lead.lastWriteAttempt.at.slice(0, 16).replace("T", " ")}): {lead.lastWriteAttempt.detail}
+        </NoticeBanner>
+      )}
+      <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
 
       <div className={`card gate gate-${d.gate.status}`}>
         <h3>Gate: {d.gate.status.replace(/_/g, " ")}</h3>

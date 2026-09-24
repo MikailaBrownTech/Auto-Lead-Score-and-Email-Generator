@@ -53,6 +53,8 @@ export interface SequenceContext {
   plan: WritePlan;
   vctx: ValidationContext;
   judge: StoredJudge | null;
+  /** The writer drafts that produced this sequence (blocked ones too), with their errors. */
+  drafts: { attempt: number; formatProblem: string | null; errors: ValidationResult["issues"] }[];
 }
 
 export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps): SequenceContext {
@@ -82,7 +84,9 @@ export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps)
     templateSentences,
   };
   const judge = row.judgeJson ? (JSON.parse(row.judgeJson) as StoredJudge) : null;
-  return { id: row.id, leadId: row.leadId, tier: row.tier, status: row.status, sequence, dossier, override, greeting, plan, vctx, judge };
+  const stored = JSON.parse(row.validationJson) as { drafts?: { attempt: number; formatProblem: string | null; errors: ValidationResult["issues"] }[] } | null;
+  const drafts = (stored?.drafts ?? []).map((d) => ({ attempt: d.attempt, formatProblem: d.formatProblem, errors: d.errors }));
+  return { id: row.id, leadId: row.leadId, tier: row.tier, status: row.status, sequence, dossier, override, greeting, plan, vctx, judge, drafts };
 }
 
 /**
