@@ -1,0 +1,3 @@
+# Recorded pages must stay byte-exact (hashes and quotes are checked against them).
+apps/server/test/fixtures/live/** -text
+apps/server/test/fixtures/html/** -text
