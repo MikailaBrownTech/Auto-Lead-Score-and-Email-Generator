@@ -97,6 +97,13 @@ function checkText(
   if (caps.length > 0) err("all_caps", `${label} has ALL CAPS words not in allowed_acronyms: ${caps.join(", ")}`);
   if (PLACEHOLDER_RE.test(text)) err("placeholder", `${label} has an unfilled placeholder: ${PLACEHOLDER_RE.exec(text)![0]}`);
   if (/\bDKIM\b/i.test(text)) err("dkim_claim", `${label} mentions DKIM; DKIM status is never checked or claimed`);
+  // Never quote penalty amounts (fear) or prices (docs/01: do not quote pricing).
+  if (/\$\s?\d|\b\d[\d,.]*\s?(dollars|usd)\b/i.test(text)) {
+    err("dollar_amount", `${label} contains a dollar amount; penalty figures and prices are never used`);
+  }
+  if (/\b(civil )?penalt(y|ies)\b|\bper violation\b/i.test(text)) {
+    err("penalty_language", `${label} mentions penalties; penalty facts are never used in emails`);
+  }
 }
 
 function checkSubject(

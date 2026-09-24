@@ -35,6 +35,8 @@ export const EnvSchema = z.object({
   FETCH_TIMEOUT_MS: intFromString(15_000),
   /** Bodies larger than this are cut off and marked truncated. */
   FETCH_MAX_BYTES: intFromString(2_000_000),
+  /** Fetched pages and robots.txt answers are reused for this many days before being fetched again. */
+  PAGE_CACHE_DAYS: intFromString(7),
   DB_PATH: z.string().default("data/clearpath.db"),
   PRICES_PATH: z.string().default("config/prices.json"),
 });

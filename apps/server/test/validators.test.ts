@@ -202,6 +202,21 @@ ${sentence}` }))).not.toContain("absence_claim");
     expect(codes(withEmail(1, { subject_b: "no wisp on file" }))).toContain("absence_claim");
   });
 
+  it.each([
+    ["Violations can cost $50,000 each."],
+    ["Fines reach 50,000 dollars."],
+    ["Our plan is $99 a month."],
+  ])("blocks dollar amounts: %s", (sentence) => {
+    expect(codes(withEmail(2, { body: `Hi Jane,
+${sentence}` }))).toContain("dollar_amount");
+  });
+
+  it("blocks penalty language even without an amount", () => {
+    expect(codes(withEmail(2, { body: "Hi Jane,\nThe rule carries a civil penalty for each violation." }))).toContain(
+      "penalty_language",
+    );
+  });
+
   it("blocks any DKIM claim", () => {
     expect(codes(withEmail(2, { body: "Hi Jane,\nYour DKIM looks fine." }))).toContain("dkim_claim");
   });
@@ -262,6 +277,13 @@ describe("docs/09 templates pass the same validators", () => {
     const r = validateSequence(seq, { style, offer, dossier });
     expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);
     expect(r.issues.filter((i) => i.severity === "warning")).toEqual([]);
+  });
+
+  it("templates contain no dollar amounts or penalty language", () => {
+    for (const [name, t] of templates) {
+      const all = [t.subject_a ?? "", t.subject_b ?? "", t.body].join(" ");
+      expect(all, name).not.toMatch(/\$\s?\d|dollars|penalt|per violation/i);
+    }
   });
 
   it("email 3 follows cta_type: the default checklist offer never mentions the scorecard", () => {

@@ -92,4 +92,12 @@ describe("subpage selection", () => {
     expect(classifyPage(new URL("https://x.example/data-protection"))).toBe("security");
     expect(classifyPage(new URL("https://x.example/faq"))).toBe("other");
   });
+
+  it("never treats a blog or news article as the about, services, or security page", () => {
+    expect(classifyPage(new URL("https://x.example/blog/ftc-safeguards-rule-checklist"), "Safeguards checklist")).toBe("other");
+    expect(classifyPage(new URL("https://x.example/news/our-new-team-member"), "Meet our team")).toBe("other");
+    const skip = loadSkipPatterns();
+    const picked = selectSubpages("https://x.example/", [{ href: "https://x.example/blog/security-tips", text: "Security tips" }], skip);
+    expect(picked).toEqual([]);
+  });
 });

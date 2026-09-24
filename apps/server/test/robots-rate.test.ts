@@ -56,6 +56,24 @@ describe("robots.txt", () => {
     expect(web.requests).toHaveLength(0);
   });
 
+  it("skips a site whose Crawl-delay is over 10 seconds and records why", async () => {
+    const web = new FakeWeb()
+      .host("slow.example", [PUBLIC_IP])
+      .route("https://slow.example/robots.txt", text("User-agent: *\nCrawl-delay: 11\n"));
+    const p = policy(web);
+    expect(await p.check(new URL("https://slow.example/"))).toMatchObject({ allowed: false });
+    expect(p.failures[0]).toMatch(/Crawl-delay 11s exceeds the 10s limit/);
+  });
+
+  it("accepts a Crawl-delay of exactly 10 seconds", async () => {
+    const web = new FakeWeb()
+      .host("a.example", [PUBLIC_IP])
+      .route("https://a.example/robots.txt", text("User-agent: *\nCrawl-delay: 10\n"));
+    const { limiter } = fakeLimiter();
+    expect(await policy(web, limiter).check(new URL("https://a.example/"))).toEqual({ allowed: true });
+    expect(limiter.intervalFor("a.example")).toBe(10_000);
+  });
+
   it("applies Crawl-delay to the host's rate limit", async () => {
     const web = new FakeWeb()
       .host("a.example", [PUBLIC_IP])

@@ -5,17 +5,29 @@ import type { HostRateLimiter } from "./rate-limit";
 /** Product token matched against User-agent lines in robots.txt. */
 export const ROBOTS_TOKEN = "ClearPathLeadConsole";
 
-/** Crawl-delay values above this are capped (seconds). */
-const MAX_CRAWL_DELAY_S = 30;
+/** A site asking for a longer Crawl-delay than this (seconds) is skipped for the run. */
+export const MAX_CRAWL_DELAY_S = 10;
 
 type RobotsState =
   | { kind: "rules"; allows: (url: string) => boolean }
   | { kind: "missing" } // 4xx: no restrictions
-  | { kind: "unavailable"; reason: string }; // 5xx or unreachable: disallow everything this run
+  | { kind: "unavailable"; reason: string }; // 5xx, unreachable, or excessive Crawl-delay: disallow this run
 
 export interface RobotsDecision {
   allowed: boolean;
   reason?: string;
+}
+
+/** A definitive robots.txt answer worth remembering: a 2xx body or a 4xx status. */
+export interface RobotsSnapshot {
+  status: number;
+  body: string;
+}
+
+/** Optional persistent cache (SQLite) so reruns within the page-cache window do not refetch robots.txt. */
+export interface RobotsStore {
+  get(origin: string): RobotsSnapshot | null;
+  put(origin: string, snapshot: RobotsSnapshot): void;
 }
 
 /**
@@ -24,6 +36,7 @@ export interface RobotsDecision {
  *  - 4xx: treated as "no robots.txt", everything allowed.
  *  - 5xx, network error, blocked, or too many redirects: the whole origin is disallowed for this run,
  *    and the reason is reported so it lands in the dossier's failures.
+ *  - Crawl-delay over MAX_CRAWL_DELAY_S: the site is skipped for this run.
  */
 export class RobotsPolicy {
   private readonly cache = new Map<string, Promise<RobotsState>>();
@@ -33,6 +46,7 @@ export class RobotsPolicy {
   constructor(
     private readonly fetchDeps: Omit<GuardedFetchDeps, "beforeRequest">,
     private readonly limiter: HostRateLimiter,
+    private readonly store?: RobotsStore,
   ) {}
 
   private load(origin: string): Promise<RobotsState> {
@@ -44,33 +58,47 @@ export class RobotsPolicy {
     return state;
   }
 
-  private async fetchRobots(origin: string): Promise<RobotsState> {
+  private unavailable(origin: string, why: string): RobotsState {
+    const reason = `robots.txt for ${origin} unavailable (${why}); site treated as disallowed for this run`;
+    this.failures.push(reason);
+    return { kind: "unavailable", reason };
+  }
+
+  private fromSnapshot(origin: string, snap: RobotsSnapshot): RobotsState {
+    if (snap.status >= 400) return { kind: "missing" };
     const robotsUrl = `${origin}/robots.txt`;
-    const outcome = await guardedFetch(robotsUrl, "robots", {
+    const robots = robotsParser(robotsUrl, snap.body);
+    const delay = robots.getCrawlDelay(ROBOTS_TOKEN);
+    if (typeof delay === "number" && delay > MAX_CRAWL_DELAY_S) {
+      return this.unavailable(origin, `Crawl-delay ${delay}s exceeds the ${MAX_CRAWL_DELAY_S}s limit`);
+    }
+    if (typeof delay === "number" && delay > 0) {
+      this.limiter.setInterval(new URL(origin).hostname, delay * 1000);
+    }
+    // robots-parser returns undefined for URLs outside this origin; treat that as not allowed.
+    return { kind: "rules", allows: (url) => robots.isAllowed(url, ROBOTS_TOKEN) === true };
+  }
+
+  private async fetchRobots(origin: string): Promise<RobotsState> {
+    const stored = this.store?.get(origin);
+    if (stored) return this.fromSnapshot(origin, stored);
+
+    const outcome = await guardedFetch(`${origin}/robots.txt`, "robots", {
       ...this.fetchDeps,
       beforeRequest: async (url) => {
         await this.limiter.acquire(url.hostname);
         return null;
       },
     });
-    const unavailable = (why: string): RobotsState => {
-      const reason = `robots.txt for ${origin} unavailable (${why}); site treated as disallowed for this run`;
-      this.failures.push(reason);
-      return { kind: "unavailable", reason };
-    };
-    if (!outcome.ok) return unavailable(outcome.reason);
-    if (outcome.status >= 500) return unavailable(`HTTP ${outcome.status}`);
-    if (outcome.status >= 400) return { kind: "missing" };
-    if (outcome.status < 200 || outcome.status >= 300) return unavailable(`HTTP ${outcome.status}`);
-
-    const text = outcome.body.length > 0 ? decodeBody(outcome.body, outcome.contentType) : "";
-    const robots = robotsParser(robotsUrl, text);
-    const delay = robots.getCrawlDelay(ROBOTS_TOKEN);
-    if (typeof delay === "number" && delay > 0) {
-      this.limiter.setInterval(new URL(origin).hostname, Math.min(delay, MAX_CRAWL_DELAY_S) * 1000);
+    if (!outcome.ok) return this.unavailable(origin, outcome.reason);
+    if (outcome.status >= 500) return this.unavailable(origin, `HTTP ${outcome.status}`);
+    if (outcome.status >= 200 && outcome.status < 500 && !(outcome.status >= 300 && outcome.status < 400)) {
+      const body = outcome.status < 300 && outcome.body.length > 0 ? decodeBody(outcome.body, outcome.contentType) : "";
+      const snapshot = { status: outcome.status, body };
+      this.store?.put(origin, snapshot);
+      return this.fromSnapshot(origin, snapshot);
     }
-    // robots-parser returns undefined for URLs outside this origin; treat that as not allowed.
-    return { kind: "rules", allows: (url) => robots.isAllowed(url, ROBOTS_TOKEN) === true };
+    return this.unavailable(origin, `HTTP ${outcome.status}`);
   }
 
   async check(url: URL): Promise<RobotsDecision> {

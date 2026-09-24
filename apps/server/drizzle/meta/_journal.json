@@ -15,6 +15,13 @@
       "when": 1790209773655,
       "tag": "0001_cache_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790218006355,
+      "tag": "0002_leads_pages_extractions",
+      "breakpoints": true
     }
   ]
 }

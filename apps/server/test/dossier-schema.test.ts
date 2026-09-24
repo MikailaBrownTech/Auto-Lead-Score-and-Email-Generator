@@ -112,11 +112,12 @@ describe("extraction tool schema (generated from zod)", () => {
       pages_opened,
       failures,
       prompt_injection_flag,
+      injection_findings,
       dns,
       security_mention_search,
       ...facts
     } = strongDossier();
-    void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, dns, security_mention_search];
+    void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, injection_findings, dns, security_mention_search];
     expect(ExtractedFactsSchema.safeParse(facts).success).toBe(true);
   });
 

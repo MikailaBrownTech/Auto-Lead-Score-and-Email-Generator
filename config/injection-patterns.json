@@ -1,0 +1,19 @@
+{
+  "notes": "Regular expressions (case-insensitive) that suggest text is trying to instruct an AI. Matches set prompt_injection_flag; the text is still treated as data.",
+  "patterns": [
+    "ignore (all |any |the |your )?(previous|prior|above|earlier|preceding) (instructions|rules|prompts?|directions)",
+    "disregard (all |any |the |your )?(previous |prior |above )?(instructions|rules|guidelines|prompts?)",
+    "forget (all |your )?(previous |prior )?(instructions|rules)",
+    "\\b(you are|you're) now (in )?\\w+ mode",
+    "\\b(admin|developer|debug|god|jailbreak) mode\\b",
+    "\\bsystem\\s*(prompt|message|override)\\b",
+    "^\\s*system\\s*:",
+    "\\b(note|message|instructions?) (to|for) (any |the )?(ai|llm|language model|assistant|chatbot|model)\\b",
+    "\\b(ai|llm|language model|chatbot) (assistant|model)?\\s*(reading|processing|summari[sz]ing) this\\b",
+    "\\b(assistant|ai|claude|chatgpt|gpt)\\s*[,:] (please )?(ignore|disregard|say|include|report|approve|mark|pretend|act)\\b",
+    "\\bnew instructions\\b",
+    "\\bdo not (tell|mention|reveal|disclose) (the user|anyone|this)\\b",
+    "\\b(mark|rate|score|classify) this (lead|firm|company) as\\b",
+    "\\bapprove (every|all|this) (email|message|output)s?\\b"
+  ]
+}

@@ -11,6 +11,7 @@ Every field is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 w
   "pages_opened": [],
   "failures": [],
   "prompt_injection_flag": false,
+  "injection_findings": [],
   "firm_name": {},
   "firm_type": {},
   "location": {},
@@ -71,3 +72,4 @@ Notes:
 - dns.dkim is always NOT_CHECKED. Never claim DKIM status.
 - security_mention_search is filled by code, not the LLM: "NOT_CHECKED", or {keywords, pages: [{url, kind, http_status, content_type, truncated, text_chars, sha256}], matches: [{url, keyword}]}. It is the evidence for the docs/06 "no WISP/security mention" score. Every searched URL must be in pages_opened.
 - pages_opened lists only pages actually fetched with HTTP 200 and an HTML content type.
+- prompt_injection_flag is true when injection_findings is not empty. injection_findings (filled by code) lists each suspected injection: {url, where: "visible" | "hidden" | "model", snippet}. "hidden" covers display:none text, aria-hidden text, and HTML comments; hidden text is never sent to the model and never used as evidence.

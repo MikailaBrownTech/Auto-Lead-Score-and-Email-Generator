@@ -1,9 +1,9 @@
 import type { PageKind } from "@clearpath/shared";
-import { cleanHtml, sha256 } from "./clean";
+import { cleanHtml, sha256, type PageLink } from "./clean";
 import { decodeBody, guardedFetch, type FetchOutcome, type GuardedFetchDeps } from "./guarded-fetch";
 import { checkUrl } from "./ip-guard";
 import { HostRateLimiter } from "./rate-limit";
-import { RobotsPolicy } from "./robots";
+import { RobotsPolicy, type RobotsStore } from "./robots";
 import { selectSubpages } from "./select";
 import type { HttpTransport, Resolver } from "./transport";
 
@@ -26,6 +26,8 @@ export interface FetchedPage {
   truncated: boolean;
   nearEmpty: boolean;
   fetchedAt: string;
+  /** True when served from the SQLite page cache instead of the network. */
+  fromCache?: boolean;
 }
 
 export interface SiteFetchResult {
@@ -51,6 +53,13 @@ export interface SiteFetchDeps {
    * near-empty page is recorded in failures instead.
    */
   renderJs?: (url: string) => Promise<string | null>;
+  /** Remembers robots.txt answers across runs (same window as the page cache). */
+  robotsStore?: RobotsStore;
+  /** Reuse recently fetched pages instead of requesting them again (Milestone 3 page cache). */
+  pageCache?: {
+    get(requestedUrl: string): { page: FetchedPage; links: PageLink[] } | null;
+    put(page: FetchedPage, links: PageLink[]): void;
+  };
 }
 
 export function userAgentFor(contactUrl: string): string {
@@ -82,7 +91,7 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
     timeoutMs: deps.timeoutMs,
     maxBytes: deps.maxBytes,
   };
-  const robots = new RobotsPolicy(base, limiter);
+  const robots = new RobotsPolicy(base, limiter, deps.robotsStore);
   const fetchDeps: GuardedFetchDeps = {
     ...base,
     beforeRequest: async (url) => {
@@ -112,7 +121,24 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
   }
   const homeUrl = new URL("/", start).toString();
 
-  async function fetchPage(url: string, kind: PageKind, label: string): Promise<{ page: FetchedPage; links: ReturnType<typeof cleanHtml>["links"] } | null> {
+  function notePageProblems(label: string, page: FetchedPage): void {
+    if (page.truncated) failures.push(`${label} ${page.url}: response over ${deps.maxBytes} bytes; truncated`);
+    if (page.nearEmpty) {
+      failures.push(
+        `${label} ${page.url}: almost no text (${page.text.length} chars); likely needs JavaScript` +
+          (deps.renderJs ? "" : " (Playwright fallback not enabled)"),
+      );
+    }
+  }
+
+  async function fetchPage(url: string, kind: PageKind, label: string): Promise<{ page: FetchedPage; links: PageLink[] } | null> {
+    const cached = deps.pageCache?.get(url);
+    if (cached) {
+      const page = { ...cached.page, kind, fromCache: true };
+      notePageProblems(label, page);
+      return { page, links: cached.links };
+    }
+
     const outcome = await guardedFetch(url, "html", fetchDeps);
     if (!outcome.ok) {
       failures.push(describeFailure(label, outcome));
@@ -124,14 +150,7 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
       const rendered = await deps.renderJs(outcome.finalUrl);
       if (rendered) cleaned = cleanHtml(rendered, outcome.finalUrl);
     }
-    if (outcome.truncated) failures.push(`${label} ${outcome.finalUrl}: response over ${deps.maxBytes} bytes; truncated`);
-    if (cleaned.nearEmpty) {
-      failures.push(
-        `${label} ${outcome.finalUrl}: almost no text (${cleaned.text.length} chars); likely needs JavaScript` +
-          (deps.renderJs ? "" : " (Playwright fallback not enabled)"),
-      );
-    }
-    return {
+    const fetched: { page: FetchedPage; links: PageLink[] } = {
       page: {
         requestedUrl: url,
         url: outcome.finalUrl,
@@ -147,9 +166,13 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
         truncated: outcome.truncated,
         nearEmpty: cleaned.nearEmpty,
         fetchedAt: now().toISOString(),
+        fromCache: false,
       },
       links: cleaned.links,
     };
+    notePageProblems(label, fetched.page);
+    deps.pageCache?.put(fetched.page, fetched.links);
+    return fetched;
   }
 
   const home = await fetchPage(homeUrl, "home", "homepage");

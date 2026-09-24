@@ -85,10 +85,21 @@ export function parseVerifiedFacts(markdown: string): RegulatoryFact[] {
   return facts;
 }
 
+/** Dollar amounts or penalty language. Such facts never reach the writer, VERIFIED or not. */
+export function isMoneyOrPenaltyFact(text: string): boolean {
+  return /\$\s?\d|\b\d[\d,.]*\s?(dollars|usd)\b|\bpenalt(y|ies)\b|\bfines?\b/i.test(text);
+}
+
+/** The facts the writer may use: exact-VERIFIED lines minus any dollar-penalty facts. */
+export function writerFacts(facts: RegulatoryFact[]): RegulatoryFact[] {
+  return facts.filter((f) => !isMoneyOrPenaltyFact(f.text));
+}
+
 export const loadOffer = (docsDir = DOCS_DIR) => parseOffer(readDoc(docsDir, DOC_FILES.offer));
 export const loadStyle = (docsDir = DOCS_DIR) => parseStyle(readDoc(docsDir, DOC_FILES.style));
 export const loadScoring = (docsDir = DOCS_DIR) => parseScoring(readDoc(docsDir, DOC_FILES.scoring));
 export const loadVerifiedFacts = (docsDir = DOCS_DIR) => parseVerifiedFacts(readDoc(docsDir, DOC_FILES.regulatory));
+export const loadWriterFacts = (docsDir = DOCS_DIR) => writerFacts(loadVerifiedFacts(docsDir));
 
 const BLOCKS = {
   offer: { file: DOC_FILES.offer, parse: parseOffer, schema: OfferConfigSchema },

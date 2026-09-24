@@ -168,7 +168,16 @@ export function createLlmClient(deps: LlmClientDeps) {
     }
   }
 
-  return { call };
+  /** Exact token count of a piece of text for a model, from the count_tokens API (free; not logged as spend). */
+  async function countText(model: string, text: string): Promise<number> {
+    const r = await withBackoff(
+      () => api.messages.countTokens({ model, messages: [{ role: "user", content: text }] }),
+      deps.backoff,
+    );
+    return r.input_tokens;
+  }
+
+  return { call, countText };
 }
 
 export type LlmClient = ReturnType<typeof createLlmClient>;

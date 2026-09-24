@@ -8,7 +8,8 @@
     "start": "tsx src/index.ts",
     "smoke": "tsx scripts/smoke.ts",
     "db:generate": "drizzle-kit generate",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "extract-live": "tsx scripts/extract-live.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

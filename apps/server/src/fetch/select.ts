@@ -30,8 +30,12 @@ export function siteKey(host: string): string {
   return host.toLowerCase().replace(/^www\./, "");
 }
 
+/** Articles are not a firm's about/services/security pages, even when their titles use those words. */
+const ARTICLE_PATH = /\/(blog|news|articles?|posts?|insights|resources|press|events)\//i;
+
 export function classifyPage(url: URL, linkText = ""): PageKind {
   if (url.pathname === "/" || url.pathname === "") return "home";
+  if (ARTICLE_PATH.test(url.pathname)) return "other";
   for (const kind of PRIORITY) {
     const p = KIND_PATTERNS[kind];
     if (p.path.test(url.pathname) || p.text.test(linkText)) return kind;

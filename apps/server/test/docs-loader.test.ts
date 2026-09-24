@@ -6,14 +6,17 @@ import { BlockError, readBlock, writeBlock } from "../src/docs/blocks";
 import {
   DOC_FILES,
   DOCS_DIR,
+  isMoneyOrPenaltyFact,
   isPlaceholder,
   loadOffer,
+  loadWriterFacts,
   loadScoring,
   loadStyle,
   loadVerifiedFacts,
   parseOffer,
   parseVerifiedFacts,
   saveBlock,
+  writerFacts,
 } from "../src/docs/loader";
 
 describe("real docs (tests run against the files in docs/)", () => {
@@ -59,6 +62,25 @@ describe("real docs (tests run against the files in docs/)", () => {
     const text = fs.readFileSync(path.join(DOCS_DIR, DOC_FILES.regulatory), "utf8");
     const exact = text.split(/\r?\n/).filter((l) => /^\s*-\s.*\sVERIFIED\.?\s*$/.test(l) && !/\[\s*VERIFY/i.test(l));
     expect(facts).toHaveLength(exact.length);
+  });
+});
+
+describe("writer facts never include dollar-penalty facts", () => {
+  it("drops money and penalty lines even when marked VERIFIED", () => {
+    const facts = parseVerifiedFacts(
+      [
+        "- Requires a written information security program. VERIFIED",
+        "- Maximum civil penalty per violation: $50,000. VERIFIED",
+        "- Violations can bring fines. VERIFIED",
+        "- Penalties apply per day. VERIFIED",
+      ].join("\n"),
+    );
+    expect(writerFacts(facts).map((f) => f.text)).toEqual(["Requires a written information security program."]);
+  });
+
+  it("the real docs/02 writer facts contain no dollar amounts or penalties", () => {
+    for (const f of loadWriterFacts()) expect(f.text).not.toMatch(/\$\s?\d|penalt|\bfines?\b/i);
+    expect(isMoneyOrPenaltyFact("Maximum civil penalty per violation: $50,000.")).toBe(true);
   });
 });
 

@@ -3,7 +3,9 @@ import { loadScoring } from "../src/docs/loader";
 import { loadSkipPatterns } from "../src/fetch/select";
 import { fetchSite, normalizeInputUrl, userAgentFor, type SiteFetchDeps } from "../src/fetch/site";
 import { searchSecurityMentions } from "../src/scoring/security-search";
-import { fakeLimiter, sampleWeb, type FakeWeb } from "./fixtures/fakeweb";
+import { scoreDossier } from "../src/scoring/score";
+import { strongDossier } from "./fixtures/dossiers";
+import { FakeWeb, fakeLimiter, html, PUBLIC_IP, sampleWeb } from "./fixtures/fakeweb";
 
 const UA = userAgentFor("https://www.clearpathsecure.com/contact");
 const skipPatterns = loadSkipPatterns();
@@ -143,6 +145,42 @@ describe("fetchSite on saved fixtures (no live network)", () => {
   it("normalizes bare domains to https", () => {
     expect(normalizeInputUrl(" smithtax.example/about ")).toBe("https://smithtax.example/about");
     expect(normalizeInputUrl("http://x.example")).toBe("http://x.example");
+  });
+
+  it("a page truncated at the 2 MB cap never counts toward the no-WISP points", async () => {
+    const scoring = loadScoring();
+    const toSearchable = (p: Awaited<ReturnType<typeof fetchSite>>["pages"][number]) => ({
+      url: p.url,
+      kind: p.kind,
+      httpStatus: p.httpStatus,
+      contentType: p.contentType,
+      truncated: p.truncated,
+      text: p.text,
+      sha256: p.textSha256,
+    });
+    const run = async (maxBytes: number) => {
+      const web = new FakeWeb()
+        .host("tiny.example", [PUBLIC_IP])
+        .route("https://tiny.example/", html("smithtax/index.html"))
+        .route("https://tiny.example/privacy-policy", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+          body: "<html><body><main><p>" + "We respect client privacy and handle records with care. ".repeat(300) + "</p></main></body></html>",
+        });
+      const r = await fetchSite("tiny.example", deps(web, { maxBytes }).deps);
+      const search = searchSecurityMentions(r.pages.map(toSearchable), scoring.wisp_keywords);
+      const dossier = strongDossier({ pages_opened: r.pages.map((p) => p.url), security_mention_search: search }, scoring.wisp_keywords);
+      const points = scoreDossier(dossier, scoring, new Date("2026-09-23T00:00:00Z")).breakdown.find((b) => b.key === "no_wisp_mention")!;
+      return { r, points: points.points };
+    };
+    const complete = await run(2_000_000);
+    expect(complete.r.pages.find((p) => p.kind === "privacy")!.truncated).toBe(false);
+    expect(complete.points).toBe(10);
+    const cut = await run(8_000); // homepage fits, the long privacy page is cut off
+    expect(cut.r.pages.find((p) => p.kind === "home")!.truncated).toBe(false);
+    expect(cut.r.pages.find((p) => p.kind === "privacy")!.truncated).toBe(true);
+    expect(cut.r.failures.join()).toMatch(/truncated/);
+    expect(cut.points).toBe(0);
   });
 
   it("feeds the WISP keyword search: smithtax has no mention, oakcpa does", async () => {

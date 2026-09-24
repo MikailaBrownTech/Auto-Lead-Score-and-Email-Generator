@@ -113,6 +113,19 @@ export const SecurityMentionSearchSchema = z.union([
 ]);
 export type SecurityMentionSearch = z.infer<typeof SecurityMentionSearchSchema>;
 
+/**
+ * Suspected prompt injection. "visible"/"hidden" come from the code's pattern scan of page text
+ * (hidden = display:none, aria-hidden, HTML comments); "model" means the extraction model flagged it.
+ */
+export const InjectionFindingSchema = z
+  .object({
+    url: z.string().min(1),
+    where: z.enum(["visible", "hidden", "model"]),
+    snippet: z.string().max(300),
+  })
+  .strict();
+export type InjectionFinding = z.infer<typeof InjectionFindingSchema>;
+
 export const DossierSchema = z
   .object({
     lead_id: nonEmpty,
@@ -122,6 +135,7 @@ export const DossierSchema = z
     pages_opened: z.array(z.string().url()),
     failures: z.array(z.string()),
     prompt_injection_flag: z.boolean(),
+    injection_findings: z.array(InjectionFindingSchema).default([]),
     ...ExtractedFactsSchema.shape,
     dns: DnsFindingsSchema,
     security_mention_search: SecurityMentionSearchSchema,
