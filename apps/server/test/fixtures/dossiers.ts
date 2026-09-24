@@ -2,6 +2,23 @@ import { NOT_FOUND, type Dossier } from "@clearpath/shared";
 
 export const HOME = "https://smithtax.example/";
 export const ABOUT = "https://smithtax.example/about";
+export const PRIVACY = "https://smithtax.example/privacy";
+
+const HASH = "a".repeat(64);
+
+/** A keyword search that qualifies for the "no WISP mention" points: home + about + privacy, no matches. */
+export function cleanSearch(keywords: string[]) {
+  const page = (url: string, kind: "home" | "about" | "privacy") => ({
+    url,
+    kind,
+    http_status: 200,
+    content_type: "text/html; charset=utf-8",
+    truncated: false,
+    text_chars: 1500,
+    sha256: HASH,
+  });
+  return { keywords, pages: [page(HOME, "home"), page(ABOUT, "about"), page(PRIVACY, "privacy")], matches: [] };
+}
 
 export function ev<T>(value: T, quote = "quoted text from the page", url = HOME) {
   return { value, evidence_url: url, evidence_quote: quote };
@@ -11,14 +28,14 @@ export function dnsEv<T>(value: T, name = "_dmarc.smithtax.example", type = "TXT
   return { value, evidence_url: `dns:${type} ${name}`, evidence_quote: "no record" };
 }
 
-/** A dossier with every fact found and every scoring signal present (scores 90 of 100). */
-export function strongDossier(overrides: Partial<Dossier> = {}): Dossier {
+/** A dossier with every fact found and every scoring signal present (scores 100). */
+export function strongDossier(overrides: Partial<Dossier> = {}, wispKeywords: string[] = ["wisp", "encryption"]): Dossier {
   return {
     lead_id: "L1",
     source: "web",
     url: HOME,
     domain: "smithtax.example",
-    pages_opened: [HOME, ABOUT],
+    pages_opened: [HOME, ABOUT, PRIVACY],
     failures: [],
     prompt_injection_flag: false,
     firm_name: ev("Smith Tax Services", "Smith Tax Services"),
@@ -44,6 +61,7 @@ export function strongDossier(overrides: Partial<Dossier> = {}): Dossier {
       dmarc_policy: NOT_FOUND,
       dkim: "NOT_CHECKED",
     },
+    security_mention_search: cleanSearch(wispKeywords),
     ...overrides,
   };
 }
@@ -81,5 +99,6 @@ export function emptyDossier(): Dossier {
       dmarc_policy: NOT_FOUND,
       dkim: "NOT_CHECKED",
     },
+    security_mention_search: "NOT_CHECKED",
   };
 }

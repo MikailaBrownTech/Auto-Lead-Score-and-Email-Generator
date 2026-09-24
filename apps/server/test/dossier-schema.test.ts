@@ -104,9 +104,30 @@ describe("extraction tool schema (generated from zod)", () => {
   });
 
   it("round-trips: data valid for the zod schema is what the tool schema describes", () => {
-    const { lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, dns, ...facts } =
-      strongDossier();
-    void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, dns];
+    const {
+      lead_id,
+      source,
+      url,
+      domain,
+      pages_opened,
+      failures,
+      prompt_injection_flag,
+      dns,
+      security_mention_search,
+      ...facts
+    } = strongDossier();
+    void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, dns, security_mention_search];
     expect(ExtractedFactsSchema.safeParse(facts).success).toBe(true);
+  });
+
+  it("does not let the model fill code-only fields (DNS, security keyword search)", () => {
+    const props = Object.keys(extractionInputSchema().properties as object);
+    expect(props).not.toContain("dns");
+    expect(props).not.toContain("security_mention_search");
+  });
+
+  it("rejects a security search whose pages were not opened", () => {
+    const d = strongDossier({ pages_opened: ["https://smithtax.example/"] });
+    expect(issues(d).join()).toMatch(/security_mention_search.*not one of the pages opened/);
   });
 });

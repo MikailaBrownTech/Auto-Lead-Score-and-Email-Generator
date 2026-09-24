@@ -9,7 +9,7 @@ FIT
 - Decision maker named publicly
 
 SIGNALS
-- No WISP/security mention found on site
+- No WISP/security mention found on site. Scored only from the code's keyword search, never from the LLM: the homepage plus at least one privacy, security, or about page must have been fetched as complete HTTP 200 HTML (not truncated, not near-empty), and none of the wisp_keywords may appear in their cleaned text. The searched URLs, keywords, and content hashes are recorded as the evidence.
 - DMARC record missing, or policy=none (from the DNS lookup)
 - Personal email domain on the site
 - Handles tax, payroll, or credit data (from services)
@@ -22,33 +22,151 @@ REACHABILITY
 
 TIERS: A (write full custom), B (custom email 1 and 2, template the rest), C (template only, or skip). Cutoffs are in the block.
 
-RULE: score only from fields with evidence. NOT_FOUND earns zero points and never counts as a negative finding.
+RULE: score only from fields with evidence. NOT_FOUND earns zero points and never counts as a negative finding. The one absence-based signal (no WISP/security mention) is evidenced by the recorded keyword search above, not by NOT_FOUND. It is for scoring only: emails must never claim the firm lacks a WISP or plan.
 
 ```json clearpath:scoring
 {
   "criteria": [
-    { "key": "firm_type_in_target", "group": "fit", "label": "Firm type in target list", "points": 15 },
-    { "key": "size_in_range", "group": "fit", "label": "Size signal within staff range", "points": 10 },
-    { "key": "us_in_scope", "group": "fit", "label": "US and in scope", "points": 5 },
-    { "key": "decision_maker_named", "group": "fit", "label": "Decision maker named publicly", "points": 10 },
-    { "key": "no_wisp_mention", "group": "signals", "label": "No WISP/security mention found on site", "points": 10 },
-    { "key": "dmarc_missing_or_none", "group": "signals", "label": "DMARC record missing, or policy=none", "points": 10 },
-    { "key": "personal_email_domain", "group": "signals", "label": "Personal email domain on the site", "points": 5 },
-    { "key": "sensitive_data_services", "group": "signals", "label": "Handles tax, payroll, or credit data", "points": 10 },
-    { "key": "doc_exchange_without_portal", "group": "signals", "label": "Doc exchange language without a secure portal", "points": 5 },
-    { "key": "public_business_email", "group": "reachability", "label": "Public business email found", "points": 10 },
-    { "key": "site_maintained", "group": "reachability", "label": "Site appears maintained", "points": 5 },
-    { "key": "phone_or_contact_form", "group": "reachability", "label": "Phone or contact form present", "points": 5 }
+    {
+      "key": "firm_type_in_target",
+      "group": "fit",
+      "label": "Firm type in target list",
+      "points": 15
+    },
+    {
+      "key": "size_in_range",
+      "group": "fit",
+      "label": "Size signal within staff range",
+      "points": 10
+    },
+    {
+      "key": "us_in_scope",
+      "group": "fit",
+      "label": "US and in scope",
+      "points": 5
+    },
+    {
+      "key": "decision_maker_named",
+      "group": "fit",
+      "label": "Decision maker named publicly",
+      "points": 10
+    },
+    {
+      "key": "no_wisp_mention",
+      "group": "signals",
+      "label": "No WISP/security mention found on site",
+      "points": 10
+    },
+    {
+      "key": "dmarc_missing_or_none",
+      "group": "signals",
+      "label": "DMARC record missing, or policy=none",
+      "points": 10
+    },
+    {
+      "key": "personal_email_domain",
+      "group": "signals",
+      "label": "Personal email domain on the site",
+      "points": 5
+    },
+    {
+      "key": "sensitive_data_services",
+      "group": "signals",
+      "label": "Handles tax, payroll, or credit data",
+      "points": 10
+    },
+    {
+      "key": "doc_exchange_without_portal",
+      "group": "signals",
+      "label": "Doc exchange language without a secure portal",
+      "points": 5
+    },
+    {
+      "key": "public_business_email",
+      "group": "reachability",
+      "label": "Public business email found",
+      "points": 10
+    },
+    {
+      "key": "site_maintained",
+      "group": "reachability",
+      "label": "Site appears maintained",
+      "points": 5
+    },
+    {
+      "key": "phone_or_contact_form",
+      "group": "reachability",
+      "label": "Phone or contact form present",
+      "points": 5
+    }
   ],
-  "tiers": { "A": 70, "B": 50 },
-  "target_firm_types": ["cpa", "tax_preparer", "bookkeeper", "payroll", "credit_counseling", "collections"],
-  "staff_range": { "min": 3, "max": 30 },
+  "tiers": {
+    "A": 70,
+    "B": 50
+  },
+  "target_firm_types": [
+    "cpa",
+    "tax_preparer",
+    "bookkeeper",
+    "payroll",
+    "credit_counseling",
+    "collections"
+  ],
+  "staff_range": {
+    "min": 3,
+    "max": 30
+  },
   "site_maintained_months": 12,
-  "sensitive_data_keywords": ["tax", "payroll", "credit", "debt", "collection"],
+  "sensitive_data_keywords": [
+    "tax",
+    "payroll",
+    "credit",
+    "debt",
+    "collection"
+  ],
   "personal_email_domains": [
-    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "aol.com", "hotmail.com", "outlook.com",
-    "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "comcast.net", "att.net", "sbcglobal.net",
-    "verizon.net", "protonmail.com", "proton.me"
-  ]
+    "gmail.com",
+    "googlemail.com",
+    "yahoo.com",
+    "ymail.com",
+    "aol.com",
+    "hotmail.com",
+    "outlook.com",
+    "live.com",
+    "msn.com",
+    "icloud.com",
+    "me.com",
+    "mac.com",
+    "comcast.net",
+    "att.net",
+    "sbcglobal.net",
+    "verizon.net",
+    "protonmail.com",
+    "proton.me",
+    "roadrunner.com",
+    "rr.com",
+    "wowway.com"
+  ],
+  "wisp_keywords": [
+    "wisp",
+    "written information security",
+    "information security program",
+    "information security plan",
+    "security program",
+    "security policy",
+    "safeguards rule",
+    "data security",
+    "cybersecurity",
+    "cyber security",
+    "encryption",
+    "encrypted",
+    "multi-factor",
+    "two-factor",
+    "secure portal",
+    "secure file",
+    "protect your data",
+    "protecting your information"
+  ],
+  "wisp_search_min_text_chars": 200
 }
 ```

@@ -10,7 +10,9 @@ SUBJECTS: lowercase, short (word limit in the block below), specific, not clickb
 
 PERSONALIZATION RULE: one specific, verified detail from the dossier per email, max. Never stack many details (it reads as surveillance).
 
-SECURITY OBSERVATIONS: max one per email, hedged, non-accusatory, and only if evidence exists.
+SECURITY OBSERVATIONS: max one per email, hedged, non-accusatory, and only if evidence exists. Never state that the firm lacks a WISP or plan; we cannot know that. Ask instead.
+
+CLAIM SAFETY: no guarantees (compliance, security, protection from fines), no false authority (government approval, unapproved credentials), no urgency.
 
 LINKS: max one per email, none in email 1 if possible. The only link allowed is the CTA link in docs/01.
 
@@ -24,7 +26,7 @@ FIRM-TYPE ANGLES:
 SEQUENCE (send days and word limits are in the block below):
 1. Custom observation plus one question
 2. One Safeguards/IRS requirement relevant to their firm type plus one custom detail
-3. Offer the 2-minute scorecard, or a public-exposure snapshot if verified findings exist
+3. Offer what cta_type in docs/01 names (the one-page checklist, or the 2-minute scorecard once it exists) by reply, or a public-exposure snapshot if verified findings exist
 4. Approved founding-client offer if one exists, otherwise a useful checklist
 5. Break-up, a few sentences
 
@@ -46,39 +48,163 @@ The app reads and writes only the block below (Settings screen). Validators enfo
 - word_limits: max words per email body (greeting through the last sentence before the sign-off; the sign-off, opt-out line and address are not counted). Email 5 is limited by sentence count instead.
 - banned_phrases: matched case-insensitively. Exclamation marks, emojis, ALL CAPS words (other than allowed_acronyms), leftover placeholders, and "Re:"/"Fwd:" on the first subject are always blocked.
 - proof_patterns: phrases that claim clients, results, or credentials. Blocked unless the sentence also contains an approved_proof item from docs/01.
+- absence_claims: a sentence containing one of the negations and one of the plan_terms ("you don't have a WISP") is blocked. Questions and sentences starting with "if" or "whether" are exempt.
 - firm_type_angles: the fixed list of angles a sequence can be tagged with (used by the Results screen).
 
 ```json clearpath:style
 {
-  "send_days": [0, 3, 7, 12, 18],
-  "word_limits": { "1": 75, "2": 90, "3": 90, "4": 80 },
-  "breakup_sentences": { "min": 2, "max": 3 },
+  "send_days": [
+    0,
+    3,
+    7,
+    12,
+    18
+  ],
+  "word_limits": {
+    "1": 75,
+    "2": 90,
+    "3": 90,
+    "4": 80
+  },
+  "breakup_sentences": {
+    "min": 2,
+    "max": 3
+  },
   "subject_max_words": 5,
   "max_links_per_email": 1,
   "max_personal_details_per_email": 1,
   "banned_phrases": [
-    "I hope this finds you well", "hope this email finds you well", "game-changer", "game changer",
-    "revolutionary", "cutting-edge", "cutting edge", "synergy", "quick call",
-    "loved your post", "saw your post", "big fan of", "act now", "limited time", "last chance",
-    "urgent", "don't miss out", "before it's too late", "you could be fined", "facing fines",
-    "penalties of up to", "fines of up to"
+    "I hope this finds you well",
+    "hope this email finds you well",
+    "game-changer",
+    "game changer",
+    "revolutionary",
+    "cutting-edge",
+    "cutting edge",
+    "synergy",
+    "quick call",
+    "loved your post",
+    "saw your post",
+    "big fan of",
+    "act now",
+    "limited time",
+    "last chance",
+    "urgent",
+    "don't miss out",
+    "before it's too late",
+    "you could be fined",
+    "facing fines",
+    "penalties of up to",
+    "fines of up to",
+    "guaranteed compliance",
+    "guarantee compliance",
+    "guaranteed secure",
+    "we'll make you compliant",
+    "we will make you compliant",
+    "100% secure",
+    "100% compliant",
+    "protects you from fines",
+    "protect you from fines",
+    "FTC-approved",
+    "FTC approved",
+    "IRS-approved",
+    "IRS approved",
+    "government-approved",
+    "final notice"
   ],
   "allowed_acronyms": [
-    "WISP", "IRS", "FTC", "CPA", "CPAS", "PII", "MFA", "IT", "US", "EFIN", "PTIN", "SSN", "HUD",
-    "FDCPA", "SPF", "DMARC", "DKIM", "MX", "LLC", "PDF"
+    "WISP",
+    "IRS",
+    "FTC",
+    "CPA",
+    "CPAS",
+    "PII",
+    "MFA",
+    "IT",
+    "US",
+    "EFIN",
+    "PTIN",
+    "SSN",
+    "HUD",
+    "FDCPA",
+    "SPF",
+    "DMARC",
+    "DKIM",
+    "MX",
+    "LLC",
+    "PDF"
   ],
   "proof_patterns": [
-    "our clients", "clients like you", "we helped", "we've helped", "we have helped", "case study",
-    "trusted by", "firms we work with", "we work with", "results for", "certified", "certification"
+    "our clients",
+    "clients like you",
+    "we helped",
+    "we've helped",
+    "we have helped",
+    "case study",
+    "trusted by",
+    "firms we work with",
+    "we work with",
+    "results for",
+    "certified",
+    "certification"
   ],
+  "absence_claims": {
+    "negations": [
+      "don't have",
+      "do not have",
+      "doesn't have",
+      "does not have",
+      "haven't",
+      "hasn't",
+      "has not",
+      "lack",
+      "lacks",
+      "lacking",
+      "missing",
+      "without",
+      "no"
+    ],
+    "plan_terms": [
+      "wisp",
+      "written information security",
+      "information security plan",
+      "information security program",
+      "security plan",
+      "security program",
+      "written plan",
+      "security policy",
+      "incident response plan"
+    ]
+  },
   "firm_type_angles": {
-    "cpa": ["insurer_renewals", "client_data", "busy_season"],
-    "tax_preparer": ["irs_pub_4557_wisp"],
-    "bookkeeper": ["remote_access", "client_portals", "microsoft_365"],
-    "payroll": ["pii", "vendor_oversight"],
-    "credit_counseling": ["audit_trails", "documented_access"],
-    "collections": ["audit_trails", "documented_access"],
-    "other": ["written_security_plan"]
+    "cpa": [
+      "insurer_renewals",
+      "client_data",
+      "busy_season"
+    ],
+    "tax_preparer": [
+      "irs_pub_4557_wisp"
+    ],
+    "bookkeeper": [
+      "remote_access",
+      "client_portals",
+      "microsoft_365"
+    ],
+    "payroll": [
+      "pii",
+      "vendor_oversight"
+    ],
+    "credit_counseling": [
+      "audit_trails",
+      "documented_access"
+    ],
+    "collections": [
+      "audit_trails",
+      "documented_access"
+    ],
+    "other": [
+      "written_security_plan"
+    ]
   }
 }
 ```

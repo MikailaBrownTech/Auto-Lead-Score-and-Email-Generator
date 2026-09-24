@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { FIRM_TYPES, type FirmType, type SequenceEmail, type StyleConfig } from "@clearpath/shared";
+import { FIRM_TYPES, type FirmType, type OfferConfig, type SequenceEmail, type StyleConfig } from "@clearpath/shared";
 import { BlockError } from "./blocks";
 import { DOC_FILES, DOCS_DIR } from "./loader";
 
@@ -18,7 +18,8 @@ export type TemplateVars = Record<(typeof TEMPLATE_VARIABLES)[number], string>;
 export const REQUIRED_TEMPLATES = [
   "email1",
   ...FIRM_TYPES.map((t) => `email2.${t}`),
-  "email3",
+  "email3.checklist",
+  "email3.scorecard",
   "email4",
   "email5",
 ];
@@ -77,16 +78,20 @@ export function greetingFor(decisionMakerName: string | null): string {
   return first ? `Hi ${first},` : "Hi,";
 }
 
-/** Renders template email n (1-5) for a firm type. Email 2 falls back to the "other" variant. */
+/**
+ * Renders template email n (1-5). Email 2 is picked by firm type (falling back to "other");
+ * email 3 by the offer's cta_type (checklist or scorecard).
+ */
 export function templateEmail(
   templates: TemplateSet,
   n: number,
   firmType: FirmType | null,
   vars: TemplateVars,
   style: StyleConfig,
+  ctaType: OfferConfig["cta_type"],
 ): SequenceEmail {
-  const name = n === 2 ? `email2.${firmType ?? "other"}` : `email${n}`;
-  const t = templates.get(name) ?? templates.get("email2.other");
+  const name = n === 2 ? `email2.${firmType ?? "other"}` : n === 3 ? `email3.${ctaType}` : `email${n}`;
+  const t = templates.get(name) ?? (n === 2 ? templates.get("email2.other") : undefined);
   if (!t) throw new BlockError(`template ${name} not found`);
   return {
     n,

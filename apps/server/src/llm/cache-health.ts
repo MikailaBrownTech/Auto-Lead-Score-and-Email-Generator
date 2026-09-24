@@ -1,17 +1,21 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
-import type { CacheWarning } from "@clearpath/shared";
+import type { CacheHealth, CacheWarning } from "@clearpath/shared";
 import type { Db } from "../db/client";
 import { runs } from "../db/schema";
 
-/** A cacheable prefix is flagged when its most recent `minCalls` successful calls all had zero cache reads. */
+/** How many recent successful calls per prefix are examined. */
 export const CACHE_WARNING_MIN_CALLS = 5;
 
 /**
- * Finds static prefixes that are not caching. Common causes: the prefix is shorter than the
- * model's minimum cacheable length (4096 tokens on Haiku 4.5), something volatile sits inside it,
- * or calls are more than 5 minutes apart (the default cache lifetime).
+ * Classifies each cacheable static prefix by its most recent calls:
+ *  - warning: zero cache reads, but the API did write the prefix to cache. The prefix is long enough
+ *    to cache, yet nothing is reused: something volatile is inside it, or calls are more than
+ *    5 minutes apart. This shows as a banner.
+ *  - below minimum: zero reads and zero writes. The API skips caching entirely when a prefix is
+ *    shorter than the model's minimum (4096 tokens on Haiku 4.5), so zero reads are expected. Listed
+ *    for information only; no banner, and prompts are never padded to force caching.
  */
-export function cacheWarnings(db: Db, minCalls = CACHE_WARNING_MIN_CALLS): CacheWarning[] {
+export function cacheHealth(db: Db, minCalls = CACHE_WARNING_MIN_CALLS): CacheHealth {
   const keys = db
     .selectDistinct({ prefixKey: runs.prefixKey })
     .from(runs)
@@ -19,6 +23,7 @@ export function cacheWarnings(db: Db, minCalls = CACHE_WARNING_MIN_CALLS): Cache
     .all();
 
   const warnings: CacheWarning[] = [];
+  const belowMinimum: CacheWarning[] = [];
   for (const { prefixKey } of keys) {
     if (!prefixKey) continue;
     const recent = db
@@ -28,17 +33,22 @@ export function cacheWarnings(db: Db, minCalls = CACHE_WARNING_MIN_CALLS): Cache
       .orderBy(desc(runs.id))
       .limit(minCalls)
       .all();
-    if (recent.length < minCalls) continue;
-    if (recent.every((r) => r.cacheReadTokens === 0)) {
-      const latest = recent[0]!;
-      warnings.push({
-        prefixKey,
-        model: latest.model,
-        callType: latest.callType,
-        recentCalls: recent.length,
-        lastCallAt: latest.createdAt,
-      });
-    }
+    if (recent.length < minCalls || recent.some((r) => r.cacheReadTokens > 0)) continue;
+    const latest = recent[0]!;
+    const entry: CacheWarning = {
+      prefixKey,
+      model: latest.model,
+      callType: latest.callType,
+      recentCalls: recent.length,
+      lastCallAt: latest.createdAt,
+    };
+    if (recent.some((r) => r.cacheWriteTokens > 0)) warnings.push(entry);
+    else belowMinimum.push(entry);
   }
-  return warnings;
+  return { warnings, belowMinimum };
+}
+
+/** Banner-worthy warnings only. */
+export function cacheWarnings(db: Db, minCalls = CACHE_WARNING_MIN_CALLS): CacheWarning[] {
+  return cacheHealth(db, minCalls).warnings;
 }

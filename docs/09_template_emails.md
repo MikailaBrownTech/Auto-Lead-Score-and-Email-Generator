@@ -81,11 +81,20 @@ Other or unknown firm type. Relies on docs/02: "Requires a written information s
 Following up on my note about the FTC Safeguards Rule. Its core requirements are a designated Qualified Individual, a written risk assessment, access controls, encryption, multi-factor authentication, and an incident response plan, all described in a written information security program. Is any of that written down at {{firm_ref}} today?
 ```
 
-## Email 3 (day 7): offer the 2-minute scorecard
+## Email 3 (day 7): offer the checklist or scorecard (by reply)
 
-Relies on docs/02: "Requires a written information security program ...". Assumes the 2-minute scorecard exists and can be sent by reply. If it does not exist yet, this email must change before use.
+The app picks the variant named by cta_type in docs/01 (default "checklist").
 
-```text clearpath:template email3
+Checklist. Relies on docs/02: "Requires a written information security program ...". Assumes the one-page checklist can be sent by reply.
+
+```text clearpath:template email3.checklist
+{{greeting}}
+I put together a one-page checklist of what the FTC Safeguards Rule asks for, in plain language, so you can see where {{firm_ref}} stands in a few minutes. It covers the written plan, the Qualified Individual, multi-factor authentication, encryption, and incident response. Want me to send it over?
+```
+
+Scorecard. Relies on docs/02: "Requires a written information security program ...". Only used when cta_type is "scorecard"; do not switch until the scorecard exists.
+
+```text clearpath:template email3.scorecard
 {{greeting}}
 I put together a 2-minute scorecard that checks the main Safeguards Rule items: a written plan, a Qualified Individual, multi-factor authentication, encryption, and an incident response plan. It shows where {{firm_ref}} stands without a call or a sales pitch. Want me to send it over?
 ```
@@ -96,7 +105,7 @@ Relies on docs/02: "Requires a written information security program ...". The on
 
 ```text clearpath:template email4
 {{greeting}}
-In case it is useful, here is the short version of what the Safeguards Rule asks for:
+Here is the short version of what the Safeguards Rule asks for, in case it helps:
 1. A designated Qualified Individual
 2. A written risk assessment
 3. Access controls and multi-factor authentication

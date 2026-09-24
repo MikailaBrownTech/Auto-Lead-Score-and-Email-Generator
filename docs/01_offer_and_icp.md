@@ -20,6 +20,7 @@ The app reads and writes only the block below (Settings screen). Leave a value e
 - physical_address: your business mailing address. Export is blocked while empty.
 - approved_proof: only real pilot clients, real credentials, real results. While empty, emails make no proof claims.
 - founding_client_offer: approved wording, or null for none. While null, email 4 uses the checklist.
+- cta_type: what email 3 offers by reply: "checklist" (a one-page Safeguards Rule checklist) or "scorecard" (the 2-minute scorecard). Use "scorecard" only once the scorecard exists.
 
 ```json clearpath:offer
 {
@@ -28,6 +29,7 @@ The app reads and writes only the block below (Settings screen). Leave a value e
   "opt_out_line": "",
   "physical_address": "",
   "approved_proof": [],
-  "founding_client_offer": null
+  "founding_client_offer": null,
+  "cta_type": "checklist"
 }
 ```

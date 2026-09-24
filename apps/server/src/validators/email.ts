@@ -1,4 +1,5 @@
 import {
+  containsPhrase,
   countWords,
   isFound,
   normalizeText,
@@ -9,6 +10,8 @@ import {
   type SequenceEmail,
   type StyleConfig,
 } from "@clearpath/shared";
+
+export { containsPhrase };
 
 export type Severity = "error" | "warning";
 
@@ -42,18 +45,6 @@ const EMAIL_ADDR_RE = /[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,}/gi;
 const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>()]+/gi;
 const BARE_DOMAIN_RE = /\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|co|us|biz|info|app|ai)\b(?:\/[^\s<>()]*)?/gi;
 const CAPS_WORD_RE = /\b[A-Z][A-Z0-9]*[A-Z][A-Z0-9]*\b/g;
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Case-insensitive phrase match that does not fire inside a longer word. */
-export function containsPhrase(text: string, phrase: string): boolean {
-  const p = normalizeText(phrase);
-  const start = /^\w/.test(p) ? "\\b" : "";
-  const end = /\w$/.test(p) ? "\\b" : "";
-  return new RegExp(start + escapeRegex(p) + end, "i").test(normalizeText(text));
-}
 
 function canonicalLink(link: string): string {
   return link
@@ -148,6 +139,20 @@ function checkProof(n: number, body: string, ctx: ValidationContext, issues: Iss
   }
 }
 
+/**
+ * Blocks statements that the firm lacks a WISP or plan ("you don't have a written security plan").
+ * We can only observe that a site does not mention one, which is not the same thing. Questions and
+ * conditionals ("if you don't have a plan yet, ...") are allowed.
+ */
+export function findAbsenceClaims(text: string, style: StyleConfig): string[] {
+  const { negations, plan_terms } = style.absence_claims;
+  return bodySentences(text).filter((sentence) => {
+    const s = normalizeText(sentence);
+    if (s.endsWith("?") || /^(if|whether)\b/i.test(s)) return false;
+    return negations.some((n) => containsPhrase(s, n)) && plan_terms.some((t) => containsPhrase(s, t));
+  });
+}
+
 function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): void {
   const { style, offer } = ctx;
   const n = e.n;
@@ -184,6 +189,12 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   }
 
   checkProof(n, e.body, ctx, issues);
+
+  for (const text of [e.body, e.subject_a ?? "", e.subject_b ?? ""]) {
+    for (const sentence of findAbsenceClaims(text, style)) {
+      err("absence_claim", `claims the firm lacks a WISP or plan, which we cannot know: "${sentence}"`);
+    }
+  }
 
   if (e.subject_a) checkSubject(n, "A", e.subject_a, ctx, issues);
   if (e.subject_b) checkSubject(n, "B", e.subject_b, ctx, issues);

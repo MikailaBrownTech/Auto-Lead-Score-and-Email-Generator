@@ -19,5 +19,9 @@ export const CacheWarningSchema = z.object({
 });
 export type CacheWarning = z.infer<typeof CacheWarningSchema>;
 
-export const CacheHealthSchema = z.object({ warnings: z.array(CacheWarningSchema) });
+/** warnings: shown as a banner. belowMinimum: prefix too short for the model to cache (informational). */
+export const CacheHealthSchema = z.object({
+  warnings: z.array(CacheWarningSchema),
+  belowMinimum: z.array(CacheWarningSchema),
+});
 export type CacheHealth = z.infer<typeof CacheHealthSchema>;

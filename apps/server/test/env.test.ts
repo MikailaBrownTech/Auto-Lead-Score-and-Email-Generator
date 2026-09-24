@@ -6,6 +6,7 @@ const valid = {
   MODEL_EXTRACT: "claude-haiku-4-5",
   MODEL_WRITE: "claude-sonnet-5",
   MONTHLY_SPEND_CAP_USD: "10",
+  CONTACT_URL: "https://www.clearpathsecure.com/contact",
 };
 
 describe("parseEnv", () => {
@@ -17,6 +18,8 @@ describe("parseEnv", () => {
     expect(env.QUEUE_CONCURRENCY).toBe(2);
     expect(env.PORT).toBe(8787);
     expect(env.WEB_ORIGINS).toEqual(["http://localhost:5173", "http://127.0.0.1:5173"]);
+    expect(env.FETCH_TIMEOUT_MS).toBe(15_000);
+    expect(env.FETCH_MAX_BYTES).toBe(2_000_000);
   });
 
   it("lists every missing variable by name", () => {
@@ -50,6 +53,14 @@ describe("parseEnv", () => {
     expect(() => parseEnv({ ...valid, MONTHLY_SPEND_CAP_USD: "0" })).toThrow(/MONTHLY_SPEND_CAP_USD/);
     expect(() => parseEnv({ ...valid, MONTHLY_SPEND_CAP_USD: "-5" })).toThrow(/MONTHLY_SPEND_CAP_USD/);
     expect(() => parseEnv({ ...valid, MONTHLY_SPEND_CAP_USD: "ten" })).toThrow(/MONTHLY_SPEND_CAP_USD/);
+  });
+
+  it("requires CONTACT_URL as a full http(s) URL", () => {
+    const { CONTACT_URL: _omit, ...rest } = valid;
+    void _omit;
+    expect(() => parseEnv(rest)).toThrow(/CONTACT_URL/);
+    expect(() => parseEnv({ ...valid, CONTACT_URL: "clearpathsecure.com" })).toThrow(/CONTACT_URL/);
+    expect(() => parseEnv({ ...valid, CONTACT_URL: "ftp://clearpathsecure.com" })).toThrow(/CONTACT_URL/);
   });
 
   it("rejects non-integer token caps", () => {

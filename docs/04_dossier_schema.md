@@ -33,7 +33,8 @@ Every field is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 w
     "dmarc_present": {},
     "dmarc_policy": {},
     "dkim": "NOT_CHECKED"
-  }
+  },
+  "security_mention_search": "NOT_CHECKED"
 }
 ```
 
@@ -68,3 +69,5 @@ Notes:
 - phone_or_contact_form: a phone number shown on the site, or a contact form.
 - latest_dated_content: used to judge whether the site is maintained.
 - dns.dkim is always NOT_CHECKED. Never claim DKIM status.
+- security_mention_search is filled by code, not the LLM: "NOT_CHECKED", or {keywords, pages: [{url, kind, http_status, content_type, truncated, text_chars, sha256}], matches: [{url, keyword}]}. It is the evidence for the docs/06 "no WISP/security mention" score. Every searched URL must be in pages_opened.
+- pages_opened lists only pages actually fetched with HTTP 200 and an HTML content type.

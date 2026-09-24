@@ -91,16 +91,48 @@ const RULES: Record<ScoringKey, Rule> = {
       ? { met: true, reason: `decision maker named: ${d.decision_maker.value.name}`, fields: ["decision_maker"] }
       : { met: false, reason: NOT_FOUND_REASON("decision_maker"), fields: [] },
 
-  // docs/06 RULE: NOT_FOUND never counts as a finding, and "no mention" can only ever be NOT_FOUND.
-  // A found mention means the signal is absent. So this criterion cannot currently score.
-  no_wisp_mention: (d) =>
-    isFound(d.security_or_wisp_mention)
-      ? { met: false, reason: "site mentions security or a WISP", fields: ["security_or_wisp_mention"] }
-      : {
-          met: false,
-          reason: "absence of a mention is NOT_FOUND, which scores 0 under the docs/06 rule",
-          fields: [],
-        },
+  // Evidenced by the code's recorded keyword search (docs/06), never by NOT_FOUND from the LLM.
+  no_wisp_mention: (d, c) => {
+    if (isFound(d.security_or_wisp_mention)) {
+      return { met: false, reason: "site mentions security or a WISP", fields: ["security_or_wisp_mention"] };
+    }
+    const search = d.security_mention_search;
+    if (search === "NOT_CHECKED") {
+      return { met: false, reason: "no keyword search was recorded (scores 0)", fields: [] };
+    }
+    const searched = new Set(search.keywords.map((k) => k.toLowerCase()));
+    const missing = c.wisp_keywords.filter((k) => !searched.has(k.toLowerCase()));
+    if (missing.length > 0) {
+      return { met: false, reason: `keyword list changed since the search (missing: ${missing.join(", ")}); re-run`, fields: [] };
+    }
+    const opened = new Set(d.pages_opened);
+    const complete = search.pages.filter(
+      (p) =>
+        opened.has(p.url) &&
+        p.http_status === 200 &&
+        /^text\/html\b/i.test(p.content_type) &&
+        !p.truncated &&
+        p.text_chars >= c.wisp_search_min_text_chars,
+    );
+    const hasHome = complete.some((p) => p.kind === "home");
+    const hasSupporting = complete.some((p) => p.kind === "privacy" || p.kind === "security" || p.kind === "about");
+    if (!hasHome || !hasSupporting) {
+      return {
+        met: false,
+        reason: "search needs the homepage plus a privacy, security, or about page, each complete HTTP 200 HTML with real text",
+        fields: [],
+      };
+    }
+    if (search.matches.length > 0) {
+      const found = [...new Set(search.matches.map((m) => m.keyword))];
+      return { met: false, reason: `keyword search found: ${found.join(", ")}`, fields: ["security_mention_search"] };
+    }
+    return {
+      met: true,
+      reason: `searched ${search.pages.length} pages for ${search.keywords.length} keywords: none found`,
+      fields: ["security_mention_search"],
+    };
+  },
 
   dmarc_missing_or_none: (d) => {
     const present = d.dns.dmarc_present;
@@ -122,7 +154,7 @@ const RULES: Record<ScoringKey, Rule> = {
       return { met: false, reason: NOT_FOUND_REASON("personal_email_domain_on_site"), fields: [] };
     }
     const domain = emailDomain(d.personal_email_domain_on_site.value);
-    const met = c.personal_email_domains.includes(domain);
+    const met = c.personal_email_domains.some((p) => domain === p || domain.endsWith(`.${p}`));
     return {
       met,
       reason: met ? `firm uses a ${domain} address` : `${domain} is not a personal email provider`,

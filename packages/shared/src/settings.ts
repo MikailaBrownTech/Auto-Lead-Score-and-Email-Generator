@@ -10,6 +10,8 @@ export const OfferConfigSchema = z
     physical_address: z.string(),
     approved_proof: z.array(z.string()),
     founding_client_offer: z.string().nullable(),
+    /** What email 3 offers by reply. The scorecard option must not be used until the scorecard exists. */
+    cta_type: z.enum(["checklist", "scorecard"]).default("checklist"),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
@@ -29,6 +31,16 @@ export const StyleConfigSchema = z
     banned_phrases: z.array(z.string().trim().min(1)).min(1),
     allowed_acronyms: z.array(z.string().regex(/^[A-Z0-9]+$/)),
     proof_patterns: z.array(z.string().trim().min(1)).min(1),
+    /**
+     * A sentence that pairs a negation with a plan term ("you don't have a WISP") claims the firm lacks
+     * a plan. We never know that, so it is blocked. Questions and "if ..." sentences are exempt.
+     */
+    absence_claims: z
+      .object({
+        negations: z.array(z.string().trim().min(1)).min(1),
+        plan_terms: z.array(z.string().trim().min(1)).min(1),
+      })
+      .strict(),
     firm_type_angles: z
       .object({
         cpa: angles,
@@ -81,7 +93,12 @@ export const ScoringConfigSchema = z
     staff_range: z.object({ min: z.number().int().positive(), max: z.number().int().positive() }).strict(),
     site_maintained_months: z.number().int().positive(),
     sensitive_data_keywords: z.array(z.string().trim().min(1)).min(1),
+    /** Also matches subdomains, e.g. "rr.com" covers "columbus.rr.com". */
     personal_email_domains: z.array(z.string().trim().toLowerCase().min(3)).min(1),
+    /** Keywords the code searches cleaned page text for (docs/06 "no WISP/security mention"). */
+    wisp_keywords: z.array(z.string().trim().min(1)).min(1),
+    /** A searched page with less cleaned text than this is treated as near-empty and does not count. */
+    wisp_search_min_text_chars: z.number().int().positive(),
   })
   .strict()
   .superRefine((c, ctx) => {

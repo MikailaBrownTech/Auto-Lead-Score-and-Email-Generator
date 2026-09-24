@@ -1,0 +1,21 @@
+{
+  "notes": "MX host suffix -> provider name. First match wins; unknown hosts are reported by their domain.",
+  "providers": [
+    { "suffix": "aspmx.l.google.com", "name": "Google Workspace" },
+    { "suffix": "googlemail.com", "name": "Google Workspace" },
+    { "suffix": "google.com", "name": "Google Workspace" },
+    { "suffix": "mail.protection.outlook.com", "name": "Microsoft 365" },
+    { "suffix": "outlook.com", "name": "Microsoft 365" },
+    { "suffix": "pphosted.com", "name": "Proofpoint" },
+    { "suffix": "mimecast.com", "name": "Mimecast" },
+    { "suffix": "barracudanetworks.com", "name": "Barracuda" },
+    { "suffix": "secureserver.net", "name": "GoDaddy" },
+    { "suffix": "emailsrvr.com", "name": "Rackspace" },
+    { "suffix": "zoho.com", "name": "Zoho Mail" },
+    { "suffix": "messagingengine.com", "name": "Fastmail" },
+    { "suffix": "icloud.com", "name": "iCloud Mail" },
+    { "suffix": "yahoodns.net", "name": "Yahoo" },
+    { "suffix": "ionos.com", "name": "IONOS" },
+    { "suffix": "hostinger.com", "name": "Hostinger" }
+  ]
+}

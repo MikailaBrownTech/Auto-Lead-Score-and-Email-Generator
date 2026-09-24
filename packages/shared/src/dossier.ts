@@ -81,6 +81,38 @@ export type DnsFindings = z.infer<typeof DnsFindingsSchema>;
 export const DNS_FIELDS = ["mx_provider", "spf_present", "dmarc_present", "dmarc_policy"] as const;
 export const DNS_EVIDENCE_RE = /^dns:(MX|TXT) \S+$/;
 
+export const PAGE_KINDS = ["home", "about", "team", "services", "contact", "privacy", "security", "other"] as const;
+export const PageKindSchema = z.enum(PAGE_KINDS);
+export type PageKind = z.infer<typeof PageKindSchema>;
+
+/**
+ * Filled by code, never by the LLM: a deterministic keyword search of the cleaned page text for any
+ * security/WISP mention. It is the evidence for the "no WISP/security mention" score (docs/06).
+ */
+export const SecurityMentionSearchSchema = z.union([
+  z.literal("NOT_CHECKED"),
+  z
+    .object({
+      keywords: z.array(nonEmpty).min(1),
+      pages: z.array(
+        z
+          .object({
+            url: z.string().url(),
+            kind: PageKindSchema,
+            http_status: z.number().int(),
+            content_type: z.string(),
+            truncated: z.boolean(),
+            text_chars: z.number().int().nonnegative(),
+            sha256: z.string().regex(/^[0-9a-f]{64}$/),
+          })
+          .strict(),
+      ),
+      matches: z.array(z.object({ url: z.string().url(), keyword: nonEmpty }).strict()),
+    })
+    .strict(),
+]);
+export type SecurityMentionSearch = z.infer<typeof SecurityMentionSearchSchema>;
+
 export const DossierSchema = z
   .object({
     lead_id: nonEmpty,
@@ -92,6 +124,7 @@ export const DossierSchema = z
     prompt_injection_flag: z.boolean(),
     ...ExtractedFactsSchema.shape,
     dns: DnsFindingsSchema,
+    security_mention_search: SecurityMentionSearchSchema,
   })
   .strict()
   .superRefine((d, ctx) => {
@@ -110,6 +143,17 @@ export const DossierSchema = z
               : `evidence_url ${f.evidence_url} is not one of the pages opened`,
         });
       }
+    }
+    if (d.security_mention_search !== "NOT_CHECKED") {
+      d.security_mention_search.pages.forEach((p, i) => {
+        if (!pages.has(p.url)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["security_mention_search", "pages", i, "url"],
+            message: `searched page ${p.url} is not one of the pages opened`,
+          });
+        }
+      });
     }
     for (const field of DNS_FIELDS) {
       const f = d.dns[field];

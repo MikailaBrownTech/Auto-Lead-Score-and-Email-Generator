@@ -5,6 +5,7 @@ import { greetingFor, loadTemplates, templateEmail } from "../src/docs/templates
 import {
   bodySentences,
   containsPhrase,
+  findAbsenceClaims,
   findLinks,
   renderEmail,
   validateSequence,
@@ -160,6 +161,47 @@ describe("validateSequence", () => {
     );
   });
 
+  it.each([
+    ["We guarantee compliance with the rule."],
+    ["Our service offers guaranteed compliance."],
+    ["We'll make you compliant in a week."],
+    ["Your data will be 100% secure."],
+    ["This protects you from fines."],
+    ["Our process is FTC-approved."],
+    ["This is your final notice."],
+    ["Act now before the deadline."],
+  ])("blocks claim-safety phrase in: %s", (sentence) => {
+    const c = codes(withEmail(2, { body: `Hi Jane,
+${sentence}` }));
+    expect(c.some((x) => x === "banned_phrase" || x === "unapproved_proof")).toBe(true);
+  });
+
+  it.each([
+    ["You don't have a WISP yet."],
+    ["Smith Tax Services does not have a written information security plan."],
+    ["Your site shows no security policy."],
+    ["You are operating without a written plan."],
+    ["The firm lacks an incident response plan."],
+  ])("blocks a claim that the firm lacks a plan: %s", (sentence) => {
+    expect(codes(withEmail(2, { body: `Hi Jane,
+${sentence}` }))).toContain("absence_claim");
+  });
+
+  it.each([
+    ["Do you have a written plan in place?"],
+    ["If you don't have a WISP yet, I can send a checklist."],
+    ["The rule requires a written information security program."],
+    ["I have not heard back, so I will stop here."],
+  ])("allows questions, conditionals, and neutral statements: %s", (sentence) => {
+    expect(codes(withEmail(2, { body: `Hi Jane,
+${sentence}` }))).not.toContain("absence_claim");
+  });
+
+  it("checks subjects for absence claims too", () => {
+    expect(findAbsenceClaims("no wisp at smith tax", style)).toHaveLength(1);
+    expect(codes(withEmail(1, { subject_b: "no wisp on file" }))).toContain("absence_claim");
+  });
+
   it("blocks any DKIM claim", () => {
     expect(codes(withEmail(2, { body: "Hi Jane,\nYour DKIM looks fine." }))).toContain("dkim_claim");
   });
@@ -199,9 +241,14 @@ describe("docs/09 templates pass the same validators", () => {
     { firmType, greeting: greetingFor(null), firmRef: "your firm" },
   ]);
 
-  it.each(cases)("tier C sequence for $firmType ($greeting / $firmRef)", ({ firmType, greeting, firmRef }) => {
+  const withCta = cases.flatMap((c) => [
+    { ...c, ctaType: "checklist" as const },
+    { ...c, ctaType: "scorecard" as const },
+  ]);
+
+  it.each(withCta)("tier C sequence for $firmType, $ctaType ($greeting / $firmRef)", ({ firmType, greeting, firmRef, ctaType }) => {
     const vars = { greeting, firm_ref: firmRef, cta_url: offer.cta_url };
-    const emails = [1, 2, 3, 4, 5].map((n) => templateEmail(templates, n, firmType, vars, style));
+    const emails = [1, 2, 3, 4, 5].map((n) => templateEmail(templates, n, firmType, vars, style, ctaType));
     const seq: Sequence = {
       lead_id: "LT",
       tier: "C",
@@ -215,6 +262,15 @@ describe("docs/09 templates pass the same validators", () => {
     const r = validateSequence(seq, { style, offer, dossier });
     expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);
     expect(r.issues.filter((i) => i.severity === "warning")).toEqual([]);
+  });
+
+  it("email 3 follows cta_type: the default checklist offer never mentions the scorecard", () => {
+    expect(realOffer.cta_type).toBe("checklist");
+    const vars = { greeting: "Hi,", firm_ref: "your firm", cta_url: offer.cta_url };
+    const checklist = templateEmail(templates, 3, "cpa", vars, style, "checklist").body;
+    expect(checklist).toMatch(/one-page checklist/);
+    expect(checklist).not.toMatch(/scorecard/i);
+    expect(templateEmail(templates, 3, "cpa", vars, style, "scorecard").body).toMatch(/scorecard/);
   });
 
   it("uses the greeting fallback 'Hi,' when no name is known", () => {

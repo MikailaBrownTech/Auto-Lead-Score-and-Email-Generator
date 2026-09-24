@@ -27,6 +27,14 @@ export const EnvSchema = z.object({
     .string()
     .default("http://localhost:5173,http://127.0.0.1:5173")
     .transform((s) => s.split(",").map((o) => o.trim()).filter(Boolean)),
+  /** Public page describing this crawler; appears in the user agent: ClearPathLeadConsole/0.1 (+CONTACT_URL). */
+  CONTACT_URL: z
+    .string({ required_error: "is required (a public URL identifying the crawler, e.g. your site's contact page)" })
+    .url("must be a full URL, e.g. https://www.clearpathsecure.com/contact")
+    .refine((u) => /^https?:\/\//.test(u), "must start with http:// or https://"),
+  FETCH_TIMEOUT_MS: intFromString(15_000),
+  /** Bodies larger than this are cut off and marked truncated. */
+  FETCH_MAX_BYTES: intFromString(2_000_000),
   DB_PATH: z.string().default("data/clearpath.db"),
   PRICES_PATH: z.string().default("config/prices.json"),
 });

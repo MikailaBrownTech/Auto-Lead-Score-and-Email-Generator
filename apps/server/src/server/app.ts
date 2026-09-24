@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { CacheHealth, SpendSummary } from "@clearpath/shared";
 import type { Db } from "../db/client";
-import { cacheWarnings } from "../llm/cache-health";
+import { cacheHealth } from "../llm/cache-health";
 import type { SpendGate } from "../llm/spend-gate";
 import { localGuard, type LocalGuardOptions } from "./local-guard";
 
@@ -29,7 +29,7 @@ export function createApp(deps: AppDeps) {
   });
 
   app.get("/api/cache-health", (c) => {
-    const body: CacheHealth = { warnings: cacheWarnings(deps.db) };
+    const body: CacheHealth = cacheHealth(deps.db);
     return c.json(body);
   });
 
