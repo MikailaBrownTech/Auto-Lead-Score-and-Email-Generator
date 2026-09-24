@@ -1,0 +1,26 @@
+{
+  "name": "clearpath-lead-console",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @clearpath/server",
+    "dev:web": "npm run dev -w @clearpath/web",
+    "smoke": "npm run smoke -w @clearpath/server",
+    "db:generate": "npm run db:generate -w @clearpath/server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "checked_on": "2026-09-23",
+  "currency": "USD",
+  "unit": "per_million_tokens",
+  "notes": [
+    "First-party Claude API, global routing (no inference_geo). inference_geo 'us' would add a 1.1x multiplier; this app does not set it.",
+    "Claude Sonnet 5: the pricing page footnote says $2/$10 is now the standard price; the planned Sept 1, 2026 increase to $3/$15 will not occur.",
+    "Cache writes: 5m = 1.25x base input, 1h = 2x base input. Cache reads: 0.1x base input for both models listed here.",
+    "Batch API is 50% off input and output (not used yet)."
+  ],
+  "tokenizer_note": {
+    "text": "Pricing page: \"Claude 4.7 and later models ... use a newer tokenizer ... approximately 30% more tokens for the same text. Claude Sonnet 4.6 and earlier models use the previous tokenizer.\" Claude Sonnet 5 is a later model, so it uses the newer tokenizer. Haiku 4.5 is not named on the page; it predates 4.7, so it is marked previous (inferred). Either way this app never estimates tokens from characters: counts come from the API (count_tokens before a call, usage after).",
+    "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "checked_on": "2026-09-23"
+  },
+  "models": {
+    "claude-haiku-4-5": {
+      "input": 1,
+      "cache_write_5m": 1.25,
+      "cache_write_1h": 2,
+      "cache_read": 0.1,
+      "output": 5,
+      "tokenizer": "previous"
+    },
+    "claude-sonnet-5": {
+      "input": 2,
+      "cache_write_5m": 2.5,
+      "cache_write_1h": 4,
+      "cache_read": 0.2,
+      "output": 10,
+      "tokenizer": "newer"
+    }
+  },
+  "aliases": {
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+  }
+}
