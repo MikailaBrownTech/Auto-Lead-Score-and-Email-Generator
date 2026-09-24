@@ -10,6 +10,7 @@
     "apps/*"
   ],
   "scripts": {
+    "app": "node scripts/dev.mjs",
     "dev:server": "npm run dev -w @clearpath/server",
     "dev:web": "npm run dev -w @clearpath/web",
     "smoke": "npm run smoke -w @clearpath/server",
@@ -18,7 +19,8 @@
     "test:watch": "vitest",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "extract-live": "npm run extract-live -w @clearpath/server --",
-    "write-sequence": "npm run write-sequence -w @clearpath/server --"
+    "write-sequence": "npm run write-sequence -w @clearpath/server --",
+    "build:web": "npm run build -w @clearpath/web"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

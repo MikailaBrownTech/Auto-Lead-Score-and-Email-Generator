@@ -152,9 +152,21 @@ export const leadEvents = sqliteTable(
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
     leadId: text("lead_id").notNull(),
-    kind: text("kind", { enum: ["direct_contact_override"] }).notNull(),
+    kind: text("kind", { enum: ["direct_contact_override", "gate_override", "paste_rerun"] }).notNull(),
     detail: text("detail").notNull(),
     createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
   },
   (t) => [index("lead_events_lead_id_idx").on(t.leadId)],
 );
+
+/**
+ * Do-not-contact list: an exact email address or a whole domain. Checked before any export row is
+ * written; a match excludes the lead from the export.
+ */
+export const suppressions = sqliteTable("suppressions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind", { enum: ["email", "domain"] }).notNull(),
+  /** Lowercased email address or bare domain (no @). Unique. */
+  value: text("value").notNull().unique(),
+  createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+});

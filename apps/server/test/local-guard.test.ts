@@ -2,16 +2,23 @@ import { describe, expect, it } from "vitest";
 import { openDb } from "../src/db/client";
 import { SpendGate } from "../src/llm/spend-gate";
 import { createApp } from "../src/server/app";
+import { JobRunner } from "../src/server/jobs";
+import type { Services } from "../src/server/services";
 import { TOKEN_HEADER } from "../src/server/local-guard";
 
 const PORT = 8787;
 const TOKEN = "a".repeat(64);
 
 const db = openDb(":memory:");
+const gate = new SpendGate(db, 5);
+// The guard runs before any route, so the services are never used here.
+const services = { db, gate } as unknown as Services;
 const app = createApp({
   guard: { port: PORT, token: TOKEN, allowedOrigins: ["http://localhost:5173"] },
-  gate: new SpendGate(db, 5),
+  gate,
   db,
+  services,
+  jobs: new JobRunner(services),
 });
 
 function get(path: string, headers: Record<string, string>) {

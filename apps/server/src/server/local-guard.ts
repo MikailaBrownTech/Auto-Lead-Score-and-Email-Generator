@@ -5,11 +5,24 @@ import type { MiddlewareHandler } from "hono";
 
 export const TOKEN_HEADER = "x-clearpath-token";
 
-/** Random per-process token. Written to a git-ignored file so the Vite dev proxy can attach it. */
-export function createLocalToken(tokenFile: string): string {
-  const token = crypto.randomBytes(32).toString("hex");
+/** Random per-process token. */
+export function newLocalToken(): string {
+  return crypto.randomBytes(32).toString("hex");
+}
+
+/**
+ * Writes the token to a git-ignored file so the Vite dev proxy can attach it. Call only once the port
+ * is bound: a second copy that fails to start must not replace the running server's token.
+ */
+export function writeLocalToken(tokenFile: string, token: string): void {
   fs.mkdirSync(path.dirname(tokenFile), { recursive: true });
   fs.writeFileSync(tokenFile, token, { encoding: "utf8", mode: 0o600 });
+}
+
+/** New token, written immediately (tests and tools that do not bind a port). */
+export function createLocalToken(tokenFile: string): string {
+  const token = newLocalToken();
+  writeLocalToken(tokenFile, token);
   return token;
 }
 

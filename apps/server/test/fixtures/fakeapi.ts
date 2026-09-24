@@ -77,6 +77,7 @@ export function smithAnswer(overrides: Record<string, unknown> = {}): Record<str
     personal_email_domain_on_site: ev("smithtaxes@gmail.com", HOME, "After hours: smithtaxes@gmail.com"),
     privacy_policy_present: ev(true, PRIVACY, "Privacy Policy"),
     security_or_wisp_mention: "NOT_FOUND",
+    client_count_signal: "NOT_FOUND",
     phone_or_contact_form: ev({ phone: "(614) 555-0100", contact_form: false }, HOME, "Call (614) 555-0100"),
     exclusion_signals: [],
     suspected_prompt_injection: false,

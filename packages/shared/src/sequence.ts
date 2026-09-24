@@ -25,6 +25,8 @@ export const SequenceEmailSchema = z
     grounding: z.array(FactFieldSchema),
     /** True when the email came from docs/09 templates rather than the writer model. */
     template: z.boolean(),
+    /** True once the founder edited the text by hand. Edited emails get the same checks as model-written text (allowlist, judge). */
+    edited: z.boolean().optional(),
   })
   .strict();
 export type SequenceEmail = z.infer<typeof SequenceEmailSchema>;

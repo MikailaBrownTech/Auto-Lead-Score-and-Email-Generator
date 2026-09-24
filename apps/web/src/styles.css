@@ -80,3 +80,271 @@ main {
   background: #fff4e0;
   color: #5a3a00;
 }
+
+/* ---- Milestone 5 screens ---- */
+nav {
+  display: flex;
+  gap: 14px;
+}
+nav a {
+  color: var(--fg);
+  text-decoration: none;
+  padding: 4px 2px;
+  border-bottom: 2px solid transparent;
+}
+nav a.active {
+  border-bottom-color: var(--fg);
+  font-weight: 600;
+}
+main {
+  max-width: 1100px;
+}
+h2 {
+  margin: 4px 0 12px;
+}
+h3 {
+  margin: 20px 0 8px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+label.inline,
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+textarea {
+  resize: vertical;
+}
+button,
+a.button {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 14px;
+  border: 1px solid #1a1a1a;
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+button.secondary {
+  background: #fff;
+  color: var(--fg);
+  border-color: var(--border);
+}
+button.link {
+  background: none;
+  border: none;
+  color: #1a4fb4;
+  padding: 0;
+}
+button.approve:not(:disabled) {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.row.between {
+  justify-content: space-between;
+}
+.row.top {
+  align-items: flex-start;
+}
+.row > label {
+  flex: 1;
+  min-width: 200px;
+}
+.card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 12px 0;
+}
+.card.attention {
+  border-color: #e0b060;
+  background: #fffaf0;
+}
+.card.blocked {
+  border-color: var(--bad);
+  background: #fdf0f0;
+}
+.card.internal {
+  border-style: dashed;
+  background: #f7f7f7;
+}
+.gate-out_of_icp,
+.gate-needs_review {
+  border-color: #e0b060;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+  margin: 8px 0;
+}
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 6px 8px;
+  border-bottom: 1px solid #eee;
+}
+table.facts th {
+  width: 240px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 7px;
+  margin: 0 4px 2px 0;
+  border-radius: 10px;
+  background: #eef2f7;
+  color: #33404d;
+}
+.badge.notfound {
+  background: #e6e6e6;
+  color: #777;
+}
+.flag-needs_direct_contact,
+.flag-declined_automated_access {
+  background: #fdecd2;
+  color: #6b4100;
+}
+.flag-incomplete_data {
+  background: #efe7fb;
+  color: #4a2a7a;
+}
+.state-failed {
+  background: #fbe3e3;
+  color: var(--bad);
+}
+.state-done {
+  background: #e3f3e4;
+  color: var(--ok);
+}
+.evidence {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 2px 0 6px;
+}
+.evidence q {
+  margin-left: 8px;
+  font-style: italic;
+}
+ul.plain {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.small {
+  font-size: 13px;
+}
+.error,
+li.error {
+  color: var(--bad);
+}
+.warning,
+li.warning {
+  color: var(--warn);
+}
+.ok {
+  color: var(--ok);
+}
+.score-box {
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 16px;
+}
+.score {
+  font-size: 28px;
+  font-weight: 700;
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.tab {
+  background: #fff;
+  color: var(--fg);
+  border-color: var(--border);
+}
+.tab.active {
+  background: #1a1a1a;
+  color: #fff;
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+.email-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 14px 0;
+}
+.preview {
+  white-space: pre-wrap;
+  background: #fafafa;
+  border: 1px solid #eee;
+  padding: 10px;
+  font-size: 14px;
+  border-radius: 4px;
+}
+.preview .signature {
+  color: var(--muted);
+  margin-top: 10px;
+}
+mark.approved {
+  background: #dff0ff;
+  border-bottom: 2px solid #2b6cb0;
+  padding: 0 2px;
+}
+.issues {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+textarea.csv {
+  width: 100%;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+dl dt {
+  font-weight: 600;
+  margin-top: 6px;
+}
+dl dd {
+  margin: 2px 0 0 0;
+}

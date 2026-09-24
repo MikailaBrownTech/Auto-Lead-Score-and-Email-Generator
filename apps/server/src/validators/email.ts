@@ -49,6 +49,11 @@ export interface ValidationContext {
   approvedSentences?: string[];
   /** The one detail field the code gave the writer for each email (null = none). */
   assignedDetails?: Record<number, string | null>;
+  /**
+   * Per email, extra sentences allowed by the allowlist: the original docs/09 template text of a
+   * template email the founder edited (its fixed, reviewed sentences stay allowed).
+   */
+  templateSentences?: Record<number, string[]>;
 }
 
 /**
@@ -296,8 +301,9 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
       err("company_name", `names the company as "${m[0]}"; only docs/01 company_name ("${ctx.offer.company_name}") may be used`);
     }
   }
-  if (!e.template && ctx.approvedSentences) {
-    for (const hit of unapprovedSentences(e.body, ctx.approvedSentences)) {
+  // Model-written or hand-edited text: regulatory statements only as approved docs/02 sentences.
+  if ((!e.template || e.edited) && ctx.approvedSentences) {
+    for (const hit of unapprovedSentences(e.body, [...ctx.approvedSentences, ...(ctx.templateSentences?.[n] ?? [])])) {
       const what =
         hit.code === "universal_quantifier"
           ? "uses all/every/always/generally covered outside an approved docs/02 sentence"
@@ -324,7 +330,7 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
 
   const details = e.grounding.filter((f) => !ADDRESSING_FIELDS.has(f));
   const assigned = ctx.assignedDetails?.[n];
-  if (!e.template && assigned !== undefined) {
+  if (!e.template && !e.edited && assigned !== undefined) {
     for (const f of details) {
       if (f !== assigned) err("unassigned_detail", `uses ${f}, but the detail given for this email was ${assigned ?? "none"}`);
     }
@@ -355,7 +361,7 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
       }
     }
   }
-  if (e.template && e.grounding.length > 0) {
+  if (e.template && !e.edited && e.grounding.length > 0) {
     err("template_grounding", "template emails must not use dossier details");
   }
 }

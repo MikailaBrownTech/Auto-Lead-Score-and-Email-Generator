@@ -1,0 +1,165 @@
+import { isFound, type Dossier, type Sequence } from "@clearpath/shared";
+import { tryReadStoredDossier } from "../pipeline/stored-dossier";
+import { asc, eq } from "drizzle-orm";
+import type { Db } from "../db/client";
+import { leads, sequences, suppressions } from "../db/schema";
+import { leadOverride } from "../scoring/direct-contact";
+import { renderEmail } from "../validators/email";
+import { approvalBlockers, type WriteDeps } from "../write/generate";
+
+// ---- suppression list ----
+
+export interface Suppression {
+  id: number;
+  kind: "email" | "domain";
+  value: string;
+}
+
+/** "Jane@Firm.com" -> email "jane@firm.com"; "mailto:x@y.com" -> email; "https://www.firm.com/x" -> domain "firm.com". */
+export function normalizeSuppression(input: string): { kind: "email" | "domain"; value: string } | null {
+  const raw = input.trim().toLowerCase().replace(/^mailto:/, "");
+  if (!raw) return null;
+  if (raw.includes("@")) {
+    return /^[^\s@]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(raw) ? { kind: "email", value: raw } : null;
+  }
+  const host = raw.replace(/^[a-z]+:\/\//, "").split(/[/?#]/)[0]!.replace(/^www\./, "");
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? { kind: "domain", value: host } : null;
+}
+
+export function listSuppressions(db: Db): Suppression[] {
+  return db.select({ id: suppressions.id, kind: suppressions.kind, value: suppressions.value }).from(suppressions).orderBy(asc(suppressions.value)).all();
+}
+
+export function addSuppression(db: Db, input: string): Suppression {
+  const n = normalizeSuppression(input);
+  if (!n) throw new Error(`"${input}" is not an email address or a domain.`);
+  const existing = db.select().from(suppressions).where(eq(suppressions.value, n.value)).get();
+  if (existing) return { id: existing.id, kind: existing.kind, value: existing.value };
+  return db.insert(suppressions).values(n).returning({ id: suppressions.id, kind: suppressions.kind, value: suppressions.value }).get();
+}
+
+export function removeSuppression(db: Db, id: number): void {
+  db.delete(suppressions).where(eq(suppressions.id, id)).run();
+}
+
+/** The matching suppression entry for an address (exact email, or its domain or a parent domain), if any. */
+export function suppressedBy(list: Suppression[], address: string, extraDomains: string[] = []): Suppression | null {
+  const email = address.trim().toLowerCase();
+  const domains = [email.slice(email.indexOf("@") + 1), ...extraDomains.map((d) => d.toLowerCase().replace(/^www\./, ""))].filter(Boolean);
+  return (
+    list.find((s) => s.kind === "email" && s.value === email) ??
+    list.find((s) => s.kind === "domain" && domains.some((d) => d === s.value || d.endsWith(`.${s.value}`))) ??
+    null
+  );
+}
+
+// ---- export ----
+
+export interface ExportRow {
+  lead_id: string;
+  firm_name: string;
+  to_email: string;
+  subject_a: string;
+  subject_b: string;
+  emails: { n: number; send_day: number; text: string }[];
+}
+
+export interface ExportResult {
+  /** Reasons the whole export is refused. Empty when allowed. */
+  blocked: string[];
+  rows: ExportRow[];
+  /** Approved leads left out, with the reason (suppressed, no address). */
+  excluded: { lead_id: string; firm_name: string; reason: string }[];
+  csv: string;
+}
+
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export const EXPORT_COLUMNS = [
+  "lead_id",
+  "firm_name",
+  "to_email",
+  "subject_a",
+  "subject_b",
+  ...[1, 2, 3, 4, 5].flatMap((n) => [`email_${n}_send_day`, `email_${n}_text`]),
+];
+
+export function toCsv(rows: ExportRow[]): string {
+  const lines = [EXPORT_COLUMNS.join(",")];
+  for (const r of rows) {
+    const cells: (string | number)[] = [r.lead_id, r.firm_name, r.to_email, r.subject_a, r.subject_b];
+    for (let n = 1; n <= 5; n++) {
+      const e = r.emails.find((x) => x.n === n);
+      cells.push(e?.send_day ?? "", e?.text ?? "");
+    }
+    lines.push(cells.map(csvCell).join(","));
+  }
+  return lines.join("\r\n") + "\r\n";
+}
+
+/**
+ * The export: approved sequences only. Refused as a whole while the signature/footer settings are
+ * incomplete, or while checklist_ready is false and an approved sequence offers the checklist. The
+ * suppression list is checked before each row; a suppressed lead is left out and reported. Rows hold
+ * only the rendered emails and the address, never dossier notes.
+ */
+export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">): ExportResult {
+  const offer = deps.offer;
+  const latest = new Map<string, { status: string; sequence: Sequence | null }>();
+  for (const row of db.select().from(sequences).orderBy(asc(sequences.id)).all()) {
+    latest.set(row.leadId, { status: row.status, sequence: row.sequenceJson ? (JSON.parse(row.sequenceJson) as Sequence | null) : null });
+  }
+  const approved = [...latest.entries()].filter(([, v]) => v.status === "approved" && v.sequence);
+
+  const blocked: string[] = [];
+  const missing = (["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address"] as const).filter((k) => offer[k].trim() === "");
+  if (missing.length > 0) blocked.push(`Fill in these settings first: ${missing.join(", ")}. Every email needs the full signature, the opt-out line, and a mailing address.`);
+  if (offer.cta_type === "checklist" && !offer.checklist_ready && approved.some(([, v]) => v.sequence!.emails.some((e) => e.n === 3))) {
+    blocked.push("Email 3 offers the checklist, but checklist_ready is off in Settings. Turn it on once the checklist can be sent.");
+  }
+  if (approved.length === 0) blocked.push("No approved sequences yet. Approve a sequence first.");
+  if (blocked.length > 0) return { blocked, rows: [], excluded: [], csv: "" };
+
+  const list = listSuppressions(db);
+  const rows: ExportRow[] = [];
+  const excluded: ExportResult["excluded"] = [];
+  for (const [leadId, v] of approved) {
+    const lead = db.select().from(leads).where(eq(leads.id, leadId)).get();
+    const d = lead?.dossierJson ? tryReadStoredDossier(lead.dossierJson) : null;
+    const firm = d && isFound(d.firm_name) ? d.firm_name.value : leadId;
+    if (!d) {
+      excluded.push({ lead_id: leadId, firm_name: firm, reason: "no current research on file (import it again)" });
+      continue;
+    }
+    const address = isFound(d.public_contact_email) ? d.public_contact_email.value.address : null;
+    // Suppression is checked before anything else about the row.
+    const hit = address ? suppressedBy(list, address, [d.domain]) : suppressedBy(list, "", [d.domain]);
+    if (hit) {
+      excluded.push({ lead_id: leadId, firm_name: firm, reason: `on the suppression list (${hit.value})` });
+      continue;
+    }
+    if (!address) {
+      excluded.push({ lead_id: leadId, firm_name: firm, reason: "no email address on file" });
+      continue;
+    }
+    const blockers = approvalBlockers(d, offer, leadOverride(db, leadId));
+    if (blockers.length > 0) {
+      excluded.push({ lead_id: leadId, firm_name: firm, reason: blockers.join("; ") });
+      continue;
+    }
+    const seq = v.sequence!;
+    const e1 = seq.emails.find((e) => e.n === 1);
+    rows.push({
+      lead_id: leadId,
+      firm_name: firm,
+      to_email: address,
+      subject_a: e1?.subject_a ?? "",
+      subject_b: e1?.subject_b ?? "",
+      emails: seq.emails.map((e) => ({ n: e.n, send_day: e.send_day, text: renderEmail(e.body, offer) })),
+    });
+  }
+  return { blocked: [], rows, excluded, csv: toCsv(rows) };
+}

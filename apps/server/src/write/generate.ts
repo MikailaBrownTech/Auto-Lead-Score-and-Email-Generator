@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   isFound,
@@ -17,6 +18,7 @@ import {
   type StyleConfig,
   type Tier,
 } from "@clearpath/shared";
+import { readStoredDossier } from "../pipeline/stored-dossier";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
@@ -28,7 +30,7 @@ import { contactPlan } from "../scoring/contact";
 import { directContactBlockers, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
 import { validateSequence, type Issue, type ValidationResult } from "../validators/email";
 import { judgeMessage, judgeTool, rewriteMessage, writerMessage, writerTool } from "./prompt";
-import { detectGrounding, planSequence, type WritePlan } from "./writer-input";
+import { detectGrounding, planSequence, type EmailPlan, type WritePlan } from "./writer-input";
 
 export class ApprovalBlockedError extends Error {
   override name = "ApprovalBlockedError";
@@ -95,6 +97,59 @@ export interface GenerateResult {
   approvalBlockers: string[];
   /** Reasons export is refused (approval blockers plus footer, signature, checklist_ready). */
   exportBlockers: string[];
+}
+
+/**
+ * One writer email assembled by code: greeting + the model's opening + the code-inserted sentences
+ * (DNS remark, approved docs/02 sentence) + the model's closing. Grounding is what the code finds in
+ * the model's own words (subjects included), plus the DNS remark.
+ */
+export function buildWriterEmail(
+  p: EmailPlan,
+  w: { subject_a: string | null; subject_b: string | null; opening: string; closing: string },
+  greeting: string,
+  style: StyleConfig,
+  values: Record<string, unknown>,
+): { email: SequenceEmail; draft: DraftEmail } {
+  const n = p.n;
+  const inserted = [
+    ...(p.dnsSentence ? [{ id: "dns_observation", text: p.dnsSentence }] : []),
+    ...(p.approved ? [{ id: p.approved.id, text: p.approved.text }] : []),
+  ];
+  const opening = w.opening.trim().replace(GREETING_LINE, "").trim();
+  const closing = w.closing.trim();
+  const subject_a = n === 1 ? w.subject_a : null;
+  const subject_b = n === 1 ? w.subject_b : null;
+  const modelText = [opening, closing, subject_a ?? "", subject_b ?? ""].join(" ");
+  return {
+    draft: { n, subject_a, subject_b, opening, inserted, closing },
+    email: {
+      n,
+      send_day: style.send_days[n - 1]!,
+      subject_a,
+      subject_b,
+      body: `${greeting}\n${[opening, ...inserted.map((i) => i.text), closing].filter(Boolean).join(" ")}`,
+      grounding: [...new Set([...detectGrounding(modelText, values), ...(p.dnsSentence ? ["dns_observation" as const] : [])])],
+      template: false,
+    },
+  };
+}
+
+/** The judge verdict as stored, tied to the exact content it judged. */
+export interface StoredJudge {
+  result: JudgeOutput;
+  content_hash: string;
+}
+
+/** Emails that need the judge: model-written or hand-edited ones. Untouched templates do not. */
+export function judgedEmails(emails: SequenceEmail[]): SequenceEmail[] {
+  return emails.filter((e) => !e.template || e.edited);
+}
+
+/** Hash of the subjects and bodies the judge must have seen for approval to count. */
+export function judgedContentHash(emails: SequenceEmail[]): string {
+  const material = JSON.stringify(judgedEmails(emails).map((e) => [e.n, e.subject_a, e.subject_b, e.body]));
+  return crypto.createHash("sha256").update(material).digest("hex");
 }
 
 /** Which emails the writer writes, by tier (docs/06): A all five, B emails 1-2, C none. */
@@ -240,24 +295,9 @@ export async function generateSequence(
         const p = plan.emails.find((e) => e.n === n);
         const w = byN.get(n);
         if (!p || !w) return templated(n);
-        const inserted = [
-          ...(p.dnsSentence ? [{ id: "dns_observation", text: p.dnsSentence }] : []),
-          ...(p.approved ? [{ id: p.approved.id, text: p.approved.text }] : []),
-        ];
-        const opening = w.opening.trim().replace(GREETING_LINE, "").trim();
-        const closing = w.closing.trim();
-        draftEmails.push({ n, subject_a: n === 1 ? w.subject_a : null, subject_b: n === 1 ? w.subject_b : null, opening, inserted, closing });
-        const modelText = [opening, closing, n === 1 ? (w.subject_a ?? "") : "", n === 1 ? (w.subject_b ?? "") : ""].join(" ");
-        return {
-          n,
-          send_day: deps.style.send_days[n - 1]!,
-          subject_a: n === 1 ? w.subject_a : null,
-          subject_b: n === 1 ? w.subject_b : null,
-          body: `${greeting}\n${[opening, ...inserted.map((i) => i.text), closing].filter(Boolean).join(" ")}`,
-          // Code decides what the email uses: facts found in the model's own words, plus the DNS remark.
-          grounding: [...new Set([...detectGrounding(modelText, plan.values), ...(p.dnsSentence ? ["dns_observation" as const] : [])])],
-          template: false,
-        };
+        const built = buildWriterEmail(p, w, greeting, deps.style, plan.values);
+        draftEmails.push(built.draft);
+        return built.email;
       });
     }
     const errors = formatProblem ? [] : validateSequence(assemble(persona, angle), vctx).issues.filter((i) => i.severity === "error");
@@ -331,7 +371,7 @@ export async function generateSequence(
         status: r.status === "no_sequence" ? "blocked" : r.status,
         sequenceJson: JSON.stringify(r.sequence),
         validationJson: JSON.stringify({ validation: r.validation, drafts: r.drafts }),
-        judgeJson: r.judge ? JSON.stringify(r.judge) : null,
+        judgeJson: r.judge && r.sequence ? JSON.stringify({ result: r.judge, content_hash: judgedContentHash(r.sequence.emails) } satisfies StoredJudge) : null,
       })
       .returning({ id: sequences.id })
       .get();
@@ -351,7 +391,7 @@ export function approveSequence(db: Db, sequenceId: number, offer: OfferConfig, 
   if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs code validators and judge to pass`);
   const lead = db.select({ dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, row.leadId)).get();
   if (lead?.dossierJson) {
-    const blockers = approvalBlockers(JSON.parse(lead.dossierJson) as Dossier, offer, leadOverride(db, row.leadId));
+    const blockers = approvalBlockers(readStoredDossier(lead.dossierJson), offer, leadOverride(db, row.leadId));
     if (blockers.length > 0) throw new ApprovalBlockedError(blockers.join("; "));
   }
   db.update(sequences).set({ status: "approved", approvedAt: now().toISOString() }).where(eq(sequences.id, sequenceId)).run();

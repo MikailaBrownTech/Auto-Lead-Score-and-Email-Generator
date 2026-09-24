@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
-import { SpendSummarySchema, type SpendSummary } from "@clearpath/shared";
+import type { SpendView } from "@clearpath/shared";
+import { api, usd } from "../api";
 
+/** Month-to-date spend against the cap, and the average cost per lead. Shown on every page. */
 export function SpendMeter() {
-  const [spend, setSpend] = useState<SpendSummary | null>(null);
+  const [spend, setSpend] = useState<SpendView | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch("/api/spend");
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
-        const data = SpendSummarySchema.parse(await res.json());
+        const data = await api<SpendView>("/spend");
         if (!cancelled) {
           setSpend(data);
           setError(null);
@@ -28,7 +28,7 @@ export function SpendMeter() {
     };
   }, []);
 
-  if (error) return <div className="spend spend-error">Spend: unavailable ({error})</div>;
+  if (error) return <div className="spend spend-error">Spend unavailable: {error}</div>;
   if (!spend) return <div className="spend">Spend: loading…</div>;
 
   const pct = Math.min(100, ((spend.spentUsd + spend.reservedUsd) / spend.capUsd) * 100);
@@ -36,8 +36,9 @@ export function SpendMeter() {
   return (
     <div className="spend" title={`Month ${spend.month} (UTC)`}>
       <span>
-        ${spend.spentUsd.toFixed(2)} of ${spend.capUsd.toFixed(2)} this month
-        {spend.reservedUsd > 0 && ` (+$${spend.reservedUsd.toFixed(2)} in flight)`}
+        {usd(spend.spentUsd)} of {usd(spend.capUsd)} this month
+        {spend.reservedUsd > 0 && ` (+${usd(spend.reservedUsd)} in progress)`}
+        {spend.leadsWithSpend > 0 && ` · about ${usd(spend.avgPerLeadUsd)} per lead`}
       </span>
       <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
         <div className={`meter-fill meter-${level}`} style={{ width: `${pct}%` }} />

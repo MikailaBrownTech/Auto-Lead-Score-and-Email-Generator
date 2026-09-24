@@ -21,9 +21,14 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       without a person-tied email + per-lead override, url-date filter, staff-only size_signal,
       email_security_hint, incomplete_data; 3 sites recorded as fixtures (7 total). AWAITING FOUNDER REVIEW.
       Do not start the UI.
-- [ ] M5 UI, M6 Results + settings, M7 Hardening
+- [x] M5 UI (local only): Import (URLs or paste, live job status, cancel), Leads table, Lead detail,
+      Sequences editor (live validators, judge on demand, rewrite one email, approve gating), Export
+      (blocked messages, suppression check, CSV copy/download), minimal Settings + suppression list,
+      spend meter on every page. AWAITING FOUNDER REVIEW.
+- [ ] M6 Results + settings, M7 Hardening
 
-Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date about $0.68 of $5.
+Tests: 475 passing in 28 files (vitest, incl. component tests and an offline end-to-end API test).
+Typecheck clean (strict). Month to date about $0.68 of $5.
 
 ## Key decisions and settings
 - Gates (docs/06): out_of_icp when staff_count > max_staff_for_sequence (60) or target_industry_fit
@@ -78,6 +83,16 @@ Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date
 - incomplete_data (leads.incomplete_data, ScoreResult.incompleteData): tier below A, data-gap NOT_FOUND
   points would reach the next tier and are at least half the points lost. Score unchanged; report
   recommends paste mode.
+- UI (M5): plain React + hash routes, no UI framework. All data goes through the local API; the Vite
+  proxy adds the per-process token (written only after the API binds its port). Live validation runs on
+  the server (debounced POST /check), so there is one validator implementation. Human edits mark an
+  email "edited": it keeps its template status but gets the allowlist and judge like model text (the
+  template's own docs/09 sentences stay allowed). Any edit clears approval; the judge result is tied to
+  a content hash. Approve needs validators + judge on the saved text + no approval blockers. Gate
+  override and direct-contact override need a typed reason (>= 10 chars), logged in lead_events.
+- Export: approved leads only; refused as a whole while sender/company/opt-out/address are missing or
+  checklist_ready is off with email 3; suppression (email or domain) checked first per row; the CSV has
+  only the address, subjects, and rendered emails (never internal notes).
 - Exit codes (extract-live, write-sequence): 0 for every expected outcome; 1 only for real errors
   (lead status failed or an uncaught exception), printed as "exit 1 because: ...".
 - checklist_ready (docs/01, default false): while false, sequences with email 3 are blocked from export.
@@ -101,6 +116,15 @@ Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date
 - Page cache and robots.txt answers reused for PAGE_CACHE_DAYS (7). Crawl-delay > 10s skips a site.
 
 ## Known open issues
+0a. Doc-exchange "portal" detection should read link destination domains against a known portal-vendor
+    list (e.g. links to sharefile, smartvault, taxdome hosts), not only page words. Not fixed yet.
+0b. firm_type can change between runs for the same site (essentialacctg: cpa, then bookkeeper). Stabilize
+    it later (e.g. keep the previous verified type unless new evidence contradicts it). Not fixed yet.
+0c. Jobs live in memory: restarting the API forgets job status (leads and sequences are in SQLite).
+0d. Paste mode (and the lead page's paste form) replaces the lead's facts with the pasted text only.
+0e. Leads saved by much older versions show as "outdated_research"; import them again.
+0f. The end-to-end test drives the real API in-process and renders every screen in jsdom; there is no
+    real-browser (Playwright) test.
 1. innercircle live (after round 1): first pass invalid (6-word subject B; an insurer-flavored sentence),
    the one rewrite passed validators and judge. Subject length is the most common first-pass miss.
 2. sender_title "Founder", company_name "ClearPath IT", company_website https://www.clearpathsecure.com
@@ -113,6 +137,7 @@ Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date
 8. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
 
 ## How to run (from repo root)
+- The app: `npm run app` -> open http://127.0.0.1:5173 (API on 127.0.0.1:8787; Ctrl+C stops both).
 - Tests: `npm test`  (offline; fixtures + fake network/API)
 - Typecheck: `npm run typecheck`
 - Smoke (1 tiny live API call): `npm run smoke`
@@ -151,10 +176,17 @@ Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date
 - apps/server/src/scoring/direct-contact.ts - needs_direct_contact rule, checklist, per-lead override
 - apps/server/scripts/exit.ts, lead-notes.ts - exit codes; shared report lines
 - config/dmarc-vendors.json - DMARC report vendors (not IT providers)
+- apps/server/src/server/app.ts - local JSON API (guarded: localhost Host/Origin + per-process token)
+- apps/server/src/server/services.ts, jobs.ts, views.ts, export.ts - deps (docs read fresh), p-queue
+  jobs, lead/sequence views, export + suppression list
+- apps/server/src/write/edit.ts - save/check edits, judge on demand, rewrite one email, sequence state
+- apps/server/src/pipeline/stored-dossier.ts - reads saved dossiers (defaults for newer fields)
+- apps/web/src/ - App (hash routes), api.ts, pages/ (Import, Leads, LeadDetail, Sequence, Export,
+  Settings), components/ (SpendMeter, ReasonForm, CacheWarnings)
+- scripts/dev.mjs - `npm run app` (starts API + UI)
 
 ## Next
-Founder review of the report-4 fixes. Do not start the UI until the founder approves. Paste mode and the
-override action get UI in M5.
+Founder review of M5 in the running app. Then M6 (results + settings) and M7 (hardening).
 
 ## Never break
 - Every fact: evidence (url + verbatim quote <= 15 words, value inside its quote) or NOT_FOUND; enforced
