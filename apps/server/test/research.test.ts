@@ -84,7 +84,7 @@ describe("researchWebLead on the smithtax fixture", () => {
     // office@ is the only public address: a generic inbox, so the lead needs a direct contact.
     expect(r.status).toBe("needs_direct_contact");
     expect(r.dossier.public_email_kind).toBe("generic_inbox");
-    expect((await researchWebLead("L-smith2", "smithtax.example", { ...deps, allowGenericInbox: true, fetch: { ...deps.fetch, limiter: fakeLimiter().limiter } })).status).toBe("extracted");
+    expect((await researchWebLead("L-smith2", "smithtax.example", { ...deps, allowWithoutDirectContact: true, fetch: { ...deps.fetch, limiter: fakeLimiter().limiter } })).status).toBe("extracted");
     expect(DossierSchema.safeParse(r.dossier).success).toBe(true);
     expect(r.dossier.pages_opened).toEqual([SMITH.HOME, SMITH.ABOUT, SMITH.SERVICES, "https://smithtax.example/contact", SMITH.PRIVACY]);
     expect(r.dossier.firm_name).toMatchObject({ value: "Smith Tax Services" });

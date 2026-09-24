@@ -15,8 +15,11 @@ import path from "node:path";
 import { isFound } from "@clearpath/shared";
 import { and, eq, gt } from "drizzle-orm";
 import { bootstrapOrExit } from "../src/bootstrap";
+import { leadOverride } from "../src/scoring/direct-contact";
+import { exitForLeads, installExitHandlers } from "./exit";
+import { leadNotes } from "./lead-notes";
 import { fromRoot } from "../src/config/paths";
-import { leads, runs } from "../src/db/schema";
+import { leads, runs, type LeadStatus } from "../src/db/schema";
 import { loadMxProviders, systemDnsResolver } from "../src/dns/lookup";
 import { loadApprovedSentences, loadEvidence, loadOffer, loadScoring, loadStyle, loadWriterFacts } from "../src/docs/loader";
 import { loadTemplates } from "../src/docs/templates";
@@ -41,6 +44,7 @@ if (urls.length === 0) {
   process.exit(2);
 }
 
+installExitHandlers();
 const ctx = bootstrapOrExit();
 const offer = loadOffer();
 const facts = loadWriterFacts();
@@ -69,7 +73,7 @@ const research: ResearchDeps = {
   evidence,
   now: () => new Date(),
   refresh,
-  allowGenericInbox: offer.allow_generic_inbox_outreach,
+  allowWithoutDirectContact: offer.allow_without_direct_contact,
 };
 const writeDeps = {
   db: ctx.db,
@@ -90,6 +94,7 @@ const RULE = "=".repeat(90);
 const THIN = "-".repeat(90);
 const usd = (n: number) => `$${n.toFixed(6)}`;
 const summaries: string[] = [];
+const results: { leadId: string; status: LeadStatus; error: string | null }[] = [];
 const files: string[] = [];
 
 for (const url of urls) {
@@ -100,7 +105,9 @@ for (const url of urls) {
   const r = await researchWebLead(leadId, url, research);
   const gateApproved = ctx.db.select({ v: leads.gateApproved }).from(leads).where(eq(leads.id, leadId)).get()?.v ?? false;
   console.error(`generating sequence for ${leadId} (tier ${r.score.tier}, gate ${r.dossier.gate.status}) ...`);
-  const g = await generateSequence(leadId, r.dossier, r.score.tier, writeDeps, { gateApproved });
+  const override = leadOverride(ctx.db, leadId);
+  const g = await generateSequence(leadId, r.dossier, r.score.tier, writeDeps, { gateApproved, directContactOverride: override });
+  results.push({ leadId, status: r.status, error: r.error });
 
   const out: string[] = [];
   const log = (s = "") => out.push(s);
@@ -112,7 +119,8 @@ for (const url of urls) {
   log(`gate: ${d.gate.status}${d.gate.reasons.length ? ` (${d.gate.reasons.join("; ")})` : ""}${gateApproved ? "   [gate approved by founder]" : ""}`);
   log(`score: ${r.score.total}   tier: ${r.score.tier}${r.score.tierCapped ? " (capped at C by fit)" : ""}   lead status: ${r.status}`);
   if (d.declined_automated_access) log("ACCESS: the site declined automated access (HTTP 403/429). PASTE-TEXT PROMPT: paste the About/Team/Contact page text to research this lead fully.");
-  log(`greeting: ${JSON.stringify(plan.greeting)}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
+  for (const line of leadNotes(d, r.score, offer, override)) log(line);
+  log(`greeting: ${override ? '"Hi," (direct-contact override)' : JSON.stringify(plan.greeting)}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
   if (approved.excluded.length) log(`docs/02 approved sentences excluded: ${approved.excluded.map((x) => `${x.id} (${x.reason})`).join("; ")}`);
 
   if (g.plan && g.plan.emails.length > 0) {
@@ -180,7 +188,7 @@ for (const url of urls) {
   const file = path.join(dir, `${site}-sequence.txt`);
   fs.writeFileSync(file, out.join("\n") + "\n");
   files.push(file);
-  summaries.push(summaryLine(leadId, r.score.tier, g, cost));
+  summaries.push(`${summaryLine(leadId, r.score.tier, g, cost)}; lead status ${r.status}${r.score.incompleteData.flag ? ", INCOMPLETE DATA" : ""}`);
 }
 
 function summaryLine(leadId: string, tier: string, g: GenerateResult, cost: number): string {
@@ -194,4 +202,4 @@ console.log("SUMMARY");
 for (const s of summaries) console.log(`  ${s}`);
 console.log(`  month to date ${usd(ctx.gate.spentThisMonthUsd())} of $${ctx.gate.capUsd.toFixed(2)} cap`);
 for (const f of files) console.log(`  report: ${f}`);
-process.exit(0);
+exitForLeads(results);

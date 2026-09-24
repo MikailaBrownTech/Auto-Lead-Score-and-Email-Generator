@@ -3,6 +3,7 @@ import {
   ExtractedFactsSchema,
   countWords,
   FACT_FIELDS,
+  MAX_LIST_ITEMS,
   MAX_QUOTE_WORDS,
   ModelFactsSchema,
   NOT_FOUND,
@@ -13,6 +14,7 @@ import {
   type FactField,
   type PageKind,
 } from "@clearpath/shared";
+import { z } from "zod";
 
 export type FieldStatus = "verified" | "not_found" | "rejected";
 
@@ -27,6 +29,46 @@ export const FIXABLE_FAILURES: ReadonlySet<FailureKind> = new Set(["url_not_sent
 /** A schema failure caused only by quote length is fixable (the model can pick a shorter span). */
 function formatKind(issues: { path: (string | number)[]; message: string }[]): FailureKind {
   return issues.length > 0 && issues.every((i) => i.path[i.path.length - 1] === "evidence_quote" && /15 words/.test(i.message)) ? "quote_too_long" : "format";
+}
+
+/**
+ * Only code may record an absence. For the model's booleans the allowed values are true (with
+ * evidence) or NOT_FOUND: a false becomes null inside an object, and a field with nothing true left
+ * becomes NOT_FOUND. Returns the cleaned answer, or null for NOT_FOUND, plus a note when it changed.
+ */
+export function dropFalseBooleans(field: FactField, answer: unknown): { answer: unknown; note: string | null } {
+  if (typeof answer !== "object" || answer === null || Array.isArray(answer)) return { answer, note: null };
+  const a = answer as { value?: unknown };
+  const note = `${field}: the model answered false; only code may record an absence (false dropped)`;
+  if (field === "privacy_policy_present") {
+    return a.value === false ? { answer: null, note } : { answer, note: null };
+  }
+  if (field === "client_portal_or_doc_exchange" || field === "phone_or_contact_form") {
+    if (typeof a.value !== "object" || a.value === null) return { answer, note: null };
+    const v = { ...(a.value as Record<string, unknown>) };
+    const keys = field === "client_portal_or_doc_exchange" ? ["doc_exchange", "secure_portal"] : ["contact_form"];
+    let changed = false;
+    for (const k of keys) {
+      if (v[k] === false) {
+        v[k] = null;
+        changed = true;
+      }
+    }
+    const nothingLeft =
+      field === "client_portal_or_doc_exchange" ? v.doc_exchange !== true && v.secure_portal !== true : v.contact_form !== true && (v.phone === null || v.phone === undefined || v.phone === "");
+    if (nothingLeft) return { answer: null, note: changed ? note : null };
+    return { answer: { ...a, value: v }, note: changed ? note : null };
+  }
+  return { answer, note: null };
+}
+
+const CLIENT_WORDS = /\b(clients?|customers?|compan(y|ies)|businesses|families|households|individuals|returns|taxpayers|organizations)\b/i;
+const STAFF_WORDS = /\b(staff|employees?|team|teammates|professionals|accountants|cpas|preparers|bookkeepers|people on)\b/i;
+
+/** A size_signal whose quote counts clients (not people working at the firm) is a client count. */
+export function isClientCount(quote: string, text: string): boolean {
+  const s = `${quote} ${text}`;
+  return CLIENT_WORDS.test(s) && !STAFF_WORDS.test(s);
 }
 
 export interface FieldCheck {
@@ -290,7 +332,7 @@ export function verifyExtraction(
       checks[field] = { status: "not_found" };
       continue;
     }
-    const answer = raw[field];
+    let answer = raw[field];
     if (answer === undefined) {
       checks[field] = { status: "rejected", kind: "missing", reason: "missing from the tool input" };
       continue;
@@ -335,14 +377,17 @@ export function verifyExtraction(
     }
 
     // services, software_mentioned: plain lists; each item must be found in a fetched page's text.
+    // Never rejected for length: the first MAX_LIST_ITEMS items found are kept, the rest dropped.
     if (field === "services" || field === "software_mentioned") {
-      const list = ModelFactsSchema.shape[field].safeParse(answer);
-      if (!list.success || list.data === NOT_FOUND) {
-        reject(checks, field, { kind: "format", reason: `invalid format: ${list.success ? "not a list" : list.error.issues.map((i) => i.message).join("; ")}` }, answer);
+      const list = LenientList.safeParse(answer);
+      if (!list.success) {
+        reject(checks, field, { kind: "format", reason: `invalid format: ${list.error.issues.map((i) => i.message).join("; ")}` }, answer);
         continue;
       }
-      const { found, dropped } = findListItems(list.data, ctx);
+      const { found: all, dropped } = findListItems(list.data.filter((s) => s.trim() !== ""), ctx);
+      const found = all.slice(0, MAX_LIST_ITEMS);
       const notes = dropped.map((d) => `${field}: dropped "${d.item}" (${d.reason})`);
+      if (all.length > MAX_LIST_ITEMS) notes.push(`${field}: kept the first ${MAX_LIST_ITEMS} items found; dropped ${all.length - MAX_LIST_ITEMS} more`);
       if (found.length === 0) {
         reject(checks, field, { kind: "not_on_page", reason: "none of the listed items were found in the page text" }, answer, notes);
         continue;
@@ -352,8 +397,15 @@ export function verifyExtraction(
       continue;
     }
 
+    const cleaned = dropFalseBooleans(field, answer);
+    const booleanNotes = cleaned.note ? [cleaned.note] : [];
+    if (cleaned.answer === null) {
+      checks[field] = { status: "not_found", answer, ...(booleanNotes.length ? { notes: booleanNotes } : {}) };
+      continue;
+    }
+    answer = cleaned.answer;
     const cut = shortenQuote(field, answer, ctx);
-    const cutNotes = cut ? [cut.note] : [];
+    const cutNotes = [...booleanNotes, ...(cut ? [cut.note] : [])];
     const parsed = ExtractedFactsSchema.shape[field].safeParse(cut ? cut.answer : answer);
     if (!parsed.success || parsed.data === NOT_FOUND) {
       const msg = parsed.success ? "not an evidenced value" : parsed.error.issues.map((i) => i.message).join("; ");
@@ -385,8 +437,21 @@ export function verifyExtraction(
     set(field, f);
     checks[field] = { status: "verified", answer, ...(cutNotes.length ? { notes: cutNotes } : {}) };
   }
+  // size_signal holds staff counts only; a count of clients served moves to client_count_signal.
+  const size = facts.size_signal;
+  if (size !== NOT_FOUND && isClientCount(size.evidence_quote, size.value.text)) {
+    if (facts.client_count_signal === NOT_FOUND) {
+      facts.client_count_signal = { value: { count: size.value.staff_count, text: size.value.text }, evidence_url: size.evidence_url, evidence_quote: size.evidence_quote };
+    }
+    facts.size_signal = NOT_FOUND;
+    const note = "size_signal: the quote counts clients, not staff; moved to client_count_signal (not scored)";
+    checks.size_signal = { ...checks.size_signal, notes: [...(checks.size_signal.notes ?? []), note] };
+  }
   return { facts, checks };
 }
+
+/** services/software as sent: any number of strings (length is never a reason to reject the field). */
+const LenientList = z.array(z.string());
 
 /** The model sometimes says NOT_FOUND inside the object instead of as the whole field. */
 function isNotFoundObject(answer: unknown): boolean {
@@ -411,6 +476,7 @@ const FIELD_PAGE_KINDS: Record<FactField, PageKind[]> = {
   security_or_wisp_mention: ["security", "privacy", "home"],
   phone_or_contact_form: ["contact", "home"],
   exclusion_signals: ["home", "about"],
+  client_count_signal: ["home", "about"],
 };
 
 /** Max pages sent in a targeted retry. */

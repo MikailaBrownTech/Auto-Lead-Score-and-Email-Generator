@@ -1,0 +1,196 @@
+{
+  "capturedAt": "2026-09-24T16:39:57.121Z",
+  "input": "metaxparma.com",
+  "routes": {
+    "https://metaxparma.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "file": "body-0.txt"
+    },
+    "https://metaxparma.com/": {
+      "status": 301,
+      "headers": {
+        "location": "https://www.metaxparma.com/"
+      }
+    },
+    "https://www.metaxparma.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "file": "body-2.txt"
+    },
+    "https://www.metaxparma.com/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-3.html"
+    },
+    "https://www.metaxparma.com/sitemap.xml": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/xml; charset=utf-8"
+      },
+      "file": "body-4.xml"
+    }
+  },
+  "hosts": {
+    "metaxparma.com": [
+      "185.230.63.186",
+      "185.230.63.107",
+      "185.230.63.171"
+    ],
+    "www.metaxparma.com": [
+      "172.66.3.8",
+      "162.159.143.12"
+    ]
+  },
+  "dns": {
+    "MX metaxparma.com": {
+      "code": "ENODATA"
+    },
+    "TXT _dmarc.metaxparma.com": {
+      "code": "ENOTFOUND"
+    },
+    "TXT metaxparma.com": {
+      "code": "ENODATA"
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "M.E. & Associates Services",
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "M.E. & ASSOCIATES SERVICES"
+        },
+        "firm_type": {
+          "value": {
+            "primary": "tax_preparer",
+            "secondary": [
+              "bookkeeper",
+              "payroll"
+            ]
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "With over 30 years of experience, our staff is prepared to help you with all of your tax needs."
+        },
+        "location": {
+          "value": {
+            "city": "Parma",
+            "state": "OH",
+            "country": "United States"
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "Our small business is located in Polish Village in Parma, Ohio."
+        },
+        "size_signal": {
+          "value": {
+            "staff_count": null,
+            "text": "our staff is prepared to help you"
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "With over 30 years of experience, our staff is prepared to help you with all of your tax needs."
+        },
+        "client_count_signal": "NOT_FOUND",
+        "services": [
+          "Federal, State, and City",
+          "Individual",
+          "Corporation",
+          "S-Corp (1120S)",
+          "C-Corp (1120)",
+          "Partnership (1065)",
+          "Non-Profit",
+          "Estates",
+          "Trust",
+          "Amended",
+          "General Ledger",
+          "Quickbooks",
+          "Sales Tax, CAT, cities",
+          "Profit and Loss",
+          "Various Business Services",
+          "Payroll Processing",
+          "Direct Deposit",
+          "Monthly/Quarterly Reports",
+          "Payroll Taxes",
+          "Business/Individual Taxes",
+          "Restructuring and Reorganization",
+          "Planning and Development",
+          "Compilation of financial statements"
+        ],
+        "software_mentioned": [
+          "Quickbooks"
+        ],
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": {
+          "value": {
+            "address": "contactme1040@gmail.com",
+            "owner_name": null
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "Email: contactme1040@gmail.com"
+        },
+        "personal_email_domain_on_site": {
+          "value": "contactme1040@gmail.com",
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "Email: contactme1040@gmail.com"
+        },
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "(440) 885-0829",
+            "contact_form": null
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "Contact us at (440) 885-0829"
+        },
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    },
+    {
+      "callIndex": 1,
+      "toolInput": {
+        "firm_name": "NOT_FOUND",
+        "firm_type": {
+          "value": {
+            "primary": "tax_preparer",
+            "secondary": [
+              "bookkeeper",
+              "payroll"
+            ]
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "Your company, your family, and you."
+        },
+        "location": "NOT_FOUND",
+        "size_signal": {
+          "value": {
+            "staff_count": null,
+            "text": "With over 30 years of experience, our staff is prepared to help you with all of your tax needs."
+          },
+          "evidence_url": "https://www.metaxparma.com/",
+          "evidence_quote": "With over 30 years of experience, our staff is prepared to help you with all of your tax needs."
+        },
+        "client_count_signal": "NOT_FOUND",
+        "services": "NOT_FOUND",
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": "NOT_FOUND",
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

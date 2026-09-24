@@ -1,0 +1,206 @@
+{
+  "capturedAt": "2026-09-24T16:39:44.334Z",
+  "input": "essentialacctg.com",
+  "routes": {
+    "https://essentialacctg.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "file": "body-0.txt"
+    },
+    "https://essentialacctg.com/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-1.html"
+    },
+    "https://essentialacctg.com/about-us/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-2.html"
+    },
+    "https://essentialacctg.com/our-services/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-3.html"
+    },
+    "https://essentialacctg.com/contact-us/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-4.html"
+    },
+    "https://essentialacctg.com/sitemap.xml": {
+      "status": 301,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8",
+        "location": "https://essentialacctg.com/sitemap_index.xml"
+      }
+    },
+    "https://essentialacctg.com/sitemap_index.xml": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/xml; charset=UTF-8"
+      },
+      "file": "body-6.xml"
+    }
+  },
+  "hosts": {
+    "essentialacctg.com": [
+      "166.62.115.83"
+    ]
+  },
+  "dns": {
+    "MX essentialacctg.com": {
+      "answer": [
+        {
+          "exchange": "mx1-usg1.ppe-hosted.com",
+          "priority": 0
+        },
+        {
+          "exchange": "mx2-usg1.ppe-hosted.com",
+          "priority": 0
+        },
+        {
+          "exchange": "mx3-usg1.ppe-hosted.com",
+          "priority": 0
+        }
+      ]
+    },
+    "TXT _dmarc.essentialacctg.com": {
+      "code": "ENOTFOUND"
+    },
+    "TXT essentialacctg.com": {
+      "answer": [
+        [
+          "v=spf1 include:_spf-usg1.ppe-hosted.com include:secureserver.net ~all"
+        ],
+        [
+          "7v6gjqdsv1cuhg6je779n5dil6"
+        ],
+        [
+          "MS=ms31234841"
+        ],
+        [
+          ""
+        ],
+        [
+          "ca3-dabdacdb07554105ac45c713e89ddf26"
+        ]
+      ]
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "Essential Accounting Consultants",
+          "evidence_url": "https://essentialacctg.com/about-us/",
+          "evidence_quote": "Essential Accounting Consultants is a full-service accounting firm"
+        },
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": [
+              "tax_preparer",
+              "bookkeeper"
+            ]
+          },
+          "evidence_url": "https://essentialacctg.com/about-us/",
+          "evidence_quote": "We specialize in accounting, business management, and taxes of financial statements."
+        },
+        "location": {
+          "value": {
+            "city": "Cleveland",
+            "state": "Ohio",
+            "country": "United States"
+          },
+          "evidence_url": "https://essentialacctg.com/about-us/",
+          "evidence_quote": "offices in Cleveland, Ohio, and Dominican Republic"
+        },
+        "size_signal": "NOT_FOUND",
+        "client_count_signal": {
+          "value": {
+            "count": 1000,
+            "text": "We've Empowered More Than 1,000+ Companies With Our Financial Services"
+          },
+          "evidence_url": "https://essentialacctg.com/",
+          "evidence_quote": "supported over 1,000 companies worldwide, from dynamic startups"
+        },
+        "services": [
+          "Tax Services",
+          "Bookkeeping Services",
+          "Business Consulting",
+          "Virtual CFO Service",
+          "Accounts Payable",
+          "Accounts Receivable",
+          "Payroll Management",
+          "Cash Flow Management",
+          "Business and Personal Tax Returns"
+        ],
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": {
+          "value": {
+            "address": "info@essentialacctg.com",
+            "owner_name": null
+          },
+          "evidence_url": "https://essentialacctg.com/",
+          "evidence_quote": "info@essentialacctg.com"
+        },
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "216-202-4194",
+            "contact_form": true
+          },
+          "evidence_url": "https://essentialacctg.com/",
+          "evidence_quote": "+12162024194"
+        },
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    },
+    {
+      "callIndex": 1,
+      "toolInput": {
+        "firm_name": "NOT_FOUND",
+        "firm_type": {
+          "value": {
+            "primary": "bookkeeper",
+            "secondary": [
+              "tax_preparer"
+            ]
+          },
+          "evidence_url": "https://essentialacctg.com/about-us/",
+          "evidence_quote": "We take care of bookkeeping for small business owners"
+        },
+        "location": "NOT_FOUND",
+        "size_signal": "NOT_FOUND",
+        "client_count_signal": "NOT_FOUND",
+        "services": "NOT_FOUND",
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": "NOT_FOUND",
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

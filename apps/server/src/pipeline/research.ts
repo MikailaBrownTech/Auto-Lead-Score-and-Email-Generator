@@ -1,11 +1,15 @@
 import {
   DossierSchema,
+  isFound,
   FACT_FIELDS,
   NOT_FOUND,
   type Dossier,
   type DnsFindings,
   type EvidenceConfig,
   type ExtractedFacts,
+  FirmTypeSchema,
+  type EmailSecurityHint,
+  type FirmType,
   type InjectionFinding,
   type NameHint,
   type ScoringConfig,
@@ -14,7 +18,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leads, type LeadStatus } from "../db/schema";
-import { lookupDns, mailDomainFor, type DnsResolver, type MxProvider } from "../dns/lookup";
+import { emailSecurityHint, loadDmarcVendors, lookupDns, mailDomainFor, type DnsResolver, type MxProvider } from "../dns/lookup";
 import { createPageCache, createRobotsStore, createTokenCounter } from "../extract/caches";
 import { extractFacts, type ExtractionResult } from "../extract/extract";
 import { applyTokenCaps, type CapInputPage, type SentPage } from "../extract/token-caps";
@@ -22,7 +26,8 @@ import { scanForInjection } from "../extract/untrusted";
 import type { PageDate } from "../fetch/clean";
 import { fetchSite, type FetchedPage, type LinkReport, type SiteFetchDeps, type SitemapResult } from "../fetch/site";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
-import { chooseDecisionMaker, computeGate, supportedSecondaryTypes, targetIndustryFit, usLocation } from "../scoring/derive";
+import { chooseDecisionMaker, computeGate, firmTypeFromKeywords, supportedSecondaryTypes, targetIndustryFit, usLocation } from "../scoring/derive";
+import { lacksDirectContact, leadOverride } from "../scoring/direct-contact";
 import { classifyPublicEmail } from "../scoring/contact";
 import { computeFreshness } from "../scoring/freshness";
 import { scoreDossier, type ScoreResult } from "../scoring/score";
@@ -44,8 +49,13 @@ export interface ResearchDeps {
   now: () => Date;
   /** Ignore the page, robots, and extraction caches (fresh fetch and fresh model call). */
   refresh?: boolean;
-  /** docs/01 allow_generic_inbox_outreach. When false, generic-inbox leads become needs_direct_contact. */
-  allowGenericInbox?: boolean;
+  /**
+   * docs/01 allow_without_direct_contact. When false, leads without a person-tied public address become
+   * needs_direct_contact (unless overridden per lead).
+   */
+  allowWithoutDirectContact?: boolean;
+  /** config/dmarc-vendors.json (loaded when omitted). */
+  dmarcVendors?: string[];
 }
 
 export interface ResearchReport {
@@ -75,6 +85,10 @@ export interface PreparedLead {
   datedPages: { url: string; kind: FetchedPage["kind"]; dates: PageDate[] }[];
   dns: DnsFindings;
   securitySearch: SecurityMentionSearch;
+  /** Portal keyword search (docs/06 portal_keywords) of the full text; evidence for "no portal". */
+  portalSearch: SecurityMentionSearch;
+  /** INTERNAL ONLY: DMARC reports going to an outside, non-vendor domain. */
+  emailSecurityHint: EmailSecurityHint | typeof NOT_FOUND;
   failures: string[];
   /** Firm-name candidates from the homepage markup (hints for the model). */
   nameHints: NameHint[];
@@ -113,9 +127,21 @@ function startLead(db: Db, id: string, source: "web" | "pasted", inputUrl: strin
  * Model facts -> dossier: keeps only secondary types the services show, picks the decision maker by
  * title preference, computes US location, target industry fit, freshness, and the gate. All code.
  */
-export function assembleDossier(p: PreparedLead, facts: ExtractedFacts, extra: { failures: string[]; findings: InjectionFinding[] }, deps: Pick<ResearchDeps, "scoring" | "evidence" | "now">): Dossier {
+export function assembleDossier(
+  p: PreparedLead,
+  facts: ExtractedFacts,
+  extra: { failures: string[]; findings: InjectionFinding[]; proposedFirmType?: FirmType | null },
+  deps: Pick<ResearchDeps, "scoring" | "evidence" | "now">,
+): Dossier {
   const failures = [...extra.failures];
-  const secondary = supportedSecondaryTypes(facts.firm_type, facts.services, deps.evidence.firm_type_keywords);
+  // The model's firm_type wins when its evidence verified; otherwise the code derives one from the
+  // docs/06 keyword lists (verified services and the full page text), marked source=code.
+  let modelOrCode: ExtractedFacts["firm_type"] = isFound(facts.firm_type) ? { ...facts.firm_type, value: { ...facts.firm_type.value, source: "model" } } : NOT_FOUND;
+  if (!isFound(modelOrCode)) {
+    modelOrCode = firmTypeFromKeywords(p.scanPages, facts.services, deps.evidence, extra.proposedFirmType ?? null);
+    if (isFound(modelOrCode)) failures.push(`firm_type: the model's answer did not verify; derived by code from docs/06 keywords as ${modelOrCode.value.primary} (source=code)`);
+  }
+  const secondary = supportedSecondaryTypes(modelOrCode, facts.services, deps.evidence.firm_type_keywords);
   failures.push(...secondary.notes);
   const firmType = secondary.firmType;
   const fit = targetIndustryFit(firmType, facts.services, deps.scoring, deps.evidence.firm_type_keywords);
@@ -141,6 +167,8 @@ export function assembleDossier(p: PreparedLead, facts: ExtractedFacts, extra: {
     gate,
     dns: p.dns,
     security_mention_search: p.securitySearch,
+    portal_mention_search: p.portalSearch,
+    email_security_hint: p.emailSecurityHint,
   });
 }
 
@@ -158,28 +186,27 @@ export async function prepareWebLead(leadId: string, inputUrl: string, deps: Res
 
   const failures = [...site.failures];
   let dns = EMPTY_DNS;
+  let emailHint: EmailSecurityHint | typeof NOT_FOUND = NOT_FOUND;
   if (site.domain) {
-    const r = await lookupDns(mailDomainFor(site.domain), deps.dns, deps.mxProviders);
+    const mailDomain = mailDomainFor(site.domain);
+    const r = await lookupDns(mailDomain, deps.dns, deps.mxProviders);
     dns = r.dns;
     failures.push(...r.failures);
+    emailHint = emailSecurityHint(r.dmarcRecord, mailDomain, deps.dmarcVendors ?? loadDmarcVendors());
   }
 
-  // Runs on the full cleaned text of every page opened, never on the token-capped copy.
-  const securitySearch: SecurityMentionSearch =
-    site.pages.length > 0
-      ? searchSecurityMentions(
-          site.pages.map((p) => ({
-            url: p.url,
-            kind: p.kind,
-            httpStatus: p.httpStatus,
-            contentType: p.contentType,
-            truncated: p.truncated,
-            text: p.text,
-            sha256: p.textSha256,
-          })),
-          deps.scoring.wisp_keywords,
-        )
-      : "NOT_CHECKED";
+  // Keyword searches run on the full cleaned text of every page opened, never on the token-capped copy.
+  const searchPages = site.pages.map((p) => ({
+    url: p.url,
+    kind: p.kind,
+    httpStatus: p.httpStatus,
+    contentType: p.contentType,
+    truncated: p.truncated,
+    text: p.text,
+    sha256: p.textSha256,
+  }));
+  const securitySearch: SecurityMentionSearch = site.pages.length > 0 ? searchSecurityMentions(searchPages, deps.scoring.wisp_keywords) : "NOT_CHECKED";
+  const portalSearch: SecurityMentionSearch = site.pages.length > 0 ? searchSecurityMentions(searchPages, deps.scoring.portal_keywords) : "NOT_CHECKED";
 
   return {
     leadId,
@@ -194,6 +221,8 @@ export async function prepareWebLead(leadId: string, inputUrl: string, deps: Res
     datedPages: site.pages.map((p) => ({ url: p.url, kind: p.kind, dates: p.dates })),
     dns,
     securitySearch,
+    portalSearch,
+    emailSecurityHint: emailHint,
     failures,
     nameHints: site.pages.find((pg) => pg.kind === "home")?.nameHints ?? [],
     declined: site.declined !== null,
@@ -251,9 +280,15 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
     findings.push({ url: p.url || "pasted", where: "model", snippet: "the extraction model reported suspected prompt injection" });
   }
 
-  const dossier = assembleDossier(p, facts, { failures, findings }, deps);
+  // The type the model named, even if its quote failed: the code fallback tries it first with its own quote.
+  const proposed = FirmTypeSchema.safeParse((extraction?.fields.firm_type.answer as { value?: { primary?: unknown } } | undefined)?.value?.primary);
+  const dossier = assembleDossier(p, facts, { failures, findings, proposedFirmType: proposed.success ? proposed.data : null }, deps);
   const score = scoreDossier(dossier, deps.scoring, deps.now());
-  if (status === "extracted" && dossier.public_email_kind === "generic_inbox" && !deps.allowGenericInbox) status = "needs_direct_contact";
+  // Without a person-tied public address (generic inbox, unattributed, or none), the lead waits for a
+  // direct contact unless the global setting or a per-lead override (with a logged reason) allows it.
+  if (status === "extracted" && lacksDirectContact(dossier) && !deps.allowWithoutDirectContact && !leadOverride(deps.db, p.leadId)) {
+    status = "needs_direct_contact";
+  }
   saveLead(deps.db, p.leadId, {
     status,
     error,
@@ -262,6 +297,7 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
     tier: score.tier,
     gateStatus: dossier.gate.status,
     gateReasonsJson: JSON.stringify(dossier.gate.reasons),
+    incompleteData: score.incompleteData.flag,
   });
   return { leadId: p.leadId, status, error, dossier, score, sent, extraction, pages: p.pages, links: p.links, sitemap: p.sitemap };
 }
@@ -295,6 +331,8 @@ export async function researchPastedLead(leadId: string, pastedText: string, dep
       failures: ["source is pasted text only; no pages fetched and no DNS lookup"],
       nameHints: [],
       declined: false,
+      portalSearch: "NOT_CHECKED",
+      emailSecurityHint: NOT_FOUND,
     },
     deps,
   );

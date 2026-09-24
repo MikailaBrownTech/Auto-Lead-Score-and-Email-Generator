@@ -18,7 +18,7 @@ SIGNALS (count only when the fit gates pass; an out_of_icp lead gets 0 signal po
 - DMARC record missing, or policy=none (from the DNS lookup). Scored only when the domain has MX records. A domain with no MX is recorded as no_domain_email and gets no DMARC points. Lookup failures (timeout, SERVFAIL) are never scored; only a definitive answer (NXDOMAIN/NODATA or a record) counts.
 - Personal email domain on the site
 - Handles tax, payroll, or credit data (from services)
-- Doc exchange language without a mention of a secure portal
+- Doc exchange language without a mention of a secure portal. The model may only report document exchange or a portal as present (true, with a quote). "No portal" comes from the code's keyword search (portal_keywords) of the full page text, with the same page minimum as the WISP search.
 
 REACHABILITY
 - Public business email found: full points when the address is tied to a named person (the same quote names them, or the address is built from their name); partial_points.public_business_email_generic for a generic inbox (generic_inbox_prefixes: info@, office@, contact@ ...) or an address not tied to anyone. A generic inbox is never greeted by name.
@@ -181,6 +181,21 @@ RULE: score only from fields with evidence. NOT_FOUND earns zero points and neve
   ],
   "wisp_search_min_text_chars": 200,
   "wisp_min_pages": 3,
+  "portal_keywords": [
+    "portal",
+    "secure upload",
+    "upload documents",
+    "upload your documents",
+    "sharefile",
+    "smartvault",
+    "liscio",
+    "taxdome",
+    "canopy",
+    "verifyle",
+    "suralink",
+    "netclient",
+    "onvio"
+  ],
   "partial_points": {
     "public_business_email_generic": 5,
     "decision_maker_role_unconfirmed": 5

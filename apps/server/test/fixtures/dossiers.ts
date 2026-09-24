@@ -1,4 +1,7 @@
 import { NOT_FOUND, type Dossier } from "@clearpath/shared";
+import { loadScoring } from "../../src/docs/loader";
+
+const PORTAL_KEYWORDS = loadScoring().portal_keywords;
 
 export const HOME = "https://smithtax.example/";
 export const ABOUT = "https://smithtax.example/about";
@@ -45,6 +48,7 @@ export function strongDossier(overrides: Partial<Dossier> = {}, wispKeywords: st
     firm_type: ev({ primary: "tax_preparer" as const, secondary: [] }, "Tax preparation for individuals and small businesses"),
     location: ev({ city: "Columbus", state: "OH", country: "US" }, "Serving Columbus, Ohio since 2004"),
     size_signal: ev({ staff_count: 6, text: "our team of six" }, "our team of six", ABOUT),
+    client_count_signal: NOT_FOUND,
     services: {
       value: ["Individual tax returns", "Payroll services"],
       evidence: [
@@ -53,13 +57,13 @@ export function strongDossier(overrides: Partial<Dossier> = {}, wispKeywords: st
       ],
     },
     software_mentioned: { value: ["Drake"], evidence: [{ item: "Drake", evidence_url: HOME }] },
-    client_portal_or_doc_exchange: ev({ doc_exchange: true, secure_portal: false }, "email us your documents"),
+    client_portal_or_doc_exchange: ev({ doc_exchange: true as const, secure_portal: null }, "email us your documents"),
     people: [{ name: "Jane Smith", title: "Owner", evidence_url: ABOUT, evidence_quote: "Jane Smith, EA, Owner" }],
     public_contact_email: ev({ address: "jane@smithtax.example", owner_name: null }, "jane@smithtax.example"),
     personal_email_domain_on_site: ev("smithtaxes@gmail.com", "smithtaxes@gmail.com"),
-    privacy_policy_present: ev(false, "Privacy"),
+    privacy_policy_present: ev(true as const, "Privacy Policy", PRIVACY),
     security_or_wisp_mention: NOT_FOUND,
-    phone_or_contact_form: ev({ phone: "(614) 555-0100", contact_form: false }, "Call (614) 555-0100"),
+    phone_or_contact_form: ev({ phone: "(614) 555-0100", contact_form: null }, "Call (614) 555-0100"),
     exclusion_signals: [],
     decision_maker: ev({ name: "Jane Smith", title: "Owner", role_confirmed: true }, "Jane Smith, EA, Owner", ABOUT),
     public_email_kind: "named_person",
@@ -80,6 +84,8 @@ export function strongDossier(overrides: Partial<Dossier> = {}, wispKeywords: st
       dkim: "NOT_CHECKED",
     },
     security_mention_search: cleanSearch(wispKeywords),
+    portal_mention_search: cleanSearch(PORTAL_KEYWORDS),
+    email_security_hint: NOT_FOUND,
     ...overrides,
   };
 }
@@ -101,6 +107,7 @@ export function emptyDossier(): Dossier {
     firm_type: NOT_FOUND,
     location: NOT_FOUND,
     size_signal: NOT_FOUND,
+    client_count_signal: NOT_FOUND,
     services: NOT_FOUND,
     software_mentioned: NOT_FOUND,
     client_portal_or_doc_exchange: NOT_FOUND,
@@ -126,5 +133,7 @@ export function emptyDossier(): Dossier {
       dkim: "NOT_CHECKED",
     },
     security_mention_search: "NOT_CHECKED",
+    portal_mention_search: "NOT_CHECKED",
+    email_security_hint: NOT_FOUND,
   };
 }

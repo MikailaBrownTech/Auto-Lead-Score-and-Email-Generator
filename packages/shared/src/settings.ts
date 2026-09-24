@@ -25,10 +25,11 @@ export const OfferConfigSchema = z
     /** Email 3 offers the checklist by reply. While false, a sequence with email 3 is blocked from export. */
     checklist_ready: z.boolean().default(false),
     /**
-     * Override: allow approval and export for leads whose only public address is a generic inbox
-     * (info@, office@). Default false: such leads are needs_direct_contact.
+     * Global override: allow approval and export for leads without a person-tied public address
+     * (generic inbox, unattributed address, or none). Default false: such leads are
+     * needs_direct_contact unless overridden per lead with a logged reason.
      */
-    allow_generic_inbox_outreach: z.boolean().default(false),
+    allow_without_direct_contact: z.boolean().default(false),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
@@ -121,6 +122,11 @@ export const ScoringConfigSchema = z
     wisp_search_min_text_chars: z.number().int().positive(),
     /** Without a privacy or security page, the search needs at least this many complete pages. */
     wisp_min_pages: z.number().int().positive(),
+    /**
+     * Keywords the code searches page text for to decide "no secure portal mentioned" (the model may
+     * only report a portal as present, never absent).
+     */
+    portal_keywords: z.array(z.string().trim().min(1)).min(1),
     /** Fit points below this cap the tier at C. */
     fit_threshold: z.number().int().nonnegative(),
     /** Staff counts above this make the lead out_of_icp (no sequence without approval). */

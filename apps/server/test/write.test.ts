@@ -259,7 +259,7 @@ describe("approval and export blockers", () => {
     for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi,\n")).toBe(true);
     expect(r.approvalBlockers.join()).toMatch(/^needs_direct_contact: info@smithtax\.example is a generic inbox/);
     expect(() => approveSequence(db, r.sequenceId!, offer)).toThrow(/needs_direct_contact/);
-    approveSequence(db, r.sequenceId!, { ...offer, allow_generic_inbox_outreach: true });
+    approveSequence(db, r.sequenceId!, { ...offer, allow_without_direct_contact: true });
     expect(db.select().from(sequences).all().at(-1)!.status).toBe("approved");
   });
 

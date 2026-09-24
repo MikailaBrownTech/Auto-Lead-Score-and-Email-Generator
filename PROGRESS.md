@@ -15,11 +15,15 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - [x] M4 Writer + judge (no UI), CLI `npm run write-sequence -- <url> [<url>...]`
 - [x] M4 review round 1: constrained writer input, regulatory allowlist (docs/02 approved sentences),
       insurer/quantifier/question/evaluation checks, signature block, needs_direct_contact,
-      checklist_ready, email 3 wording, report mode with every draft. AWAITING: live run on the two
-      extra sites the founder will provide, then founder review. Do not start the UI.
+      checklist_ready, email 3 wording, report mode with every draft.
+- [x] Report-4 fixes (essentialacctg, metaxparma, mapaccountinggroup): exit codes, list cap 25 without
+      rejection, firm_type code fallback, true-only model booleans, needs_direct_contact for any lead
+      without a person-tied email + per-lead override, url-date filter, staff-only size_signal,
+      email_security_hint, incomplete_data; 3 sites recorded as fixtures (7 total). AWAITING FOUNDER REVIEW.
+      Do not start the UI.
 - [ ] M5 UI, M6 Results + settings, M7 Hardening
 
-Tests: 437 passing in 24 files (vitest). Typecheck clean (strict). Month to date about $0.60 of $5.
+Tests: 459 passing in 25 files (vitest). Typecheck clean (strict). Month to date about $0.68 of $5.
 
 ## Key decisions and settings
 - Gates (docs/06): out_of_icp when staff_count > max_staff_for_sequence (60) or target_industry_fit
@@ -53,8 +57,29 @@ Tests: 437 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - Every email: at most one question; banned evaluative phrases (docs/03); company name only from docs/01.
 - Signature from docs/01: sender_name, sender_title, company_name, company_website, then opt_out_line
   and physical_address (founder fills the last two).
-- Generic-inbox leads: lead status needs_direct_contact; approval and export blocked until a person-tied
-  address is provided (paste mode, M5) or docs/01 allow_generic_inbox_outreach is true.
+- needs_direct_contact: any lead whose public email is not tied to a named person (generic inbox,
+  unattributed, or no email at all). Approval and export blocked until a person-tied address is pasted
+  (paste mode, M5), the lead is overridden with a logged reason (overrideDirectContact: reason >= 10
+  chars, leads.direct_contact_override_*, lead_events), or docs/01 allow_without_direct_contact is true.
+  Overridden leads always get the neutral greeting. Reports print a checklist (paste mode, state
+  accountancy board license lookup, Secretary of State business search, Google Business Profile).
+- Model booleans (privacy_policy_present, doc_exchange, secure_portal, contact_form) are true (with a
+  quote) or NOT_FOUND/null; a model "false" is dropped with a note. Absence is code-only: "no portal"
+  comes from the portal keyword search (docs/06 portal_keywords, same page minimum as WISP).
+- services/software: model may send any number; code keeps the first 25 found (tool schema max 25).
+- firm_type: the model's answer wins when its quote verifies. Otherwise code derives it from docs/06
+  firm_type_keywords with its own verbatim quote (source=code): the type the model named is tried first
+  (kept only if the code finds a keyword quote for it), else the type with the most hits in verified
+  services (x2) and full page text.
+- size_signal = people working at the firm; client/company counts go to client_count_signal (not scored).
+- url_date freshness ignores /wp-content/uploads/ and non-HTML files; those are never the news page.
+- email_security_hint (INTERNAL ONLY): DMARC rua/ruf domains outside the firm's domain and not on
+  config/dmarc-vendors.json = "possible existing IT provider". Never in writer input or emails.
+- incomplete_data (leads.incomplete_data, ScoreResult.incompleteData): tier below A, data-gap NOT_FOUND
+  points would reach the next tier and are at least half the points lost. Score unchanged; report
+  recommends paste mode.
+- Exit codes (extract-live, write-sequence): 0 for every expected outcome; 1 only for real errors
+  (lead status failed or an uncaught exception), printed as "exit 1 because: ...".
 - checklist_ready (docs/01, default false): while false, sequences with email 3 are blocked from export.
 - services/software: plain lists from the model; code keeps items found (normalized, whole phrase) in
   a fetched page's full text; evidence = {item, evidence_url}. Never retried.
@@ -121,11 +146,15 @@ Tests: 437 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - apps/server/src/write/writer-input.ts, prompt.ts, generate.ts - values-only writer input, grounding
   detection, prompts, tier/gate gating, one rewrite, judge, sequences table, approveSequence
 - apps/server/scripts/extract-live.ts, write-sequence.ts, smoke.ts
-- apps/server/test/fixtures/live/ - Pease Bell, cehcpas, innercircle, RBV recordings (byte-exact)
+- apps/server/test/fixtures/live/ - Pease Bell, cehcpas, innercircle, RBV, essentialacctg, metaxparma,
+  mapaccountinggroup recordings (byte-exact)
+- apps/server/src/scoring/direct-contact.ts - needs_direct_contact rule, checklist, per-lead override
+- apps/server/scripts/exit.ts, lead-notes.ts - exit codes; shared report lines
+- config/dmarc-vendors.json - DMARC report vendors (not IT providers)
 
 ## Next
-Run `npm run write-sequence` on the two extra sites the founder provides (one summary line each),
-then founder review. Do not start the UI until the founder approves.
+Founder review of the report-4 fixes. Do not start the UI until the founder approves. Paste mode and the
+override action get UI in M5.
 
 ## Never break
 - Every fact: evidence (url + verbatim quote <= 15 words, value inside its quote) or NOT_FOUND; enforced

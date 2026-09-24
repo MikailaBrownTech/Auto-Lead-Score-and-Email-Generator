@@ -48,10 +48,13 @@ export const ExclusionSignalSchema = z
   .strict();
 export type ExclusionSignal = z.infer<typeof ExclusionSignalSchema>;
 
+/** services/software: the code keeps at most this many items found on the pages (extra items are dropped, never rejected). */
+export const MAX_LIST_ITEMS = 25;
+
 /** A plain list the model reads off the pages; the code then finds each item in a page's text. */
 const modelList = (what: string) =>
   z
-    .union([z.literal(NOT_FOUND), z.array(nonEmpty).min(1).max(15)])
+    .union([z.literal(NOT_FOUND), z.array(nonEmpty).min(1).max(MAX_LIST_ITEMS)])
     .describe(`${what} Copy each item exactly as a page writes it (the code searches the page text for it). No quotes needed.`);
 
 /**
@@ -75,12 +78,19 @@ export const ModelFactsSchema = z
     ).describe("Where the firm is located. The quote must contain the city when a city is given."),
     size_signal: evidenced(
       z.object({ staff_count: z.number().int().positive().nullable(), text: nonEmpty }).strict(),
-    ).describe("Staff size, only if stated or countable on a team page. The quote must contain the number."),
+    ).describe(
+      "How many people WORK at the firm (staff, team members, employees), only if stated or countable on a team page. The quote must contain the number. Never clients, companies, or returns served.",
+    ),
+    client_count_signal: evidenced(
+      z.object({ count: z.number().int().positive().nullable(), text: nonEmpty }).strict(),
+    ).describe("How many clients, companies, or returns the firm says it serves. Recorded only; never used as staff size."),
     services: modelList("Services the firm offers."),
     software_mentioned: modelList("Software or platforms named on the site."),
     client_portal_or_doc_exchange: evidenced(
-      z.object({ doc_exchange: z.boolean(), secure_portal: z.boolean() }).strict(),
-    ).describe("Whether the site mentions exchanging documents, and whether it mentions a secure portal."),
+      z.object({ doc_exchange: z.literal(true).nullable(), secure_portal: z.literal(true).nullable() }).strict(),
+    ).describe(
+      "doc_exchange: true if the quote mentions clients sending or exchanging documents. secure_portal: true if it mentions a secure or client portal. Use null for anything the quote does not show; never false.",
+    ),
     people: z
       .array(PersonSchema)
       .max(5)
@@ -91,13 +101,13 @@ export const ModelFactsSchema = z
     personal_email_domain_on_site: evidenced(z.string().email()).describe(
       "An address at a personal email provider (gmail, yahoo, aol, etc.) used as a firm address.",
     ),
-    privacy_policy_present: evidenced(z.boolean()).describe("Whether the site has a privacy policy."),
+    privacy_policy_present: evidenced(z.literal(true)).describe("true, with a quote, when the site shows a privacy policy. Otherwise NOT_FOUND; never false."),
     security_or_wisp_mention: evidenced(nonEmpty).describe(
       "The firm describing its OWN security practices for its clients' information (a WISP, security program, encryption of client files, safeguards). IT, audit, or assurance services the firm sells to clients do not count.",
     ),
     phone_or_contact_form: evidenced(
-      z.object({ phone: nonEmpty.nullable(), contact_form: z.boolean() }).strict(),
-    ).describe("A phone number shown on the site, or a contact form. The quote must contain the phone number."),
+      z.object({ phone: nonEmpty.nullable(), contact_form: z.literal(true).nullable() }).strict(),
+    ).describe("A phone number shown on the site (the quote must contain it), or contact_form true when the quote shows a contact form. null when not shown; never false."),
     exclusion_signals: z
       .array(ExclusionSignalSchema)
       .max(5)
@@ -111,6 +121,10 @@ export type ModelFacts = z.infer<typeof ModelFactsSchema>;
  * software_mentioned keep only items the code found in a fetched page's text, with that page's URL.
  */
 export const ExtractedFactsSchema = ModelFactsSchema.extend({
+  /** source "code": the model's firm_type did not verify and the code derived it from docs/06 keywords. */
+  firm_type: evidenced(
+    z.object({ primary: FirmTypeSchema, secondary: z.array(FirmTypeSchema).max(3), source: z.enum(["model", "code"]).optional() }).strict(),
+  ),
   services: foundList(nonEmpty),
   software_mentioned: foundList(nonEmpty),
 });
@@ -213,6 +227,18 @@ export const FreshnessSourceSchema = z.enum(FRESHNESS_SOURCES);
  */
 export const FreshnessSchema = evidenced(z.object({ date: PartialDateSchema, source: FreshnessSourceSchema }).strict());
 
+export const EmailSecurityHintSchema = z
+  .object({
+    rua_domains: z.array(nonEmpty),
+    ruf_domains: z.array(nonEmpty),
+    /** Report domains that are not the firm's own and not on config/dmarc-vendors.json. */
+    outside_domains: z.array(nonEmpty),
+    evidence_url: z.string().regex(/^dns:TXT \S+$/),
+    note: nonEmpty,
+  })
+  .strict();
+export type EmailSecurityHint = z.infer<typeof EmailSecurityHintSchema>;
+
 /** Computed by code from verified facts and docs/06 lists. */
 export const FitSchema = z
   .object({ value: z.boolean().nullable(), reason: nonEmpty, qualifying_type: FirmTypeSchema.nullable().default(null) })
@@ -244,6 +270,13 @@ export const DossierSchema = z
     decision_maker: evidenced(z.object({ name: nonEmpty, title: nonEmpty.nullable(), role_confirmed: z.boolean() }).strict()),
     /** Code-derived from public_contact_email, people, and the docs/06 generic_inbox_prefixes list. */
     public_email_kind: z.union([z.literal(NOT_FOUND), z.enum(PUBLIC_EMAIL_KINDS)]).default(NOT_FOUND),
+    /**
+     * INTERNAL ONLY (never in writer input or emails): DMARC report addresses (rua/ruf) pointing to an
+     * outside domain that is neither the firm's own nor a known DMARC vendor: a possible existing IT provider.
+     */
+    email_security_hint: z.union([z.literal(NOT_FOUND), EmailSecurityHintSchema]).default(NOT_FOUND),
+    /** Code keyword search for portal mentions (docs/06 portal_keywords); evidence for "no portal mentioned". */
+    portal_mention_search: SecurityMentionSearchSchema.default("NOT_CHECKED"),
     latest_dated_content: FreshnessSchema,
     us_location: FitSchema,
     target_industry_fit: FitSchema,

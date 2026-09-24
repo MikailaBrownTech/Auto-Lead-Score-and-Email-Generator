@@ -18,6 +18,7 @@ A fact is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 words"
   "firm_type": {},
   "location": {},
   "size_signal": {},
+  "client_count_signal": {},
   "services": {},
   "software_mentioned": {},
   "client_portal_or_doc_exchange": {},
@@ -30,6 +31,8 @@ A fact is {"value": ..., "evidence_url": "...", "evidence_quote": "max 15 words"
   "exclusion_signals": [],
   "decision_maker": {},
   "public_email_kind": "NOT_FOUND",
+  "email_security_hint": "NOT_FOUND",
+  "portal_mention_search": "NOT_CHECKED",
   "latest_dated_content": {},
   "us_location": {},
   "target_industry_fit": {},
@@ -50,18 +53,22 @@ Filled by the model from page text (every value must be supported by its own quo
 - firm_name: text. The name must appear in the quote. The quote may be copied from the page body or from the page title. The code lists name candidates from the homepage markup (JSON-LD Organization name, og:site_name, the title before its separator); confirm one when a page supports it.
 - firm_type: {"primary", "secondary": []}; types are cpa, tax_preparer, bookkeeper, payroll, credit_counseling, collections, credit_repair, other. The quote must contain a keyword for the primary type (docs/06 evidence block). Secondary types are kept only when the verified services list shows them. Credit repair is its own type, never credit_counseling.
 - location: {"city", "state", "country"}; any part may be null. The city must appear in the quote.
-- size_signal: {"staff_count": number or null, "text"}; the number must appear in the quote.
-- services, software_mentioned: plain lists of items copied exactly as a page writes them. No quotes. The code keeps an item only if it finds it in the cleaned text of a fetched page.
-- client_portal_or_doc_exchange: {"doc_exchange": true/false, "secure_portal": true/false}.
+- size_signal: {"staff_count": number or null, "text"}: people who work at the firm only; the number must appear in the quote. A quote that counts clients, companies, or returns (and not staff) is moved by code to client_count_signal.
+- client_count_signal: {"count": number or null, "text"}: clients or companies served. Recorded only; never scored and never used as staff size.
+- services, software_mentioned: plain lists of items copied exactly as a page writes them. No quotes. The code keeps an item only if it finds it in the cleaned text of a fetched page, and keeps the first 25 found; a longer list is never rejected.
+- client_portal_or_doc_exchange: {"doc_exchange": true or null, "secure_portal": true or null}. The model never answers false; "no portal" comes from the code's portal keyword search (portal_mention_search).
 - people: up to 5 × {"name", "title" (or null), "evidence_url", "evidence_quote"}; name and title must appear in the quote. Empty list if none.
 - public_contact_email: {"address", "owner_name"}; the address must appear in the quote. owner_name is the person the same quote ties the address to, or null.
 - personal_email_domain_on_site: an address at a consumer provider, used as a firm address; it must appear in the quote.
-- privacy_policy_present: true/false.
+- privacy_policy_present: true (with a quote) or NOT_FOUND. Never false: only code may record an absence.
 - security_or_wisp_mention: text where the firm describes its OWN data-security practices for client information (a WISP, a security program, encrypted client file exchange, safeguards). IT, audit, or assurance services the firm sells to clients do not count.
-- phone_or_contact_form: {"phone": text or null, "contact_form": true/false}; the phone digits must appear in the quote.
+- phone_or_contact_form: {"phone": text or null, "contact_form": true or null}; the phone digits must appear in the quote.
 - exclusion_signals: list of {"signal", "evidence_url", "evidence_quote"}; signal is government_or_nonprofit_only, non_us, individual_practitioner, not_a_firm, closed_or_acquired, or other. Empty list if none.
 
 Filled by code (never by the model):
+- firm_type.source: "model" when the model's quote verified; "code" when it did not and the code derived the type from the docs/06 firm_type_keywords (verified services and full page text) with a verbatim quote.
+- email_security_hint: INTERNAL ONLY. DMARC rua/ruf report domains that are outside the firm's domain and not on config/dmarc-vendors.json ("possible existing IT provider"). Never sent to the writer, never in emails.
+- portal_mention_search: like security_mention_search, for docs/06 portal_keywords.
 - decision_maker: {"name", "title", "role_confirmed"}, chosen from people by the docs/06 title preference list. role_confirmed is false when the title is not on the list.
 - public_email_kind: named_person (the quote names the owner, or the address is built from a named person's name), generic_inbox (docs/06 generic_inbox_prefixes), or unattributed.
 - firm_name_candidates: [{"source": jsonld_organization | og_site_name | title, "value"}] from the homepage markup.

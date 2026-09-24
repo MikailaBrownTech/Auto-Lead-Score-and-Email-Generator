@@ -128,3 +128,66 @@ export function computeGate(input: {
   const status = out.length > 0 ? "out_of_icp" : review.length > 0 ? "needs_review" : "qualified";
   return { status, reasons: [...out, ...review] };
 }
+
+/** One page's full cleaned text (the keyword fallback searches these, never the capped copy). */
+interface SearchPage {
+  url: string;
+  text: string;
+}
+
+/**
+ * The first span of at most 15 words, copied verbatim from a paragraph of the page, that contains
+ * the keyword and no personal term. The evidence quote for a code-derived firm type.
+ */
+export function keywordQuote(pageText: string, keyword: string, personalTerms: string[]): string | null {
+  for (const paragraph of pageText.split(/\n{2,}/)) {
+    if (!keywordIn(paragraph, keyword)) continue;
+    const words = paragraph.replace(/\s+/g, " ").trim().split(" ");
+    for (let i = 0; i < words.length; i++) {
+      const span = words.slice(i, i + 15).join(" ");
+      if (!keywordIn(span, keyword)) {
+        if (i + 15 >= words.length) break;
+        continue;
+      }
+      if (personalTerms.some((t) => containsPhrase(span, t))) break;
+      return span;
+    }
+  }
+  return null;
+}
+
+/**
+ * Deterministic firm type when the model's answer did not verify: count docs/06 firm_type_keywords
+ * hits in the verified services (weight 2) and in the full text of the fetched pages (one per page
+ * and keyword). The type with the most hits wins; ties go to the docs/06 order. When the model named
+ * a type whose own quote failed, that type is tried first: it is kept only if the code finds its own
+ * verbatim keyword quote for it. The evidence quote is always a verbatim span of a fetched page that
+ * contains a docs/06 keyword. Secondary types are the other types the verified services show.
+ * source is "code".
+ */
+export function firmTypeFromKeywords(
+  pages: SearchPage[],
+  services: ExtractedFacts["services"],
+  evidence: EvidenceConfig,
+  proposed: FirmType | null = null,
+): ExtractedFacts["firm_type"] {
+  const keywords = evidence.firm_type_keywords;
+  const types = Object.keys(keywords) as (keyof Keywords)[];
+  const serviceItems = isFound(services) ? services.value : [];
+  const score = (t: keyof Keywords) =>
+    serviceItems.filter((s) => keywords[t].some((k) => keywordIn(s, k))).length * 2 +
+    pages.reduce((n, p) => n + keywords[t].filter((k) => keywordIn(p.text, k)).length, 0);
+  const ranked = types.map((t, i) => ({ t, i, s: score(t) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s || a.i - b.i);
+  const order = proposed && proposed !== "other" ? [{ t: proposed as keyof Keywords }, ...ranked.filter((x) => x.t !== proposed)] : ranked;
+  for (const { t } of order) {
+    for (const page of pages) {
+      for (const k of keywords[t]) {
+        const quote = keywordIn(page.text, k) ? keywordQuote(page.text, k, evidence.personal_terms) : null;
+        if (!quote) continue;
+        const secondary = typesShownInServices(services, keywords).filter((x) => x !== t).slice(0, 3);
+        return { value: { primary: t, secondary, source: "code" }, evidence_url: page.url, evidence_quote: quote };
+      }
+    }
+  }
+  return NOT_FOUND;
+}

@@ -1,0 +1,33 @@
+{
+  "notes": "Domains of DMARC report-processing services. A DMARC rua/ruf address at one of these (or a subdomain) is a reporting tool, not a sign of an IT provider. Editable. Anything else outside the firm's own domain is shown internally as a possible existing IT provider.",
+  "vendors": [
+    "dmarcian.com",
+    "dmarcian.eu",
+    "postmarkapp.com",
+    "valimail.com",
+    "agari.com",
+    "redsift.cloud",
+    "ondmarc.com",
+    "easydmarc.com",
+    "easydmarc.us",
+    "easydmarc.eu",
+    "dmarcanalyzer.com",
+    "uriports.com",
+    "mxtoolbox.com",
+    "dmarc.report",
+    "powerdmarc.com",
+    "proofpoint.com",
+    "cloudflare.net",
+    "fraudmarc.com",
+    "dmarcly.com",
+    "sendmarc.com",
+    "mimecast.com",
+    "dmarcadvisor.com",
+    "emailsecuritycheck.net",
+    "glockapps.com",
+    "250ok.net",
+    "dmarcdigests.com",
+    "report-uri.com",
+    "rua.dmarc.report"
+  ]
+}

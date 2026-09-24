@@ -1,6 +1,6 @@
 import dns from "node:dns/promises";
 import fs from "node:fs";
-import { NOT_FOUND, type DnsFindings } from "@clearpath/shared";
+import { NOT_FOUND, type DnsFindings, type EmailSecurityHint } from "@clearpath/shared";
 import { z } from "zod";
 import { fromRoot } from "../config/paths";
 
@@ -66,8 +66,9 @@ export async function lookupDns(
   domain: string,
   resolver: DnsResolver,
   providers: MxProvider[],
-): Promise<{ dns: DnsFindings; failures: string[] }> {
+): Promise<{ dns: DnsFindings; failures: string[]; dmarcRecord: string | null }> {
   const failures: string[] = [];
+  let dmarcRecord: string | null = null;
   const dmarcName = `_dmarc.${domain}`;
   const [mx, txt, dmarcTxt] = await Promise.all([
     ask(() => resolver.resolveMx(domain)),
@@ -126,6 +127,7 @@ export async function lookupDns(
       findings.dmarc_present = { value: false, evidence_url: `dns:TXT ${dmarcName}`, evidence_quote: why };
     } else {
       findings.dmarc_present = { value: true, evidence_url: `dns:TXT ${dmarcName}`, evidence_quote: quote(dmarc[0]!) };
+      if (dmarc.length === 1) dmarcRecord = dmarc[0]!;
       if (dmarc.length > 1) {
         failures.push(`DNS TXT ${dmarcName}: ${dmarc.length} DMARC records, so no policy applies; policy left NOT_FOUND`);
       } else {
@@ -139,5 +141,44 @@ export async function lookupDns(
     }
   }
 
-  return { dns: findings, failures };
+  return { dns: findings, failures, dmarcRecord };
+}
+
+const DmarcVendorsSchema = z.object({ vendors: z.array(z.string().trim().toLowerCase().min(3)) });
+
+/** DMARC report-processing services (config/dmarc-vendors.json, editable). */
+export function loadDmarcVendors(file = fromRoot("config/dmarc-vendors.json")): string[] {
+  return DmarcVendorsSchema.parse(JSON.parse(fs.readFileSync(file, "utf8"))).vendors;
+}
+
+function underDomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/** The mailto: domains of one DMARC tag (rua or ruf). */
+export function dmarcReportDomains(record: string, tag: "rua" | "ruf"): string[] {
+  const value = new RegExp(`(?:^|;)\\s*${tag}\\s*=\\s*([^;]+)`, "i").exec(record)?.[1] ?? "";
+  const domains = [...value.matchAll(/mailto:[^@\s,]+@([a-z0-9.-]+)/gi)].map((m) => m[1]!.toLowerCase().replace(/\.$/, ""));
+  return [...new Set(domains)];
+}
+
+/**
+ * INTERNAL ONLY: DMARC report addresses at an outside domain that is neither the firm's own nor a
+ * known DMARC vendor often mean someone (an IT provider) already manages the firm's email. Never
+ * sent to the writer and never mentioned in emails; shown in the report and UI only.
+ */
+export function emailSecurityHint(record: string | null, domain: string, vendors: string[]): EmailSecurityHint | typeof NOT_FOUND {
+  if (!record || !domain) return NOT_FOUND;
+  const own = domain.toLowerCase().replace(/^www\./, "");
+  const rua = dmarcReportDomains(record, "rua");
+  const ruf = dmarcReportDomains(record, "ruf");
+  const outside = [...new Set([...rua, ...ruf])].filter((d) => !underDomain(d, own) && !underDomain(own, d) && !vendors.some((v) => underDomain(d, v)));
+  if (outside.length === 0) return NOT_FOUND;
+  return {
+    rua_domains: rua,
+    ruf_domains: ruf,
+    outside_domains: outside,
+    evidence_url: `dns:TXT _dmarc.${own}`,
+    note: `possible existing IT provider: DMARC reports go to ${outside.join(", ")}`,
+  };
 }

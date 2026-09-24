@@ -50,6 +50,11 @@ export const leads = sqliteTable("leads", {
   gateReasonsJson: text("gate_reasons_json"),
   /** Set when the founder approves a gated lead (UI in Milestone 5). */
   gateApproved: integer("gate_approved", { mode: "boolean" }).notNull().default(false),
+  /** Per-lead override of needs_direct_contact (solo practice whose only address is the owner's inbox). Logged in lead_events. */
+  directContactOverrideReason: text("direct_contact_override_reason"),
+  directContactOverrideAt: text("direct_contact_override_at"),
+  /** Tier is low mainly because of NOT_FOUND fields; paste mode is recommended. The score is not raised. */
+  incompleteData: integer("incomplete_data", { mode: "boolean" }).notNull().default(false),
   error: text("error"),
   createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
@@ -139,4 +144,17 @@ export const sequences = sqliteTable(
     createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
   },
   (t) => [index("sequences_lead_id_idx").on(t.leadId)],
+);
+
+/** Audit log of manual decisions on a lead (overrides and the reasons given). */
+export const leadEvents = sqliteTable(
+  "lead_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    leadId: text("lead_id").notNull(),
+    kind: text("kind", { enum: ["direct_contact_override"] }).notNull(),
+    detail: text("detail").notNull(),
+    createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index("lead_events_lead_id_idx").on(t.leadId)],
 );

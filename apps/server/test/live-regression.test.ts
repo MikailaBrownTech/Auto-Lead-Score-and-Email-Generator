@@ -73,12 +73,15 @@ function allQuotes(d: Dossier): string[] {
 }
 
 function commonChecks(r: ResearchReport) {
-  // Generic-inbox leads (info@, marketing@) wait for a direct contact.
-  expect(r.status).toBe(r.dossier.public_email_kind === "generic_inbox" ? "needs_direct_contact" : "extracted");
+  // Without a person-tied public address (generic, unattributed, or none), a lead waits for a direct contact.
+  expect(r.status).toBe(r.dossier.public_email_kind === "named_person" ? "extracted" : "needs_direct_contact");
   expect(DossierSchema.safeParse(r.dossier).success).toBe(true);
   const search = r.dossier.security_mention_search;
   if (search !== "NOT_CHECKED") expect(search.matches.map((m) => m.keyword)).not.toContain("secure portal");
   for (const q of allQuotes(r.dossier)) expect(q, "stored quote with family details").not.toMatch(FAMILY);
+  // Only code may record an absence: no model boolean is ever false.
+  const d = r.dossier;
+  expect(JSON.stringify([d.privacy_policy_present, d.client_portal_or_doc_exchange, d.phone_or_contact_form]), "model boolean set to false").not.toMatch(/false/);
 }
 
 // Real pages are large; jsdom parsing makes these slower than unit tests.
@@ -134,5 +137,40 @@ describe("live regression: sites recorded from the real web (replayed offline)",
     expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi," });
     expect(r.dossier.public_email_kind).not.toBe("named_person");
     expect(r.score.breakdown.find((b) => b.key === "public_business_email")!.points).toBe(5);
+  });
+
+  it("essentialacctg: a client count is not a staff size; generic inbox needs a direct contact", async () => {
+    const r = await replay("essentialacctg-com");
+    commonChecks(r);
+    expect(r.status).toBe("needs_direct_contact");
+    expect(r.dossier.public_email_kind).toBe("generic_inbox");
+    expect(r.dossier.size_signal).toBe("NOT_FOUND");
+    expect(r.dossier.client_count_signal).toMatchObject({ value: { text: expect.stringMatching(/Companies/) } });
+    // Uploaded images with dated paths are neither the news page nor a freshness date.
+    const uploads = r.links.filter((l) => l.url.includes("/wp-content/uploads/"));
+    expect(uploads.length).toBeGreaterThan(0);
+    expect(uploads.every((l) => l.kind !== "news")).toBe(true);
+    const fresh = r.dossier.latest_dated_content;
+    if (isFound(fresh)) expect(fresh.evidence_url).not.toMatch(/wp-content\/uploads|\.png$/);
+  });
+
+  it("metaxparma: tax_preparer (model or code) and target industry fit; long services list kept; no false booleans", async () => {
+    const r = await replay("metaxparma-com");
+    commonChecks(r);
+    expect(isFound(r.dossier.firm_type) && r.dossier.firm_type.value.primary).toBe("tax_preparer");
+    expect(isFound(r.dossier.firm_type) && ["model", "code"]).toContain(isFound(r.dossier.firm_type) && (r.dossier.firm_type.value.source ?? "model"));
+    expect(r.dossier.target_industry_fit.value).toBe(true);
+    expect(isFound(r.dossier.services) && r.dossier.services.value.length).toBeGreaterThan(15);
+    expect(r.dossier.privacy_policy_present).not.toMatchObject({ value: false });
+    expect(r.status).toBe("needs_direct_contact");
+  });
+
+  it("mapaccountinggroup: no public email means needs_direct_contact; DMARC reports hint at an existing IT provider (internal)", async () => {
+    const r = await replay("mapaccountinggroup-com");
+    commonChecks(r);
+    expect(r.dossier.public_contact_email).toBe("NOT_FOUND");
+    expect(r.status).toBe("needs_direct_contact");
+    expect(r.dossier.email_security_hint).toMatchObject({ outside_domains: ["mynetworkplace.net"] });
+    expect(r.score.incompleteData.flag).toBe(true);
   });
 });

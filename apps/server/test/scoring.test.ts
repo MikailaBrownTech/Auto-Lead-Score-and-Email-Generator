@@ -230,10 +230,15 @@ describe("scoreDossier (docs/06)", () => {
       expect(points("sensitive_data_services", svc("Syntax consulting", "Web design"))).toBe(0);
     });
 
-    it("doc exchange without a secure portal", () => {
-      const f = (doc_exchange: boolean, secure_portal: boolean) => strong({ client_portal_or_doc_exchange: ev({ doc_exchange, secure_portal }, "x") });
-      expect(points("doc_exchange_without_portal", f(true, false))).toBe(5);
-      expect(points("doc_exchange_without_portal", f(true, true))).toBe(0);
+    it("doc exchange without a secure portal: the portal's absence comes from the code's keyword search", () => {
+      const f = (secure_portal: true | null) => strong({ client_portal_or_doc_exchange: ev({ doc_exchange: true as const, secure_portal }, "x") });
+      expect(points("doc_exchange_without_portal", f(null))).toBe(5);
+      expect(points("doc_exchange_without_portal", f(true))).toBe(0);
+      const search = strong().portal_mention_search;
+      if (search === "NOT_CHECKED") throw new Error("fixture");
+      const withMatch = strong({ portal_mention_search: { ...search, matches: [{ url: HOME, keyword: "portal" }] } });
+      expect(points("doc_exchange_without_portal", withMatch)).toBe(0);
+      expect(points("doc_exchange_without_portal", strong({ portal_mention_search: "NOT_CHECKED" }))).toBe(0);
     });
   });
 
@@ -241,8 +246,8 @@ describe("scoreDossier (docs/06)", () => {
     it("public business email and phone/contact form", () => {
       expect(points("public_business_email")).toBe(10);
       expect(points("phone_or_contact_form")).toBe(5);
-      const neither = strong({ phone_or_contact_form: ev({ phone: null, contact_form: false }, "x") });
-      expect(points("phone_or_contact_form", neither)).toBe(0);
+      expect(points("phone_or_contact_form", strong({ phone_or_contact_form: ev({ phone: null, contact_form: true as const }, "x") }))).toBe(5);
+      expect(points("phone_or_contact_form", strong({ phone_or_contact_form: "NOT_FOUND" }))).toBe(0);
     });
 
     it("site maintained: code-computed date within 12 months; recent_signal no longer counts", () => {

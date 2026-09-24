@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /articles/
+
+Disallow: /file_upload.htm
+Disallow: /resources.htm
+Disallow: /taxcenter.htm
+Disallow: /calculators.htm
+Disallow: /duedateslist.htm
+Disallow: /due_dates.htm
+Disallow: /retentionguide.htm
+Disallow: /taxrates.htm

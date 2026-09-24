@@ -25,6 +25,7 @@ import { templateEmail, type TemplateSet } from "../docs/templates";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
 import { contactPlan } from "../scoring/contact";
+import { directContactBlockers, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
 import { validateSequence, type Issue, type ValidationResult } from "../validators/email";
 import { judgeMessage, judgeTool, rewriteMessage, writerMessage, writerTool } from "./prompt";
 import { detectGrounding, planSequence, type WritePlan } from "./writer-input";
@@ -101,19 +102,13 @@ export function customEmailsFor(tier: Tier): number[] {
   return tier === "A" ? [1, 2, 3, 4, 5] : tier === "B" ? [1, 2] : [];
 }
 
-/** A lead whose only public address is a generic inbox needs a person-tied address first. */
-export function approvalBlockers(d: Dossier, offer: OfferConfig): string[] {
-  if (d.public_email_kind === "generic_inbox" && !offer.allow_generic_inbox_outreach) {
-    const address = isFound(d.public_contact_email) ? d.public_contact_email.value.address : "the public address";
-    return [
-      `needs_direct_contact: ${address} is a generic inbox; paste a person-tied address (paste mode) or set allow_generic_inbox_outreach in docs/01`,
-    ];
-  }
-  return [];
+/** A lead without a person-tied address needs one first (or a global or per-lead override). */
+export function approvalBlockers(d: Dossier, offer: OfferConfig, override: DirectContactOverride | null = null): string[] {
+  return directContactBlockers(d, offer, override);
 }
 
-export function exportBlockers(d: Dossier, offer: OfferConfig, seq: Sequence | null): string[] {
-  const out = [...approvalBlockers(d, offer)];
+export function exportBlockers(d: Dossier, offer: OfferConfig, seq: Sequence | null, override: DirectContactOverride | null = null): string[] {
+  const out = [...approvalBlockers(d, offer, override)];
   const empty = (["sender_title", "company_name", "company_website", "opt_out_line", "physical_address"] as const).filter((k) => offer[k].trim() === "");
   if (empty.length > 0) out.push(`docs/01 settings empty: ${empty.join(", ")}`);
   if (seq?.emails.some((e) => e.n === 3) && offer.cta_type === "checklist" && !offer.checklist_ready) {
@@ -178,8 +173,9 @@ export async function generateSequence(
   dossier: Dossier,
   tier: Tier,
   deps: WriteDeps,
-  opts: { gateApproved?: boolean } = {},
+  opts: { gateApproved?: boolean; directContactOverride?: DirectContactOverride | null } = {},
 ): Promise<GenerateResult> {
+  const override = opts.directContactOverride ?? null;
   const base: GenerateResult = {
     leadId,
     tier,
@@ -195,14 +191,15 @@ export async function generateSequence(
     writerCalls: 0,
     judgeCalls: 0,
     sequenceId: null,
-    approvalBlockers: approvalBlockers(dossier, deps.offer),
+    approvalBlockers: approvalBlockers(dossier, deps.offer, override),
     exportBlockers: [],
   };
   if (dossier.gate.status !== "qualified" && !opts.gateApproved) {
     return { ...base, reason: `gate is ${dossier.gate.status}; no sequence until the founder approves it (${dossier.gate.reasons.join("; ")})` };
   }
 
-  const greeting = contactPlan(dossier).greeting;
+  // An overridden lead (no person-tied address) is always greeted neutrally.
+  const greeting = override ? "Hi," : contactPlan(dossier).greeting;
   const customNs = customEmailsFor(tier);
   const plan = planSequence(dossier, customNs, { ...deps, greeting });
   const type = plan.context.firm_type;
@@ -338,7 +335,7 @@ export async function generateSequence(
       })
       .returning({ id: sequences.id })
       .get();
-    return { ...r, sequenceId: row.id, exportBlockers: exportBlockers(dossier, deps.offer, r.sequence) };
+    return { ...r, sequenceId: row.id, exportBlockers: exportBlockers(dossier, deps.offer, r.sequence, override) };
   }
 }
 
@@ -354,7 +351,7 @@ export function approveSequence(db: Db, sequenceId: number, offer: OfferConfig, 
   if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs code validators and judge to pass`);
   const lead = db.select({ dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, row.leadId)).get();
   if (lead?.dossierJson) {
-    const blockers = approvalBlockers(JSON.parse(lead.dossierJson) as Dossier, offer);
+    const blockers = approvalBlockers(JSON.parse(lead.dossierJson) as Dossier, offer, leadOverride(db, row.leadId));
     if (blockers.length > 0) throw new ApprovalBlockedError(blockers.join("; "));
   }
   db.update(sequences).set({ status: "approved", approvedAt: now().toISOString() }).where(eq(sequences.id, sequenceId)).run();

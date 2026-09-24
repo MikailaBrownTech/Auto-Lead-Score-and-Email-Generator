@@ -2,6 +2,7 @@ import fs from "node:fs";
 import type { PageKind } from "@clearpath/shared";
 import { z } from "zod";
 import { fromRoot } from "../config/paths";
+import { NON_CONTENT_PATH } from "../scoring/freshness";
 import type { PageLink } from "./clean";
 
 /** Core subpages (about, team, services, contact, privacy, security); one news article is added on top. */
@@ -41,7 +42,7 @@ export function siteKey(host: string): string {
 
 export function classifyPage(url: URL, linkText = ""): PageKind {
   if (url.pathname === "/" || url.pathname === "") return "home";
-  if (DATED_POST_PATH.test(url.pathname)) return "news";
+  if (DATED_POST_PATH.test(url.pathname) && !NON_CONTENT_PATH.test(url.pathname)) return "news";
   if (ARTICLE_PATH.test(url.pathname)) {
     // A single article (/blog/some-post), not an index (/blog/) or archive (skipped by pattern).
     const segments = url.pathname.split("/").filter(Boolean);

@@ -51,7 +51,7 @@ export interface ExtractionDeps {
 }
 
 /** Bump when verification or prompt assembly changes in a way that should invalidate cached results. */
-const EXTRACTION_VERSION = 6;
+const EXTRACTION_VERSION = 7;
 
 function cacheKey(deps: ExtractionDeps, tool: Anthropic.Tool, sent: SentPage[]): string {
   const material = JSON.stringify({

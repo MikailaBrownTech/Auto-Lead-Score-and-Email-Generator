@@ -18,10 +18,13 @@ import path from "node:path";
 import { FACT_FIELDS, isFound } from "@clearpath/shared";
 import { and, gt, inArray, max } from "drizzle-orm";
 import { bootstrapOrExit } from "../src/bootstrap";
+import { leadOverride } from "../src/scoring/direct-contact";
+import { exitForLeads, installExitHandlers } from "./exit";
+import { leadNotes } from "./lead-notes";
 import { fromRoot } from "../src/config/paths";
 import { runs } from "../src/db/schema";
 import { loadMxProviders, systemDnsResolver } from "../src/dns/lookup";
-import { loadEvidence, loadScoring } from "../src/docs/loader";
+import { loadEvidence, loadOffer, loadScoring } from "../src/docs/loader";
 import { loadExtractionSystemPrompt } from "../src/extract/prompt";
 import { loadInjectionPatterns } from "../src/extract/untrusted";
 import { quoteInText } from "../src/extract/verify";
@@ -43,8 +46,10 @@ if (urls.length === 0) {
 }
 
 const recorder = record ? new Recorder() : null;
+installExitHandlers();
 const ctx = bootstrapOrExit(recorder ? { wrapApi: (api) => recorder.api(api) } : {});
 const scoring = loadScoring();
+const offer = loadOffer();
 const deps: ResearchDeps = {
   db: ctx.db,
   llm: ctx.llm,
@@ -68,6 +73,7 @@ const deps: ResearchDeps = {
   evidence: loadEvidence(),
   now: () => new Date(),
   refresh,
+  allowWithoutDirectContact: offer.allow_without_direct_contact,
 };
 
 /** Report lines go to the current buffer (a lead's report file, or the run summary). */
@@ -102,6 +108,7 @@ function report(r: ResearchReport, firstRunId: number) {
   if (d.declined_automated_access) log("ACCESS: the site declined automated access (HTTP 403/429). PASTE-TEXT PROMPT: paste the About/Team/Contact page text to research this lead.");
   log(`GATE: ${d.gate.status.toUpperCase()}${d.gate.reasons.length ? `   (${d.gate.reasons.join("; ")})` : ""}`);
   log(`score: ${r.score.total} (tier ${r.score.tier}${r.score.tierCapped ? `, capped at C: fit ${r.score.fitPoints} < ${scoring.fit_threshold}` : ""})   fit points ${r.score.fitPoints}`);
+  for (const line of leadNotes(d, r.score, offer, leadOverride(ctx.db, r.leadId))) log(line);
 
   log(THIN);
   log("INTERNAL LINKS DISCOVERED ON THE HOMEPAGE (decision -> fetch result)");
@@ -236,7 +243,7 @@ for (const r of reports) {
   fs.writeFileSync(file, buffer.join("\n") + "\n");
   reportFiles.push(file);
   summaries.push(
-    `${r.leadId}: ${r.dossier.declined_automated_access ? "DECLINED AUTOMATED ACCESS (paste text needed), " : ""}gate ${r.dossier.gate.status}, score ${r.score.total} tier ${r.score.tier}, ${s.filled}/${FACT_FIELDS.length} model fields filled, ${s.notFound} NOT_FOUND, retries used ${s.retries}, cost ${usd(s.cost)}${r.extraction?.fromCache ? " (cached extraction)" : ""}`,
+    `${r.leadId}: status ${r.status}, ${r.dossier.declined_automated_access ? "DECLINED AUTOMATED ACCESS (paste text needed), " : ""}${r.score.incompleteData.flag ? "INCOMPLETE DATA (paste mode recommended), " : ""}gate ${r.dossier.gate.status}, score ${r.score.total} tier ${r.score.tier}, ${s.filled}/${FACT_FIELDS.length} model fields filled, ${s.notFound} NOT_FOUND, retries used ${s.retries}, cost ${usd(s.cost)}${r.extraction?.fromCache ? " (cached extraction)" : ""}`,
   );
 }
 
@@ -279,4 +286,4 @@ log("FULL REPORTS");
 for (const f of reportFiles) log(`  ${f}`);
 // Only the summary block reaches the console; the full per-lead reports are in the files above.
 console.log(buffer.join("\n"));
-process.exit(reports.every((r) => r.status !== "extracted") ? 1 : 0);
+exitForLeads(reports);

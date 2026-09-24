@@ -1,0 +1,182 @@
+{
+  "capturedAt": "2026-09-24T16:40:02.329Z",
+  "input": "mapaccountinggroup.com",
+  "routes": {
+    "https://mapaccountinggroup.com/robots.txt": {
+      "status": 301,
+      "headers": {
+        "content-type": "text/html; charset=iso-8859-1",
+        "location": "https://www.mapaccountinggroup.com/robots.txt"
+      }
+    },
+    "https://www.mapaccountinggroup.com/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain; charset=utf-8"
+      },
+      "file": "body-1.txt"
+    },
+    "https://mapaccountinggroup.com/": {
+      "status": 301,
+      "headers": {
+        "content-type": "text/html; charset=iso-8859-1",
+        "location": "https://www.mapaccountinggroup.com/"
+      }
+    },
+    "https://www.mapaccountinggroup.com/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-3.html"
+    },
+    "https://www.mapaccountinggroup.com/about-us.htm": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-4.html"
+    },
+    "https://www.mapaccountinggroup.com/small-business-accounting-services.htm": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-5.html"
+    },
+    "https://www.mapaccountinggroup.com/contact.htm": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-6.html"
+    },
+    "https://www.mapaccountinggroup.com/privacy.htm": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-7.html"
+    },
+    "https://www.mapaccountinggroup.com/sitemap.xml": {
+      "status": 200,
+      "headers": {
+        "content-type": "application/xml"
+      },
+      "file": "body-8.xml"
+    }
+  },
+  "hosts": {
+    "mapaccountinggroup.com": [
+      "69.16.233.103"
+    ],
+    "www.mapaccountinggroup.com": [
+      "69.16.233.103"
+    ]
+  },
+  "dns": {
+    "TXT mapaccountinggroup.com": {
+      "answer": [
+        [
+          "v=spf1 include:spf.protection.outlook.com -all"
+        ],
+        [
+          "v=verifydomain MS=1039129"
+        ]
+      ]
+    },
+    "MX mapaccountinggroup.com": {
+      "answer": [
+        {
+          "exchange": "mapaccountinggroup-com.mail.protection.outlook.com",
+          "priority": 10
+        }
+      ]
+    },
+    "TXT _dmarc.mapaccountinggroup.com": {
+      "answer": [
+        [
+          "v=DMARC1; p=quarantine; rua=mailto:bob@mynetworkplace.net; ruf=mailto:bob@mynetworkplace.net; pct=100; fo=1;"
+        ]
+      ]
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "M.A. Pawlowski Accounting Group LLC",
+          "evidence_url": "https://www.mapaccountinggroup.com/",
+          "evidence_quote": "M.A. Pawlowski Accounting Group LLC is here for you."
+        },
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": [
+              "bookkeeper",
+              "payroll",
+              "tax_preparer"
+            ]
+          },
+          "evidence_url": "https://www.mapaccountinggroup.com/",
+          "evidence_quote": "Your Trusted CPA Firm Accounting Solutions — for Your Small Business"
+        },
+        "location": {
+          "value": {
+            "city": "Strongsville",
+            "state": "OH",
+            "country": "United States"
+          },
+          "evidence_url": "https://www.mapaccountinggroup.com/contact.htm",
+          "evidence_quote": "10800 Pearl Rd Suite B-6 Strongsville, OH 44136"
+        },
+        "size_signal": "NOT_FOUND",
+        "client_count_signal": "NOT_FOUND",
+        "services": [
+          "Small Business Accounting",
+          "New Business Advisory",
+          "Business Consulting",
+          "QuickBooks Services",
+          "Payroll Services",
+          "Outsourced CFO Services",
+          "Outsourced Accounting & Bookkeeping",
+          "Tax Planning",
+          "Tax Preparation",
+          "IRS Problem Resolution",
+          "Incorporation Services"
+        ],
+        "software_mentioned": [
+          "QuickBooks"
+        ],
+        "client_portal_or_doc_exchange": {
+          "value": {
+            "doc_exchange": true,
+            "secure_portal": null
+          },
+          "evidence_url": "https://www.mapaccountinggroup.com/",
+          "evidence_quote": "Send a File"
+        },
+        "people": [],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": {
+          "value": true,
+          "evidence_url": "https://www.mapaccountinggroup.com/privacy.htm",
+          "evidence_quote": "Privacy Policy Terms And Conditions For Use Of This Site"
+        },
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "440-356-5588",
+            "contact_form": true
+          },
+          "evidence_url": "https://www.mapaccountinggroup.com/",
+          "evidence_quote": "Call 440-356-5588 today to request your consultation"
+        },
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

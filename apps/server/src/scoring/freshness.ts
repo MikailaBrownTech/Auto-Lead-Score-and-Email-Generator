@@ -20,7 +20,13 @@ function toPartialDate(raw: string): string | null {
   return m[3] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[1]}-${m[2]}`;
 }
 
-/** A /YYYY/MM/DD/ date in a URL path (WordPress-style post permalinks). */
+/**
+ * Paths whose date says when a file was uploaded, not when content was published: WordPress media
+ * uploads and any non-HTML file (images, PDFs, documents, feeds).
+ */
+export const NON_CONTENT_PATH = /\/wp-content\/uploads\/|\.(png|jpe?g|gif|webp|svg|ico|bmp|tiff?|pdf|zip|docx?|xlsx?|pptx?|csv|txt|mp3|mp4|mov|avi|ics|xml|json|css|js)$/i;
+
+/** A /YYYY/MM/DD/ date in a URL path (WordPress-style post permalinks). Upload and file paths never count. */
 export function urlPathDate(url: string): string | null {
   let path: string;
   try {
@@ -28,6 +34,7 @@ export function urlPathDate(url: string): string | null {
   } catch {
     return null;
   }
+  if (NON_CONTENT_PATH.test(path)) return null;
   const m = /\/((?:19|20)\d{2})\/(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])(?:\/|$)/.exec(path);
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 }
