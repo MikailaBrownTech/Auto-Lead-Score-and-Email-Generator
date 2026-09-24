@@ -75,6 +75,14 @@ describe("subpage selection", () => {
     for (const bad of ["careers", "/tag/", "login", ".pdf", "smartvault"]) expect(urls).not.toContain(bad);
   });
 
+  it("skips login/account/cart pages by whole path segment, never /accounting-services", () => {
+    const test = (p: string) => skip.some((re) => re.test(p));
+    for (const p of ["/login", "/my-account/orders", "/account", "/cart", "/client-login/", "/sign-in?next=/"]) expect(test(p), p).toBe(true);
+    for (const p of ["/accounting-services/", "/accounting-services/tax-advisory-services/", "/registered-agents", "/storefront-design"]) {
+      expect(test(p), p).toBe(false);
+    }
+  });
+
   it("never returns more than five subpages", () => {
     const links = ["about", "team", "services", "contact", "privacy", "security"].map((p) => ({ href: `https://x.example/${p}`, text: p }));
     expect(selectSubpages("https://x.example/", links, skip)).toHaveLength(5);

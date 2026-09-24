@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-09-24T03:53:04.048Z",
+  "capturedAt": "2026-09-24T04:01:12.131Z",
   "input": "peasebell.com",
   "routes": {
     "https://peasebell.com/robots.txt": {
@@ -44,33 +44,40 @@
       },
       "file": "body-5.html"
     },
-    "https://www.peasebell.com/contact-us/": {
+    "https://www.peasebell.com/accounting-services/": {
       "status": 200,
       "headers": {
         "content-type": "text/html; charset=UTF-8"
       },
       "file": "body-6.html"
     },
-    "https://www.peasebell.com/privacy-policy/": {
+    "https://www.peasebell.com/contact-us/": {
       "status": 200,
       "headers": {
         "content-type": "text/html; charset=UTF-8"
       },
       "file": "body-7.html"
     },
-    "https://www.peasebell.com/insights/how-to-prepare-for-your-initial-hud-section-232-audit/": {
+    "https://www.peasebell.com/privacy-policy/": {
       "status": 200,
       "headers": {
         "content-type": "text/html; charset=UTF-8"
       },
       "file": "body-8.html"
     },
+    "https://www.peasebell.com/insights/how-to-prepare-for-your-initial-hud-section-232-audit/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-9.html"
+    },
     "https://www.peasebell.com/sitemap.xml": {
       "status": 200,
       "headers": {
         "content-type": "application/xml; charset=UTF-8"
       },
-      "file": "body-9.xml"
+      "file": "body-10.xml"
     }
   },
   "hosts": {
@@ -83,8 +90,8 @@
     "www.peasebell.com": [
       "2606:4700:3033::ac43:9225",
       "2606:4700:3035::6815:aae",
-      "104.21.10.174",
-      "172.67.146.37"
+      "172.67.146.37",
+      "104.21.10.174"
     ]
   },
   "dns": {
@@ -105,9 +112,6 @@
     },
     "TXT peasebell.com": {
       "answer": [
-        [
-          "v=spf1 include:spf.protection.outlook.com include:spf.sendinblue.com include:spf.us.exclaimer.net include:spf.mandrillapp.com include:243278591.spf08.hubspotemail.net include:_spf.samanage.com ~all"
-        ],
         [
           "Fathom_DomainChange"
         ],
@@ -134,6 +138,9 @@
         ],
         [
           "mandrill_verify.BWYC947fRNLbFN5OgnZnFQ"
+        ],
+        [
+          "v=spf1 include:spf.protection.outlook.com include:spf.sendinblue.com include:spf.us.exclaimer.net include:spf.mandrillapp.com include:243278591.spf08.hubspotemail.net include:_spf.samanage.com ~all"
         ]
       ]
     }
@@ -145,24 +152,23 @@
         "firm_name": {
           "value": "Pease Bell",
           "evidence_url": "https://www.peasebell.com/",
-          "evidence_quote": "Pease Bell serves all your business needs"
+          "evidence_quote": "Pease Bell | Accounting Services & Tax Advisory"
         },
         "firm_type": {
           "value": {
             "primary": "cpa",
             "secondary": [
-              "tax_preparer",
-              "bookkeeper"
+              "tax_preparer"
             ]
           },
           "evidence_url": "https://www.peasebell.com/",
-          "evidence_quote": "Accounting, tax advisory, audit, and assurance. Pease Bell serves all your business needs"
+          "evidence_quote": "Accounting, tax advisory, audit, and assurance."
         },
         "location": {
           "value": {
             "city": "Cleveland",
             "state": "OH",
-            "country": "USA"
+            "country": "United States"
           },
           "evidence_url": "https://www.peasebell.com/privacy-policy/",
           "evidence_quote": "Pease Bell CPAs, LLC 1111 Superior Avenue, Suite 2500 Cleveland, OH 44114"
@@ -173,29 +179,31 @@
             "text": "Our team of 150+ delivers tax, audit and assurance"
           },
           "evidence_url": "https://www.peasebell.com/about-us/",
-          "evidence_quote": "Our team of 150+ delivers tax, audit and assurance"
+          "evidence_quote": "Our team of 150+ delivers tax, audit and assurance, accounting advisory"
         },
         "services": {
           "value": [
             "Audit and Assurance Services",
-            "Tax Advisory Services",
+            "Risk Advisory Services",
             "Cost Report Preparation",
-            "Client Accounting Services",
-            "Transaction Advisory Services",
-            "Risk Advisory Services"
+            "Tax Advisory Services",
+            "HUD Reporting",
+            "Transaction Advisory",
+            "Quality of Earnings",
+            "Client Accounting Services"
           ],
           "evidence": [
             {
-              "evidence_url": "https://www.peasebell.com/",
-              "evidence_quote": "Audit and Assurance Services, Risk Advisory Services, Cost Report Preparation, Tax Advisory Services"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "Audit & Assurance Services, Risk Advisory Services, Cost Report Preparation, Tax Advisory Services"
             },
             {
-              "evidence_url": "https://www.peasebell.com/",
-              "evidence_quote": "Transaction Advisory, Quality of Earnings, Client Accounting Services"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "HUD, Transaction Advisory, Quality of Earnings, Client Accounting Services"
             },
             {
-              "evidence_url": "https://www.peasebell.com/about-us/",
-              "evidence_quote": "tax, audit and assurance, accounting advisory, business consulting, and transaction services"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "IT assurance and compliance — SOC 1/2/3, HIPAA, GDPR, AIUC-1, and ISO 27001"
             }
           ]
         },
@@ -203,10 +211,10 @@
         "client_portal_or_doc_exchange": "NOT_FOUND",
         "people": [
           {
-            "name": "Kuno S. Bell",
-            "title": "Managing Partner",
+            "name": "David Pease",
+            "title": "Partner",
             "evidence_url": "https://www.peasebell.com/our-team/",
-            "evidence_quote": "Kuno S. Bell, CPA, J.D. Managing PartnerConsulting"
+            "evidence_quote": "David Pease, MBA Partner Transaction Advisory Services"
           },
           {
             "name": "Jessica DeLuke",
@@ -215,22 +223,22 @@
             "evidence_quote": "Jessica DeLuke CFO & Partner"
           },
           {
-            "name": "David Pease",
-            "title": "Partner",
+            "name": "Kuno S. Bell",
+            "title": "Managing Partner",
             "evidence_url": "https://www.peasebell.com/our-team/",
-            "evidence_quote": "David Pease, MBA PartnerTransaction Advisory Services"
+            "evidence_quote": "Kuno S. Bell, CPA, J.D. Managing Partner Consulting"
           },
           {
-            "name": "Christopher J. Szuch",
+            "name": "Beth Reimer",
             "title": "Partner",
             "evidence_url": "https://www.peasebell.com/our-team/",
-            "evidence_quote": "Christopher J. Szuch, CPA PartnerAssurance Services"
+            "evidence_quote": "Beth Reimer, CPA, MBA Partner Assurance Services"
           },
           {
-            "name": "Sherri Blackwelder",
+            "name": "Jennifer A. Barnes",
             "title": "Partner",
             "evidence_url": "https://www.peasebell.com/our-team/",
-            "evidence_quote": "Sherri Blackwelder, CPA PartnerTax Advisory Services"
+            "evidence_quote": "Jennifer A. Barnes, CPA, MT Partner Tax Advisory Services"
           }
         ],
         "public_contact_email": {
@@ -238,23 +246,27 @@
             "address": "info@peasebell.com",
             "owner_name": null
           },
-          "evidence_url": "https://www.peasebell.com/",
-          "evidence_quote": "info@peasebell.com · 216.348.9600"
+          "evidence_url": "https://www.peasebell.com/contact-us/",
+          "evidence_quote": "Emailinfo@peasebell.com"
         },
         "personal_email_domain_on_site": "NOT_FOUND",
         "privacy_policy_present": {
           "value": true,
           "evidence_url": "https://www.peasebell.com/privacy-policy/",
-          "evidence_quote": "Privacy Policy | Pease Bell"
+          "evidence_quote": "Privacy Policy"
         },
-        "security_or_wisp_mention": "NOT_FOUND",
+        "security_or_wisp_mention": {
+          "value": "IT assurance and compliance — SOC 1/2/3, HIPAA, GDPR, AIUC-1, and ISO 27001",
+          "evidence_url": "https://www.peasebell.com/accounting-services/",
+          "evidence_quote": "IT assurance and compliance — SOC 1/2/3, HIPAA, GDPR, AIUC-1, and ISO 27001"
+        },
         "recent_signal": {
           "value": {
-            "text": "HUD Section 232 Handbook updated with provisions effective January 5, 2026",
+            "text": "Section 232 Handbook provisions effective",
             "date": "2026-01-05"
           },
           "evidence_url": "https://www.peasebell.com/insights/how-to-prepare-for-your-initial-hud-section-232-audit/",
-          "evidence_quote": "The updated Section 232 Handbook, with provisions effective January 5, 2026"
+          "evidence_quote": "Section 232 Handbook, with provisions effective January 5, 2026"
         },
         "phone_or_contact_form": {
           "value": {
@@ -271,30 +283,35 @@
     {
       "callIndex": 1,
       "toolInput": {
-        "firm_name": "NOT_FOUND",
+        "firm_name": {
+          "value": "Pease Bell",
+          "evidence_url": "https://www.peasebell.com/",
+          "evidence_quote": "Pease Bell serves all your business needs, while going the extra mile to help your business grow."
+        },
         "firm_type": "NOT_FOUND",
         "location": "NOT_FOUND",
         "size_signal": "NOT_FOUND",
         "services": {
           "value": [
             "Audit and Assurance Services",
-            "Cost Report Preparation",
             "Tax Advisory Services",
-            "HUD Reporting",
-            "Client Accounting Services"
+            "Client Accounting Services",
+            "Risk Advisory Services",
+            "Cost Report Preparation",
+            "HUD Reporting"
           ],
           "evidence": [
             {
-              "evidence_url": "https://www.peasebell.com/",
-              "evidence_quote": "Audit & Assurance Services Audits, reviews, and attestation"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "Audit & Assurance Services"
             },
             {
-              "evidence_url": "https://www.peasebell.com/",
-              "evidence_quote": "Cost Report Preparation Accurate Medicare and Medicaid cost reports"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "Tax Advisory Services"
             },
             {
-              "evidence_url": "https://www.peasebell.com/",
-              "evidence_quote": "Tax Advisory Services Proactive, year-round tax planning and compliance"
+              "evidence_url": "https://www.peasebell.com/accounting-services/",
+              "evidence_quote": "Client Accounting Services"
             }
           ]
         },
@@ -303,11 +320,7 @@
         "people": [],
         "public_contact_email": "NOT_FOUND",
         "personal_email_domain_on_site": "NOT_FOUND",
-        "privacy_policy_present": {
-          "value": true,
-          "evidence_url": "https://www.peasebell.com/privacy-policy/",
-          "evidence_quote": "Home Privacy Policy Privacy Policy Introduction"
-        },
+        "privacy_policy_present": "NOT_FOUND",
         "security_or_wisp_mention": "NOT_FOUND",
         "recent_signal": "NOT_FOUND",
         "phone_or_contact_form": "NOT_FOUND",

@@ -1,11 +1,10 @@
 {
-  "notes": "Regular expressions (case-insensitive) tested against a link's path + query. Matching links are never fetched.",
+  "notes": "Regular expressions (case-insensitive) tested against a link's path + query. Matching links are never fetched. Login/account/shop patterns match whole path segments so /accounting-services is not skipped.",
   "patterns": [
     "career", "jobs?(/|$)", "join-(our|the)-team", "employment",
     "/blog/?$", "/blog/page/", "/page/\\d+", "/tag/", "/tags/", "/category/", "/categories/", "/author/", "/archives?/",
     "/\\d{4}/\\d{2}/",
-    "log-?in", "sign-?in", "sign-?up", "register", "/account", "/my-account",
-    "cart", "checkout", "/shop", "/store",
+    "(^|[/-])(log-?in|log-?out|sign-?in|sign-?up|register|account|my-account|cart|checkout|shop|store)(/|$|\\.|\\?)",
     "/wp-admin", "/wp-login", "/wp-json", "/feed", "/rss", "\\?s=", "/search",
     "\\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|pptx?|csv|mp3|mp4|mov|ics)$"
   ]
