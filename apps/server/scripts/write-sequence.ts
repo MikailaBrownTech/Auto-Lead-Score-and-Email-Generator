@@ -1,14 +1,13 @@
 /**
- * Research leads and generate their sequences (Milestone 4), with the real API.
+ * Research leads and generate their sequences (template-first: docs/09 copy + one personal line), with the real API.
  *
  *   npm run write-sequence -- <url> [<url> ...] [--refresh]
  *
  * Research reuses the page, robots.txt, and extraction caches (--refresh ignores them). Sequences
- * follow tier and gate: Tier C and gated leads make no writer or judge calls.
- * Report mode: every writer draft (blocked ones included) with its validator errors, the code-inserted
- * approved sentences shown apart from the model's words, the final sequence, the judge result, the
- * blockers, tokens, and cost go to data/reports/<lead>-sequence.txt. The console prints one summary
- * line per lead and the file paths.
+ * follow tier and gate: tiers A and B make one small call for {{personal_line}}; Tier C and gated leads
+ * make none. Report mode: the personal line (model or fallback, and why), the final sequence as sent,
+ * the validator log, the blockers, tokens, and cost go to data/reports/<lead>-sequence.txt. The console
+ * prints one summary line per lead and the file paths.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -31,10 +30,11 @@ import { userAgentFor } from "../src/fetch/site";
 import { systemResolver, undiciTransport } from "../src/fetch/transport";
 import { lastRunId } from "../src/llm/client";
 import { researchWebLead, type ResearchDeps } from "../src/pipeline/research";
-import { contactPlan, leadGreeting, neutralGreeting } from "../src/scoring/contact";
+import { contactPlan } from "../src/scoring/contact";
 import { renderEmail } from "../src/validators/email";
-import { generateSequence, type GenerateResult } from "../src/write/generate";
-import { loadJudgeSystemPrompt, loadPersonaHeadings, loadWriterSystemPrompt } from "../src/write/prompt";
+import { firstNameFor, generateSequence, type GenerateResult, type WriteDeps } from "../src/write/generate";
+import { renderSettings, renderSignature } from "../src/write/merge";
+import { loadJudgeSystemPrompt, loadPersonalLineSystemPrompt } from "../src/write/prompt";
 
 const args = process.argv.slice(2);
 const refresh = args.includes("--refresh");
@@ -74,20 +74,22 @@ const research: ResearchDeps = {
   now: () => new Date(),
   refresh,
 };
-const writeDeps = {
+const style = loadStyle();
+const writeDeps: WriteDeps = {
   db: ctx.db,
   llm: ctx.llm,
-  modelWrite: ctx.env.MODEL_WRITE,
-  writerSystem: loadWriterSystemPrompt({ offer, facts }),
+  modelLine: ctx.env.MODEL_EXTRACT,
+  lineSystem: loadPersonalLineSystemPrompt(style),
+  modelJudge: ctx.env.MODEL_WRITE,
   judgeSystem: loadJudgeSystemPrompt({ offer, facts }),
-  style: loadStyle(),
+  style,
   offer,
   evidence,
   templates: loadTemplates(),
   facts,
   approved: approved.sentences,
-  personas: loadPersonaHeadings(),
 };
+const signature = renderSignature(writeDeps.templates.signature, offer);
 
 const RULE = "=".repeat(90);
 const THIN = "-".repeat(90);
@@ -111,7 +113,7 @@ for (const url of urls) {
   const out: string[] = [];
   const log = (s = "") => out.push(s);
   const d = r.dossier;
-  const plan = contactPlan(d, neutralGreeting(offer.neutral_greeting_style, d));
+  const plan = contactPlan(d);
   log(RULE);
   log(`LEAD ${leadId}   ${d.url}`);
   log(`firm: ${isFound(d.firm_name) ? d.firm_name.value : "NOT_FOUND"}   type: ${isFound(d.firm_type) ? `${d.firm_type.value.primary}${d.firm_type.value.secondary.length ? ` (+${d.firm_type.value.secondary.join(", ")})` : ""}` : "NOT_FOUND"}`);
@@ -119,44 +121,29 @@ for (const url of urls) {
   log(`score: ${r.score.total}   tier: ${r.score.tier}${r.score.tierCapped ? " (capped at C by fit)" : ""}   lead status: ${r.status}`);
   if (d.declined_automated_access) log("ACCESS: the site declined automated access (HTTP 403/429). PASTE-TEXT PROMPT: paste the About/Team/Contact page text to research this lead fully.");
   for (const line of leadNotes(d, r.score, offer, override)) log(line);
-  log(`greeting: ${JSON.stringify(leadGreeting(d, offer, override !== null))}${override ? " (contact override)" : ""}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
+  const first = firstNameFor(d, override);
+  log(`email 1 opens with: ${first ? `"Hi ${first},"` : "the docs/09 role-based line"}${override ? " (contact override)" : ""}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
   if (approved.excluded.length) log(`docs/02 approved sentences excluded: ${approved.excluded.map((x) => `${x.id} (${x.reason})`).join("; ")}`);
 
-  if (g.plan && g.plan.emails.length > 0) {
-    log(RULE);
-    log("WRITER INPUT (code-chosen; the only prospect facts the writer sees)");
-    log(`  context: ${JSON.stringify({ firm_name: g.plan.context.firm_name, firm_type: g.plan.context.firm_type, location: g.plan.context.location })}`);
-    log(`  persona: ${g.plan.context.persona}   angle: ${g.plan.context.angle}`);
-    for (const e of g.plan.emails) {
-      log(`  email ${e.n}: detail ${e.detail ? `${e.detail.field} = ${JSON.stringify(e.detail.value)}` : "none"}; slot ${e.approved ? e.approved.id : "none"}; model words ${e.modelWords ?? "2-3 sentences"}`);
-    }
-    if (g.plan.filtered.length) log(`  personal-detail filter removed: ${g.plan.filtered.join("; ")}`);
-  }
-
-  for (const draft of g.drafts) {
-    log(RULE);
-    log(`DRAFT ${draft.attempt} (${draft.attempt === 1 ? "first pass" : "rewrite"}): ${draft.formatProblem ? `UNUSABLE: ${draft.formatProblem}` : draft.errors.length === 0 ? "valid" : `${draft.errors.length} validator error(s)`}`);
-    for (const e of draft.emails) {
-      log(THIN);
-      log(`email ${e.n}`);
-      if (e.subject_a) log(`  subject A [model]: ${e.subject_a}\n  subject B [model]: ${e.subject_b}`);
-      log(`  [model]    ${e.opening}`);
-      for (const i of e.inserted) log(`  [APPROVED ${i.id}, inserted by code] ${i.text}`);
-      if (e.closing) log(`  [model]    ${e.closing}`);
-    }
-    for (const i of draft.errors) log(`  ERROR ${i.email ? `email ${i.email}` : "sequence"} ${i.code}: ${i.message}`);
+  log(RULE);
+  const pl = g.personalLine;
+  if (pl) {
+    log(`PERSONAL LINE [${pl.line.source === "model" ? "model" : "docs/09 fallback"}]: ${pl.line.text}`);
+    if (pl.note) log(`  why the fallback: ${pl.note}`);
+    if (pl.rejected) log(`  model's rejected line: ${pl.rejected}`);
+    if (pl.subject) log(`  model's subject pick: ${pl.subject}`);
   }
 
   log(RULE);
   log(`FINAL SEQUENCE: ${g.status.toUpperCase()}   (${g.reason})`);
   if (g.sequence) {
-    log(`persona: ${g.sequence.persona}   angle: ${g.sequence.angle}`);
     for (const e of g.sequence.emails) {
       log(THIN);
-      log(`EMAIL ${e.n}   day ${e.send_day}   ${e.template ? "TEMPLATE (docs/09)" : "CUSTOM (writer + approved sentence)"}   grounding: [${e.grounding.join(", ")}]`);
-      if (e.subject_a) log(`subject A: ${e.subject_a}\nsubject B: ${e.subject_b}`);
+      log(`EMAIL ${e.n}   day ${e.send_day}   docs/09${e.personal_line ? ` + personal line (${e.personal_line.source})` : ""}   grounding: [${e.grounding.join(", ")}]`);
+      if (e.subject_a) log(`subject${e.n === 1 ? " A" : " (new thread)"}: ${renderSettings(e.subject_a, offer)}`);
+      if (e.subject_b) log(`subject B: ${renderSettings(e.subject_b, offer)}`);
       log("");
-      log(renderEmail(e.body, offer));
+      log(renderEmail(e.body, offer, signature));
     }
   }
   log(RULE);
@@ -164,11 +151,7 @@ for (const url of urls) {
   if (!g.validation) log("  (not run)");
   else if (g.validation.issues.length === 0) log("  PASS, no issues");
   else for (const i of g.validation.issues) log(`  ${i.severity.toUpperCase()} ${i.email ? `email ${i.email}` : "sequence"} ${i.code}: ${i.message}`);
-  log("JUDGE");
-  if (!g.judge) log(`  not run (${g.writerCalls === 0 ? "no custom emails" : "writer output unusable"})`);
-  else if (g.judge.unsupported_claims.length === 0) log("  PASS: no unsupported claims");
-  else for (const c of g.judge.unsupported_claims) log(`  email ${c.email} ${c.reason}: ${JSON.stringify(c.claim)}`);
-  log(`APPROVAL: ${g.status !== "passed" ? "BLOCKED (content)" : `allowed (sequence id ${g.sequenceId})`}${g.contactWarning ? `   contact warning: ${g.contactWarning}` : ""}`);
+  log(`APPROVAL: ${g.status !== "passed" ? "BLOCKED (docs/09 copy or settings)" : `allowed (sequence id ${g.sequenceId})`}${g.contactWarning ? `   contact warning: ${g.contactWarning}` : ""}`);
   log(`EXPORT: ${g.exportBlockers.length ? `BLOCKED: ${g.exportBlockers.join("; ")}` : "allowed"}`);
 
   log(RULE);
@@ -191,9 +174,8 @@ for (const url of urls) {
 }
 
 function summaryLine(leadId: string, tier: string, g: GenerateResult, cost: number): string {
-  const first = g.firstPassValid === null ? "first pass n/a (no writer call)" : g.firstPassValid ? "first pass VALID" : "first pass invalid";
-  const approval = g.status !== "passed" ? "blocked" : g.contactWarning ? `approvable; warning: ${g.contactWarning}` : "approvable";
-  return `${leadId}: tier ${tier}, ${first}, rewrites used ${g.rewritesUsed}, final ${g.status} (${approval}), cost ${usd(cost)}`;
+  const line = !g.personalLine ? "no personal line (not written)" : g.personalLine.line.source === "model" ? "personal line by the model" : `fallback line (${g.personalLine.called ? "model line rejected or call failed" : "no model call"})`;
+  return `${leadId}: tier ${tier}, ${line}, model calls ${g.modelCalls}, final ${g.status}${g.contactWarning ? ` (warning: ${g.contactWarning})` : ""}, cost ${usd(cost)}`;
 }
 
 console.log(RULE);

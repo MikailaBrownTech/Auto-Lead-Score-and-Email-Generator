@@ -65,7 +65,7 @@ async function seed(h: Harness) {
     if (r.status >= 300) throw new Error(`${method} ${url}: ${r.status} ${JSON.stringify(r.json)}`);
     return r.json;
   };
-  await ok("PUT", "/api/settings/offer", { opt_out_line: "If this isn't relevant, reply 'no' and I won't email again.", physical_address: "100 E Broad St, Columbus, OH 43215", checklist_ready: true });
+  await ok("PUT", "/api/settings/offer", { opt_out_line: "If this isn't relevant, reply 'no' and I won't email again.", physical_address: "100 E Broad St, Columbus, OH 43215", checklist_ready: true, founding_client_offer: "half off the first three months", booking_link: "https://cal.example.com/clearpath/15min", region: "Columbus-area" });
 
   // Researched through the real pipeline (fixture site + recorded answers): generic inbox; named owner (paste).
   await ok("POST", "/api/jobs", { mode: "web", urls: ["smithtax.example"] });

@@ -4,7 +4,6 @@
  */
 import type { Dossier } from "./dossier";
 import type { JudgeOutput, Sequence, Tier } from "./sequence";
-import type { NeutralGreetingStyle } from "./settings";
 
 /** Contact flags are warnings only: they never block drafting, approval, or export. */
 export interface LeadFlags {
@@ -69,7 +68,8 @@ export interface LeadDetail {
    * Named when the public address is tied to a named person. Otherwise a warning (never a blocker),
    * optional public sources to improve reply odds, and the optional override.
    */
-  contact: { named: boolean; greeting: string; warning: string | null; checklist: string[]; override: { reason: string; at: string } | null };
+  /** greeting: "Hi Jane," when the address is tied to that person; null = email 1 opens with the role-based line. */
+  contact: { named: boolean; greeting: string | null; warning: string | null; checklist: string[]; override: { reason: string; at: string } | null };
   /** Never used in emails or writer input. */
   internalNotes: { incompleteData: string | null; emailSecurityHint: string | null; clientCount: string | null };
   events: LeadEventView[];
@@ -103,18 +103,19 @@ export interface SequenceView {
   /** A lead without a named contact (plain words); a warning, never an approval blocker. */
   contactWarning: string | null;
   exportBlockers: string[];
-  /** Code-inserted approved sentences (docs/02), to show apart from model-written text. */
+  /** Code-inserted approved sentences (docs/02), to show apart from other text. */
   approvedSentences: { id: string; text: string }[];
-  /** Emails the model may rewrite for this tier. */
+  /** Emails whose personal line the model may write again (email 1, tiers A and B). */
   rewritable: number[];
   wordLimits: Record<string, number>;
-  breakupSentences: { min: number; max: number };
   subjectMaxWords: number;
   signature: string[];
-  /** "template": every email is fixed docs/09 text (no model call). "custom": at least one model-written email. */
+  /** Emails with settings merge fields ({{offer}}, {{booking_link}}, ...) filled in, as they will be sent. */
+  rendered: { n: number; subject_a: string | null; subject_b: string | null; body: string }[];
+  /** "template": fixed docs/09 text plus a fallback personal line (no model call). "custom": a model-written personal line or your edits. */
   kind: "template" | "custom";
-  /** Every writer draft of this sequence, with the validator errors it got (blocked drafts included). */
-  drafts: { attempt: number; formatProblem: string | null; errors: ValidationIssueView[] }[];
+  /** The {{personal_line}} in email 1: who wrote it, and why the fallback was used (never an error). */
+  personalLine: { text: string; source: "model" | "fallback"; note: string | null } | null;
 }
 
 export interface SequenceListItem {
@@ -164,10 +165,12 @@ export interface OfferSettingsView {
   company_website: string;
   opt_out_line: string;
   physical_address: string;
-  cta_type: "checklist" | "scorecard";
+  founding_client_offer: string;
+  booking_link: string;
+  region: string;
+  company_one_liner: string;
   checklist_ready: boolean;
   include_dns_observation: boolean;
-  neutral_greeting_style: NeutralGreetingStyle;
 }
 
 export interface SuppressionView {

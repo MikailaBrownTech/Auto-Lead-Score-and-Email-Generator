@@ -13,7 +13,7 @@ import type { LlmClient } from "../llm/client";
 import type { SpendGate } from "../llm/spend-gate";
 import type { ResearchDeps } from "../pipeline/research";
 import type { WriteDeps } from "../write/generate";
-import { loadJudgeSystemPrompt, loadPersonaHeadings, loadWriterSystemPrompt } from "../write/prompt";
+import { loadJudgeSystemPrompt, loadPersonalLineSystemPrompt } from "../write/prompt";
 
 export type ServiceEnv = Pick<
   Env,
@@ -69,23 +69,27 @@ export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): Res
   };
 }
 
-/** Writer/judge dependencies, with the docs read fresh. */
+/**
+ * Sequence dependencies, with the docs read fresh. The personal line uses the small model
+ * (MODEL_EXTRACT, one call per lead); the on-demand judge of hand edits uses MODEL_WRITE.
+ */
 export function writeDeps(s: Services): WriteDeps {
   const docsDir = s.docsDir ?? DOCS_DIR;
   const offer = loadOffer(docsDir);
   const facts = loadWriterFacts(docsDir);
+  const style = loadStyle(docsDir);
   return {
     db: s.db,
     llm: s.llm,
-    modelWrite: s.env.MODEL_WRITE,
-    writerSystem: loadWriterSystemPrompt({ offer, facts, docsDir, ...(s.promptsDir ? { promptsDir: s.promptsDir } : {}) }),
+    modelLine: s.env.MODEL_EXTRACT,
+    lineSystem: loadPersonalLineSystemPrompt(style, s.promptsDir),
+    modelJudge: s.env.MODEL_WRITE,
     judgeSystem: loadJudgeSystemPrompt({ offer, facts, docsDir, ...(s.promptsDir ? { promptsDir: s.promptsDir } : {}) }),
-    style: loadStyle(docsDir),
+    style,
     offer,
     evidence: loadEvidence(docsDir),
     templates: loadTemplates(docsDir),
     facts,
     approved: loadApprovedSentences(docsDir).sentences,
-    personas: loadPersonaHeadings(docsDir),
   };
 }

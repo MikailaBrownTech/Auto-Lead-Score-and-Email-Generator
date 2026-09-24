@@ -9,5 +9,7 @@ export const MAX_OUTPUT_TOKENS: Record<CallType, number> = {
   extract: 3000,
   extract_retry: 1500,
   write: 2500,
+  /** One sentence (<= 30 words) plus the subject pick. */
+  personal_line: 200,
   judge: 800,
 };

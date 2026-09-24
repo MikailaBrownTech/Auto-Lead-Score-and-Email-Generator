@@ -4,8 +4,6 @@ import {
   JUDGE_TOOL_NAME,
   JudgeOutputSchema,
   SequenceSchema,
-  WRITER_TOOL_NAME,
-  WriterEmailSchema,
   type Dossier,
   type JudgeOutput,
   type Sequence,
@@ -14,26 +12,17 @@ import {
 } from "@clearpath/shared";
 import { readStoredDossier } from "../pipeline/stored-dossier";
 import { eq } from "drizzle-orm";
-import { z } from "zod";
 import type { Db } from "../db/client";
 import { leads, sequences, type SequenceStatus } from "../db/schema";
-import { templateEmail } from "../docs/templates";
 import { lastRunId } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
-import { leadGreeting } from "../scoring/contact";
 import { contactWarning, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
-import { bodySentences, validateSequence, type ValidationContext, type ValidationResult } from "../validators/email";
-import {
-  buildWriterEmail,
-  customEmailsFor,
-  exportBlockers,
-  judgedContentHash,
-  judgedEmails,
-  type StoredJudge,
-  type WriteDeps,
-} from "./generate";
-import { judgeMessage, judgeTool, writerMessage, writerTool } from "./prompt";
-import { detectGrounding, planSequence, type WritePlan } from "./writer-input";
+import { validateSequence, type ValidationContext, type ValidationResult } from "../validators/email";
+import type { PersonalLine } from "./assemble";
+import { buildSequence, exportBlockers, firstNameFor, judgedContentHash, judgedEmails, modelEmailsFor, validationContext, type StoredJudge, type WriteDeps } from "./generate";
+import { writePersonalLine, type LineResult } from "./personal-line";
+import { judgeMessage, judgeTool } from "./prompt";
+import { detectGrounding, verifiedValues } from "./values";
 
 export class SequenceError extends Error {
   override name = "SequenceError";
@@ -48,44 +37,41 @@ export interface SequenceContext {
   sequence: Sequence;
   dossier: Dossier;
   override: DirectContactOverride | null;
-  greeting: string;
-  plan: WritePlan;
+  /** Verified values (grounding detection for edits; the judge's facts). */
+  values: Record<string, unknown>;
   vctx: ValidationContext;
   judge: StoredJudge | null;
-  /** The writer drafts that produced this sequence (blocked ones too), with their errors. */
-  drafts: { attempt: number; formatProblem: string | null; errors: ValidationResult["issues"] }[];
+  /** How the personal line was made (model or fallback, and why), from the write. */
+  personalLine: Pick<LineResult, "line" | "note" | "rejected"> | null;
 }
 
 export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps): SequenceContext {
   const row = db.select().from(sequences).where(eq(sequences.id, sequenceId)).get();
   if (!row) throw new SequenceError(`Sequence ${sequenceId} was not found.`);
   const sequence = row.sequenceJson ? (JSON.parse(row.sequenceJson) as Sequence | null) : null;
-  if (!sequence) throw new SequenceError("This draft could not be used (see the drafts in the report). Write the sequence again.");
+  if (!sequence) throw new SequenceError("This sequence has no emails. Write the sequence again.");
   const lead = db.select().from(leads).where(eq(leads.id, row.leadId)).get();
   if (!lead?.dossierJson) throw new SequenceError(`Lead ${row.leadId} has no research yet.`);
   const dossier = readStoredDossier(lead.dossierJson);
   const override = leadOverride(db, row.leadId);
-  const greeting = leadGreeting(dossier, deps.offer, override !== null);
-  const plan = planSequence(dossier, customEmailsFor(row.tier), { ...deps, greeting });
-  const vars = { greeting, firm_ref: isFound(dossier.firm_name) ? dossier.firm_name.value : "your firm", cta_url: deps.offer.cta_url };
-  // Original template sentences stay allowed when the founder edits a template email.
-  const templateSentences: Record<number, string[]> = {};
-  for (const e of sequence.emails) {
-    if (e.template) templateSentences[e.n] = bodySentences(templateEmail(deps.templates, e.n, plan.context.firm_type, vars, deps.style, deps.offer.cta_type).body);
-  }
-  const vctx: ValidationContext = {
-    style: deps.style,
-    offer: deps.offer,
-    dossier,
-    verifiedFacts: deps.facts,
-    approvedSentences: deps.approved.map((s) => s.text),
-    assignedDetails: Object.fromEntries(plan.emails.map((e) => [e.n, e.detail?.field ?? null])),
-    templateSentences,
-  };
+  const stored = JSON.parse(row.validationJson) as { personalLine?: LineResult } | null;
+  const line: PersonalLine = sequence.emails[0]?.personal_line ?? stored?.personalLine?.line ?? { text: "", source: "fallback" };
+  // The docs/09 copy as first assembled stays allowed when the founder edits an email.
+  const original = line.text ? buildSequence(row.leadId, dossier, row.tier, deps, line, null, override).emails : undefined;
   const judge = row.judgeJson ? (JSON.parse(row.judgeJson) as StoredJudge) : null;
-  const stored = JSON.parse(row.validationJson) as { drafts?: { attempt: number; formatProblem: string | null; errors: ValidationResult["issues"] }[] } | null;
-  const drafts = (stored?.drafts ?? []).map((d) => ({ attempt: d.attempt, formatProblem: d.formatProblem, errors: d.errors }));
-  return { id: row.id, leadId: row.leadId, tier: row.tier, status: row.status, sequence, dossier, override, greeting, plan, vctx, judge, drafts };
+  return {
+    id: row.id,
+    leadId: row.leadId,
+    tier: row.tier,
+    status: row.status,
+    sequence,
+    dossier,
+    override,
+    values: verifiedValues(dossier, deps.offer, deps.evidence).prospect_facts,
+    vctx: validationContext(dossier, deps, original),
+    judge,
+    personalLine: stored?.personalLine ? { line: stored.personalLine.line, note: stored.personalLine.note, rejected: stored.personalLine.rejected } : null,
+  };
 }
 
 /**
@@ -96,19 +82,19 @@ export function applyEdits(ctx: SequenceContext, edits: { n: number; subject_a?:
   const emails = ctx.sequence.emails.map((e): SequenceEmail => {
     const edit = edits.find((x) => x.n === e.n);
     if (!edit) return e;
-    const subject_a = e.n === 1 ? (edit.subject_a ?? e.subject_a) : null;
+    const subject_a = e.subject_a === null && !edit.subject_a ? null : (edit.subject_a ?? e.subject_a);
     const subject_b = e.n === 1 ? (edit.subject_b ?? e.subject_b) : null;
     const changed = edit.body !== e.body || subject_a !== e.subject_a || subject_b !== e.subject_b;
     if (!changed) return e;
     const text = [edit.body.replace(/^[^\n]*\n/, ""), subject_a ?? "", subject_b ?? ""].join(" ");
-    return { ...e, subject_a, subject_b, body: edit.body, edited: true, grounding: detectGrounding(text, ctx.plan.values) };
+    return { ...e, subject_a, subject_b, body: edit.body, edited: true, grounding: detectGrounding(text, ctx.values) };
   });
   return SequenceSchema.parse({ ...ctx.sequence, emails });
 }
 
 export interface SequenceState {
   validation: ValidationResult;
-  /** "passed" when validators pass and the judge (if required) cleared this exact content. */
+  /** "passed" when validators pass and the judge (if emails were edited) cleared this exact content. */
   status: SequenceStatus;
   judgeRequired: boolean;
   /** The stored judge result, only if it was run on this exact content. */
@@ -133,13 +119,14 @@ export function sequenceState(ctx: SequenceContext, seq: Sequence, judge: Stored
   };
 }
 
-function store(db: Db, id: number, seq: Sequence, state: SequenceState, judge: StoredJudge | null): void {
+function store(db: Db, id: number, seq: Sequence, state: SequenceState, judge: StoredJudge | null, personalLine?: LineResult): void {
   db.update(sequences)
     .set({
       sequenceJson: JSON.stringify(seq),
       status: state.status,
       judgeJson: judge ? JSON.stringify(judge) : null,
       approvedAt: null,
+      ...(personalLine ? { validationJson: JSON.stringify({ validation: state.validation, personalLine }) } : {}),
     })
     .where(eq(sequences.id, id))
     .run();
@@ -162,35 +149,37 @@ export function checkEdits(db: Db, sequenceId: number, edits: Parameters<typeof 
   return { ...sequenceState(ctx, seq, ctx.judge, deps), sequence: seq };
 }
 
-function forcedParams(deps: WriteDeps, system: string, tool: Anthropic.Tool, text: string, maxTokens: number): Anthropic.MessageCreateParamsNonStreaming {
-  return {
-    model: deps.modelWrite,
-    max_tokens: maxTokens,
-    thinking: { type: "disabled" },
-    tools: [tool],
-    tool_choice: { type: "tool", name: tool.name },
-    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: text }],
-  };
-}
-
 function toolInput(message: Anthropic.Message, name: string): unknown {
   const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === name);
   if (!block) throw new SequenceError(`The model did not answer in the expected format (${message.stop_reason}). Try again.`);
   return block.input;
 }
 
-/** Runs the judge on demand over the model-written and edited emails, and stores the result. */
+/** Runs the judge on demand over the hand-edited emails, and stores the result. */
 export async function runJudge(db: Db, sequenceId: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
   const ctx = loadSequenceContext(db, sequenceId, deps);
   const seq = ctx.sequence;
   const toJudge = judgedEmails(seq.emails);
   let judge: StoredJudge | null = null;
   if (toJudge.length > 0) {
+    const facts = {
+      firm_name: ctx.values.firm_name ?? null,
+      firm_type: isFound(ctx.dossier.firm_type) ? ctx.dossier.firm_type.value.primary : null,
+      location: ctx.values.location ?? null,
+      services: ctx.values.services ?? [],
+    };
     const message = (
       await deps.llm.call(
         { callType: "judge", leadId: ctx.leadId, budgetSinceRunId: lastRunId(db) },
-        forcedParams(deps, deps.judgeSystem, judgeTool(), judgeMessage(ctx.plan, toJudge), MAX_OUTPUT_TOKENS.judge),
+        {
+          model: deps.modelJudge,
+          max_tokens: MAX_OUTPUT_TOKENS.judge,
+          thinking: { type: "disabled" },
+          tools: [judgeTool()],
+          tool_choice: { type: "tool", name: JUDGE_TOOL_NAME },
+          system: [{ type: "text", text: deps.judgeSystem, cache_control: { type: "ephemeral" } }],
+          messages: [{ role: "user", content: judgeMessage(facts, deps.approved.map((a) => a.text), toJudge) }],
+        },
       )
     ).message;
     const parsed = JudgeOutputSchema.safeParse(toolInput(message, JUDGE_TOOL_NAME));
@@ -204,28 +193,25 @@ export async function runJudge(db: Db, sequenceId: number, deps: WriteDeps): Pro
   return { ...state, sequence: seq };
 }
 
-const RewriteOutput = z.object({ emails: z.array(WriterEmailSchema.strip()).min(1) });
-
 /**
- * Rewrites one writer email (only emails the tier gives the writer). Same constrained input and
- * code-inserted approved sentence as the original; the judge must be run again afterwards.
+ * Writes email 1's personal line again (one small model call; tiers A and B). Email 1 is rebuilt from
+ * docs/09 with the new line (a hand edit to email 1 is replaced); the other emails are kept. A line
+ * that fails the checks falls back to the docs/09 line, as on the first write.
  */
 export async function rewriteOne(db: Db, sequenceId: number, n: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
   const ctx = loadSequenceContext(db, sequenceId, deps);
-  const p = ctx.plan.emails.find((e) => e.n === n);
-  if (!p) throw new SequenceError(`Email ${n} comes from the templates for a tier ${ctx.tier} lead, so it is not rewritten by the model. Edit it by hand instead.`);
-  const message = (
-    await deps.llm.call(
-      { callType: "write", leadId: ctx.leadId, budgetSinceRunId: lastRunId(db) },
-      forcedParams(deps, deps.writerSystem, writerTool(), writerMessage({ ...ctx.plan, emails: [p] }, deps.style.subject_max_words), MAX_OUTPUT_TOKENS.write),
-    )
-  ).message;
-  const parsed = RewriteOutput.safeParse(toolInput(message, WRITER_TOOL_NAME));
-  const w = parsed.success ? parsed.data.emails.find((e) => e.n === n) : undefined;
-  if (!w) throw new SequenceError(`The rewrite of email ${n} came back in the wrong shape. Nothing was changed; try again.`);
-  const { email } = buildWriterEmail(p, w, ctx.greeting, deps.style, ctx.plan.values);
-  const seq = SequenceSchema.parse({ ...ctx.sequence, emails: ctx.sequence.emails.map((e) => (e.n === n ? email : e)) });
-  const state = sequenceState(ctx, seq, null, deps);
-  store(db, sequenceId, seq, state, null);
+  if (n !== 1 || !modelEmailsFor(ctx.tier).includes(1)) {
+    throw new SequenceError(
+      n !== 1
+        ? `Email ${n} is fixed docs/09 copy; only email 1's personal line is written by the model. Edit it by hand instead.`
+        : `Tier ${ctx.tier} leads use the docs/09 fallback line with no model call. Edit email 1 by hand instead.`,
+    );
+  }
+  const line = await writePersonalLine(ctx.leadId, ctx.dossier, deps, { call: true, firstName: firstNameFor(ctx.dossier, ctx.override) });
+  const fresh = buildSequence(ctx.leadId, ctx.dossier, ctx.tier, deps, line.line, line.subject, ctx.override);
+  const seq = SequenceSchema.parse({ ...ctx.sequence, emails: ctx.sequence.emails.map((e) => (e.n === 1 ? fresh.emails[0]! : e)) });
+  const judge = ctx.judge && ctx.judge.content_hash === judgedContentHash(seq.emails) ? ctx.judge : null;
+  const state = sequenceState(ctx, seq, judge, deps);
+  store(db, sequenceId, seq, state, judge, line);
   return { ...state, sequence: seq };
 }

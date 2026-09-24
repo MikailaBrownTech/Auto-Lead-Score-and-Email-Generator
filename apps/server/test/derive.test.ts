@@ -97,7 +97,7 @@ describe("contact matching and greeting", () => {
   it("greets the decision maker only when the address is theirs", () => {
     expect(contactPlan(strongDossier())).toMatchObject({ greeting: "Hi Jane,", contactMismatch: false });
     const other = strongDossier({ public_contact_email: ev({ address: "john.phillips@firm.example", owner_name: null }, "john.phillips@firm.example") });
-    expect(contactPlan(other)).toMatchObject({ greeting: "Hi there,", contactMismatch: true });
+    expect(contactPlan(other)).toMatchObject({ greeting: null, contactMismatch: true });
     const tiedByQuote = strongDossier({ public_contact_email: ev({ address: "office@firm.example", owner_name: "Jane Smith" }, "Contact Jane Smith at office@firm.example") });
     expect(contactPlan(tiedByQuote)).toMatchObject({ greeting: "Hi Jane,", contactMismatch: false });
     for (const local of ["jsmith", "jane.smith", "janes", "smith"]) {
@@ -107,7 +107,7 @@ describe("contact matching and greeting", () => {
   });
 
   it("neutral greeting without a decision maker, and no mismatch flag", () => {
-    expect(contactPlan(strongDossier({ decision_maker: NOT_FOUND }))).toMatchObject({ greeting: "Hi there,", contactMismatch: false });
+    expect(contactPlan(strongDossier({ decision_maker: NOT_FOUND }))).toMatchObject({ greeting: null, contactMismatch: false });
   });
 });
 

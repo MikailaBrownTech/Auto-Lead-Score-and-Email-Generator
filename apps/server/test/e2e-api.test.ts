@@ -15,7 +15,7 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       // Settings: the footer must be complete and the checklist ready before anything exports.
       const blockedFirst = await h.call("GET", "/api/export");
       expect(blockedFirst.json.blocked.join(" ")).toMatch(/opt_out_line, physical_address/);
-      const saved = await h.call("PUT", "/api/settings/offer", { opt_out_line: "Reply no and I will not email again.", physical_address: "1 Main St, Columbus, OH 43215", checklist_ready: true });
+      const saved = await h.call("PUT", "/api/settings/offer", { opt_out_line: "Reply no and I will not email again.", physical_address: "1 Main St, Columbus, OH 43215", checklist_ready: true, founding_client_offer: "half off the first three months", booking_link: "https://cal.example.com/clearpath", region: "Columbus-area" });
       expect(saved.status).toBe(200);
       expect(saved.json.offer).toMatchObject({ opt_out_line: "Reply no and I will not email again.", checklist_ready: true });
 
@@ -35,9 +35,9 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(smith).toMatchObject({ status: "no_named_contact", flags: { generic_inbox: true, no_public_email: false } });
       expect(rows.find((r) => r.id === "paste-doe-tax")!.status).toBe("extracted");
 
-      // No override needed: the checklist is optional, the sequence uses the neutral greeting and can be approved.
+      // No override needed: the checklist is optional, email 1 opens with the role-based line, and it can be approved.
       let detail = (await h.call("GET", "/api/leads/lead-smithtax-example")).json;
-      expect(detail.contact).toMatchObject({ named: false, greeting: "Hi there,", warning: "generic inbox: lower reply odds", override: null });
+      expect(detail.contact).toMatchObject({ named: false, greeting: null, warning: "generic inbox: lower reply odds", override: null });
       expect(detail.contact.checklist.join(" ")).toMatch(/Secretary of State/);
       const seq = (await h.call("GET", `/api/sequences/${detail.sequenceId}`)).json;
       expect(seq.validationPass).toBe(true);
@@ -65,8 +65,10 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(exp.csv).not.toMatch(/doetax/i);
       expect(exp.csv).toContain("Reply no and I will not email again.");
       expect(exp.csv).toContain("ClearPath IT");
-      // Generic inbox: neutral greeting, sendable, with the contact note.
-      expect(exp.csv).toContain("Hi there,\n");
+      // Generic inbox: the role-based opening line, sendable, with the contact note; settings merge fields filled.
+      expect(exp.csv).toContain("Quick question for whoever looks after IT and client data at Smith Tax Services:");
+      expect(exp.csv).toContain("half off the first three months");
+      expect(exp.csv).not.toMatch(/\{\{/);
       expect(exp.csv).toContain("office@smithtax.example,Y,generic inbox: lower reply odds,");
 
       const file = await h.call("GET", "/api/export.csv");
@@ -75,7 +77,7 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(file.text).toBe(exp.csv);
 
       // No evidence quote ever reached a writer or judge message.
-      for (const p of h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "write_sequence" || t.name === "record_judgment")))) {
+      for (const p of h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "record_personal_line" || t.name === "record_judgment")))) {
         const text = JSON.stringify(p.messages);
         expect(text).not.toMatch(/evidence_quote|evidence_url|Jane Smith, EA/);
       }
@@ -96,7 +98,7 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       h.db.insert(leads).values({ id: "L-old", source: "web", status: "extracted", dossierJson: JSON.stringify({ lead_id: "L-old", firm_name: "NOT_FOUND" }) }).run();
       expect((await h.call("GET", "/api/leads")).json.find((l: { id: string }) => l.id === "L-old").status).toBe("outdated_research");
       expect(await h.call("GET", "/api/leads/L-old")).toMatchObject({ status: 409, json: { error: expect.stringMatching(/older version.*Import it again/) } });
-      const badSettings = await h.call("PUT", "/api/settings/offer", { cta_type: "brochure" });
+      const badSettings = await h.call("PUT", "/api/settings/offer", { checklist_ready: "no" });
       expect(badSettings.status).toBe(400);
       expect(badSettings.json.error).toMatch(/^Settings were not saved/);
     } finally {
@@ -104,10 +106,10 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
     }
   });
 
-  it("internal notes (incomplete_data, email_security_hint, client_count_signal) never reach writer input, judge input, or the CSV", async () => {
+  it("internal notes (incomplete_data, email_security_hint, client_count_signal) never reach the personal-line model, the judge, or the CSV", async () => {
     const h = makeHarness();
     try {
-      await h.call("PUT", "/api/settings/offer", { opt_out_line: "Reply no to stop.", physical_address: "1 Main St", checklist_ready: true });
+      await h.call("PUT", "/api/settings/offer", { opt_out_line: "Reply no to stop.", physical_address: "1 Main St", checklist_ready: true, founding_client_offer: "half off the first three months", booking_link: "https://cal.example.com/clearpath", region: "Columbus-area" });
       const d = strongDossier({
         size_signal: NOT_FOUND,
         decision_maker: NOT_FOUND,
@@ -137,8 +139,9 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(exp.rowCount).toBe(1);
 
       const forbidden = /itpro-example|IT provider|DMARC reports|900 local businesses|client_count|incomplete|paste mode/i;
-      const modelCalls = h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "write_sequence" || t.name === "record_judgment")));
-      expect(modelCalls.length).toBeGreaterThanOrEqual(2);
+      // One model call per lead (the personal line); no judge call on an unedited sequence.
+      const modelCalls = h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "record_personal_line" || t.name === "record_judgment")));
+      expect(modelCalls.map((c) => (c.tools![0] as { name: string }).name)).toEqual(["record_personal_line"]);
       for (const c of modelCalls) expect(JSON.stringify(c.messages)).not.toMatch(forbidden);
       expect(exp.csv).not.toMatch(forbidden);
     } finally {

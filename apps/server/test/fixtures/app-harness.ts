@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import { EXTRACTION_TOOL_NAME, JUDGE_TOOL_NAME, WRITER_TOOL_NAME } from "@clearpath/shared";
+import { EXTRACTION_TOOL_NAME, JUDGE_TOOL_NAME, PERSONAL_LINE_TOOL_NAME } from "@clearpath/shared";
 import type { DnsResolver } from "../../src/dns/lookup";
 import { openDb } from "../../src/db/client";
 import { fromRoot } from "../../src/config/paths";
@@ -51,25 +51,13 @@ export function doeAnswer(): Record<string, unknown> {
   };
 }
 
-/** A writer answer that passes the validators for any lead and any set of emails (email 1 names "your firm"). */
-export const WRITER_ANSWER = {
-  emails: [
-    { n: 1, subject_a: "security plan question", subject_b: "client data question", opening: "I noticed your firm works with local clients.", closing: "Is a written security plan something you keep on file?" },
-    { n: 2, subject_a: null, subject_b: null, opening: "Following up on my last note.", closing: "Would a short outline help?" },
-    { n: 3, subject_a: null, subject_b: null, opening: "I put together a one-page checklist in plain language that you can check your firm against. Want me to send it over?", closing: "" },
-    { n: 4, subject_a: null, subject_b: null, opening: "Here is the short version.", closing: "If you want a second set of eyes, you can book an assessment here: https://www.clearpathsecure.com/contact" },
-    { n: 5, subject_a: null, subject_b: null, opening: "I will assume the timing is not right and stop here. If a written plan comes up later, just reply.", closing: "" },
-  ],
-};
-
 /**
- * WRITER_ANSWER with email 1 naming the firm from the writer message (as the real writer does), so a
- * neutral greeting still passes the "never a generic email 1" rule.
+ * A personal-line answer that passes the checks for any lead: it names the firm (from the model's
+ * message, as the real model does) and nothing else.
  */
-export function writerAnswerFor(writerMessage: string): typeof WRITER_ANSWER {
-  const firm = /"firm_name":\s*"([^"]+)"/.exec(writerMessage)?.[1];
-  if (!firm) return WRITER_ANSWER;
-  return { emails: WRITER_ANSWER.emails.map((e) => (e.n === 1 ? { ...e, opening: `I noticed ${firm} works with local clients.` } : e)) };
+export function lineAnswerFor(message: string): { personal_line: string; subject: "A" } {
+  const firm = /"firm_name":\s*"([^"]+)"/.exec(message)?.[1];
+  return { personal_line: `${firm ?? "Your firm"} works with a lot of sensitive client financial data.`, subject: "A" };
 }
 
 function message(name: string, input: unknown, i: number): Anthropic.Message {
@@ -97,21 +85,21 @@ const fakeDns: DnsResolver = {
  * The whole API in-process: saved HTML fixtures (smithtax.example), fake DNS, recorded model answers
  * (extraction, writer, judge by tool name), and a temporary copy of docs/ so settings saves stay local.
  */
-export function makeHarness(opts: { judge?: unknown; writer?: unknown | ((call: number) => unknown); capUsd?: number } = {}) {
+export function makeHarness(opts: { judge?: unknown; line?: unknown | ((call: number) => unknown); capUsd?: number } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "clearpath-e2e-"));
   const docsDir = path.join(tmp, "docs");
   fs.cpSync(fromRoot("docs"), docsDir, { recursive: true });
   const db = openDb(":memory:");
   const now = () => NOW;
   const calls: Anthropic.MessageCreateParamsNonStreaming[] = [];
-  let writerCall = 0;
+  let lineCall = 0;
   const f = fakeApi((p, i) => {
     calls.push(p);
     const tool = (p.tools![0] as Anthropic.Tool).name;
     if (tool === EXTRACTION_TOOL_NAME) return message(tool, userText(p).includes("doetax") ? doeAnswer() : smithAnswer(), i);
-    if (tool === WRITER_TOOL_NAME) {
-      const w = opts.writer;
-      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(writerCall++) : (w ?? writerAnswerFor(userText(p))), i);
+    if (tool === PERSONAL_LINE_TOOL_NAME) {
+      const w = opts.line;
+      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(lineCall++) : (w ?? lineAnswerFor(userText(p))), i);
     }
     if (tool === JUDGE_TOOL_NAME) return message(tool, opts.judge ?? { unsupported_claims: [] }, i);
     throw new Error(`unexpected tool ${tool}`);

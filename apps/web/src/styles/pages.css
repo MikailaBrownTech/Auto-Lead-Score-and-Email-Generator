@@ -353,6 +353,15 @@ mark.approved {
   padding: 0 1px;
 }
 
+/* The model's one sentence: a subtle accent tint (text keeps full contrast on --accent-bg). */
+mark.personal {
+  background: var(--accent-bg);
+  color: inherit;
+  border-bottom: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .email-stack {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,38 @@
+{
+  "fixture": "rbvfinancial-com",
+  "model": "claude-haiku-4-5-20251001",
+  "captured_at": "2026-09-24T22:54:53.240Z",
+  "request": {
+    "facts": {
+      "firm_name": "RBV Financial",
+      "firm_type": "credit_repair",
+      "city": "Berea",
+      "state": "OH",
+      "service": "Tax Preparation"
+    },
+    "theme": "",
+    "before": "Quick question for whoever looks after IT and client data at RBV Financial:",
+    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
+    "subjects": {
+      "A": "written security plan at RBV Financial?",
+      "B": "quick question about client data"
+    }
+  },
+  "tool_input": {
+    "personal_line": "RBV Financial handles Tax Preparation, which means storing detailed tax returns and financial records for many clients.",
+    "subject": "B"
+  },
+  "usage": {
+    "input_tokens": 1530,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 72,
+    "service_tier": "standard",
+    "inference_geo": "not_available"
+  },
+  "cost_usd": 0.00189
+}

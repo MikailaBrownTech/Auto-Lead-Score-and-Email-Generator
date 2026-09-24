@@ -1,0 +1,38 @@
+{
+  "fixture": "metaxparma-com",
+  "model": "claude-haiku-4-5-20251001",
+  "captured_at": "2026-09-24T22:54:59.390Z",
+  "request": {
+    "facts": {
+      "firm_name": "M.E. & Associates Services",
+      "firm_type": "tax_preparer",
+      "city": "Parma",
+      "state": "OH",
+      "service": "Federal, State, and City"
+    },
+    "theme": "emphasize SSNs, bank details, prior-year returns",
+    "before": "Quick question for whoever looks after IT and client data at M.E. & Associates Services:",
+    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
+    "subjects": {
+      "A": "written security plan at M.E. & Associates Services?",
+      "B": "quick question about client data"
+    }
+  },
+  "tool_input": {
+    "personal_line": "M.E. & Associates Services prepares Federal, State, and City returns, which means storing SSNs, bank details, and prior-year tax records.",
+    "subject": "A"
+  },
+  "usage": {
+    "input_tokens": 1546,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 84,
+    "service_tier": "standard",
+    "inference_geo": "not_available"
+  },
+  "cost_usd": 0.001966
+}

@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { FIRM_TYPES, FirmTypeSchema } from "./dossier";
 
-/** Neutral greetings the founder can choose from (docs/01 neutral_greeting_style). */
-export const NEUTRAL_GREETING_STYLES = ["Hi there,", "Hi,", "Hi {{firm_name}} team,"] as const;
-export type NeutralGreetingStyle = (typeof NEUTRAL_GREETING_STYLES)[number];
-
 /** docs/01 `clearpath:offer` block. Placeholder values are normalized to empty by the loader. */
 export const OfferConfigSchema = z
   .object({
@@ -14,13 +10,17 @@ export const OfferConfigSchema = z
     /** The only company name an email may use; the writer never invents one. */
     company_name: z.string().default(""),
     company_website: z.string().default(""),
-    cta_url: z.string().url(),
     opt_out_line: z.string(),
     physical_address: z.string(),
     approved_proof: z.array(z.string()),
+    /** {{offer}} in email 4 (docs/09): the founding-client rate wording. Export is blocked while empty. */
     founding_client_offer: z.string().nullable(),
-    /** What email 3 offers by reply. The scorecard option must not be used until the scorecard exists. */
-    cta_type: z.enum(["checklist", "scorecard"]).default("checklist"),
+    /** {{booking_link}}: the calendar link, the only link an email body may contain. Export is blocked while empty. */
+    booking_link: z.string().default(""),
+    /** {{region}}: the target region as it reads in a sentence ("Cleveland-area"). Export is blocked while empty. */
+    region: z.string().default(""),
+    /** {{company_one_liner}}: one sentence about the company, for templates that use it. */
+    company_one_liner: z.string().default(""),
     /**
      * When true, emails may mention one hedged DNS observation (e.g. a DMARC record set to monitoring
      * only), and only when the domain has MX records. Default false: no DNS remarks.
@@ -28,11 +28,6 @@ export const OfferConfigSchema = z
     include_dns_observation: z.boolean().default(false),
     /** Email 3 offers the checklist by reply. While false, a sequence with email 3 is blocked from export. */
     checklist_ready: z.boolean().default(false),
-    /**
-     * Greeting used whenever the public address is not tied to a named person (generic inbox,
-     * unattributed address, no address, or a contact override). {{firm_name}} is filled in by code.
-     */
-    neutral_greeting_style: z.enum(NEUTRAL_GREETING_STYLES).default("Hi there,"),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
@@ -45,14 +40,16 @@ const angles = z.array(z.string().regex(/^[a-z0-9_]+$/)).min(1);
 export const StyleConfigSchema = z
   .object({
     send_days: z.array(z.number().int().nonnegative()).length(5),
-    word_limits: z.object({ "1": wordLimit, "2": wordLimit, "3": wordLimit, "4": wordLimit }).strict(),
-    breakup_sentences: z.object({ min: z.number().int().positive(), max: z.number().int().positive() }).strict(),
+    word_limits: z.object({ "1": wordLimit, "2": wordLimit, "3": wordLimit, "4": wordLimit, "5": wordLimit }).strict(),
+    /** Firm-name (full or short) and region tokens do not count. */
     subject_max_words: z.number().int().positive(),
     max_links_per_email: z.number().int().nonnegative(),
     max_personal_details_per_email: z.number().int().nonnegative(),
     banned_phrases: z.array(z.string().trim().min(1)).min(1),
     allowed_acronyms: z.array(z.string().regex(/^[A-Z0-9]+$/)),
     proof_patterns: z.array(z.string().trim().min(1)).min(1),
+    /** Words that judge or flatter the firm; the model-written personal line may not use them. */
+    evaluative_terms: z.array(z.string().trim().min(1)).min(1),
     /**
      * A sentence that pairs a negation with a plan term ("you don't have a WISP") claims the firm lacks
      * a plan. We never know that, so it is blocked. Questions and "if ..." sentences are exempt.
@@ -77,8 +74,7 @@ export const StyleConfigSchema = z
       .strict(),
   })
   .strict()
-  .refine((s) => s.send_days.every((d, i) => i === 0 || d > s.send_days[i - 1]!), "send_days must increase")
-  .refine((s) => s.breakup_sentences.min <= s.breakup_sentences.max, "breakup_sentences.min must be <= max");
+  .refine((s) => s.send_days.every((d, i) => i === 0 || d > s.send_days[i - 1]!), "send_days must increase");
 export type StyleConfig = z.infer<typeof StyleConfigSchema>;
 
 /** Criterion keys are fixed in code (scoring functions); labels and points come from docs/06. */

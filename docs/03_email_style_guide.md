@@ -1,6 +1,6 @@
 # Email style guide
 
-STRUCTURE: greeting by first name only when the public address is tied to that person (otherwise the neutral greeting from docs/01 neutral_greeting_style, default "Hi there,"), 1 observation or question, 1 point of value, 1 CTA, sign-off with sender name, then {{opt_out_line}} and {{physical_address}}.
+STRUCTURE: the emails are human-written templates in docs/09_sequences.md; code fills the merge fields and the model writes only {{personal_line}} (one sentence). Email 1 greets by first name only when the public address is tied to that person, otherwise it opens with the role-based line; emails 2 to 5 have no greeting. The signature block, opt-out line and address come from docs/09 and docs/01.
 
 TONE: plain, peer-to-peer, specific. Sounds like a person typed it in two minutes.
 
@@ -14,7 +14,7 @@ SECURITY OBSERVATIONS: max one per email, hedged, non-accusatory, and only if ev
 
 CLAIM SAFETY: no guarantees (compliance, security, protection from fines), no false authority (government approval, unapproved credentials), no urgency.
 
-LINKS: max one per email, none in email 1 if possible. The only link allowed is the CTA link in docs/01.
+LINKS: max one per email, none in email 1 if possible. The only link allowed is booking_link in docs/01.
 
 FIRM-TYPE ANGLES:
 - CPA: insurer renewals, client data, busy season.
@@ -23,12 +23,7 @@ FIRM-TYPE ANGLES:
 - Payroll: PII, vendor oversight.
 - Collections / credit: audit trails, documented access.
 
-SEQUENCE (send days and word limits are in the block below):
-1. Custom observation plus one question
-2. One Safeguards/IRS requirement relevant to their firm type plus one custom detail
-3. Offer what cta_type in docs/01 names (the one-page checklist, or the 2-minute scorecard once it exists) by reply, or a public-exposure snapshot if verified findings exist
-4. Approved founding-client offer if one exists, otherwise a useful checklist
-5. Break-up, a few sentences
+SEQUENCE: the copy lives in docs/09_sequences.md (send days and word limits are in the block below). One question mark per email at most.
 
 EXAMPLE, email 1 (format only; details are placeholders):
 
@@ -45,7 +40,9 @@ BAD example: "I was impressed by your firm's incredible growth!" (unverifiable, 
 
 The app reads and writes only the block below (Settings screen). Validators enforce it in code.
 
-- word_limits: max words per email body (greeting through the last sentence before the sign-off; the sign-off, opt-out line and address are not counted). Email 5 is limited by sentence count instead.
+- word_limits: max words per email body, emails 1 to 5 (greeting or opening line through the last sentence before the sign-off; the signature block, opt-out line and address are not counted). Bullet lists are allowed (email 2 uses one).
+- subject_max_words: max words per subject line. The firm's name (full or short) and the region do not count.
+- evaluative_terms: words that judge or flatter the firm. The model-written {{personal_line}} may not contain them (nor banned_phrases, absence claims, regulatory or insurer statements).
 - banned_phrases: matched case-insensitively. Exclamation marks, emojis, ALL CAPS words (other than allowed_acronyms), leftover placeholders, and "Re:"/"Fwd:" on the first subject are always blocked.
 - proof_patterns: phrases that claim clients, results, or credentials. Blocked unless the sentence also contains an approved_proof item from docs/01.
 - absence_claims: a sentence containing one of the negations and one of the plan_terms ("you don't have a WISP") is blocked. Questions and sentences starting with "if" or "whether" are exempt.
@@ -61,16 +58,13 @@ The app reads and writes only the block below (Settings screen). Validators enfo
     18
   ],
   "word_limits": {
-    "1": 75,
-    "2": 90,
-    "3": 90,
-    "4": 80
+    "1": 130,
+    "2": 140,
+    "3": 100,
+    "4": 130,
+    "5": 75
   },
-  "breakup_sentences": {
-    "min": 2,
-    "max": 3
-  },
-  "subject_max_words": 5,
+  "subject_max_words": 6,
   "max_links_per_email": 1,
   "max_personal_details_per_email": 1,
   "banned_phrases": [
@@ -188,6 +182,35 @@ The app reads and writes only the block below (Settings screen). Validators enfo
       "incident response plan"
     ]
   },
+  "evaluative_terms": [
+    "impressive",
+    "impressed",
+    "great",
+    "excellent",
+    "amazing",
+    "incredible",
+    "outstanding",
+    "strong",
+    "solid",
+    "reputation",
+    "clearly",
+    "obviously",
+    "well-run",
+    "leading",
+    "best",
+    "top-rated",
+    "trusted",
+    "award",
+    "admire",
+    "love",
+    "loved",
+    "vulnerable",
+    "risky",
+    "outdated",
+    "weak",
+    "behind",
+    "should"
+  ],
   "firm_type_angles": {
     "cpa": [
       "insurer_renewals",

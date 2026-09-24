@@ -3,12 +3,11 @@ import { readStoredDossier, tryReadStoredDossier } from "../pipeline/stored-doss
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads, runs, sequences } from "../db/schema";
-import { DOCS_DIR, loadOffer, loadScoring } from "../docs/loader";
-import { leadGreeting } from "../scoring/contact";
+import { DOCS_DIR, loadScoring } from "../docs/loader";
 import { contactWarning, lacksNamedContact, leadOverride, namedContactChecklist, publicAddress } from "../scoring/direct-contact";
 import { scoreDossier } from "../scoring/score";
-import { signatureLines } from "../validators/email";
-import { customEmailsFor, notWrittenReason, type WriteDeps } from "../write/generate";
+import { firstNameFor, modelEmailsFor, notWrittenReason, type WriteDeps } from "../write/generate";
+import { renderSettings, renderSignature } from "../write/merge";
 import { loadSequenceContext, sequenceState } from "../write/edit";
 import type { Services } from "./services";
 
@@ -39,8 +38,9 @@ function latestSequences(db: Db): Map<string, { id: number; status: string; crea
   return out;
 }
 
+/** "template": docs/09 copy and a fallback personal line (no model text). "custom": a model-written line or hand edits. */
 export function sequenceKind(seq: Sequence): "template" | "custom" {
-  return seq.emails.every((e) => e.template && !e.edited) ? "template" : "custom";
+  return seq.emails.every((e) => e.template && !e.edited && e.personal_line?.source !== "model") ? "template" : "custom";
 }
 
 /** The Sequences screen: each lead's newest sequence, templates included. */
@@ -122,7 +122,7 @@ export function leadDetail(s: Services, id: string): LeadDetail {
     flags: flagsFor(dossier, score.incompleteData.flag),
     contact: {
       named: !lacksNamedContact(dossier),
-      greeting: leadGreeting(dossier, loadOffer(docsDir), override !== null),
+      greeting: firstNameFor(dossier, override) ? `Hi ${firstNameFor(dossier, override)},` : null,
       warning: contactWarning(dossier),
       checklist: lacksNamedContact(dossier) ? namedContactChecklist(dossier) : [],
       override,
@@ -164,7 +164,7 @@ function lastAttempt(db: Db, leadId: string, sequenceAt: string | null): { at: s
 export function sequenceView(db: Db, sequenceId: number, deps: WriteDeps): SequenceView {
   const ctx = loadSequenceContext(db, sequenceId, deps);
   const state = sequenceState(ctx, ctx.sequence, ctx.judge, deps);
-  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.drafts);
+  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.personalLine);
 }
 
 export function sequenceViewFrom(
@@ -176,8 +176,10 @@ export function sequenceViewFrom(
   sequence: SequenceView["sequence"],
   state: ReturnType<typeof sequenceState>,
   deps: WriteDeps,
-  drafts: SequenceView["drafts"] = [],
+  line: SequenceContextLine = null,
 ): SequenceView {
+  const e1 = sequence.emails[0];
+  const current = e1?.personal_line ?? null;
   return {
     id,
     leadId,
@@ -192,12 +194,19 @@ export function sequenceViewFrom(
     contactWarning: state.contactWarning,
     exportBlockers: state.exportBlockers,
     approvedSentences: deps.approved.map((a) => ({ id: a.id, text: a.text })),
-    rewritable: customEmailsFor(tier),
+    rewritable: modelEmailsFor(tier),
     wordLimits: deps.style.word_limits,
-    breakupSentences: deps.style.breakup_sentences,
     subjectMaxWords: deps.style.subject_max_words,
-    signature: signatureLines(deps.offer),
+    signature: renderSignature(deps.templates.signature, deps.offer),
+    rendered: sequence.emails.map((e) => ({
+      n: e.n,
+      subject_a: e.subject_a ? renderSettings(e.subject_a, deps.offer) : null,
+      subject_b: e.subject_b ? renderSettings(e.subject_b, deps.offer) : null,
+      body: renderSettings(e.body, deps.offer),
+    })),
     kind: sequenceKind(sequence),
-    drafts,
+    personalLine: current ? { ...current, note: current.source === "fallback" && line?.line.text === current.text ? line.note : current.source === "fallback" ? "the docs/09 fallback line is used" : null } : null,
   };
 }
+
+type SequenceContextLine = ReturnType<typeof loadSequenceContext>["personalLine"];

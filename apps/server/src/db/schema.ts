@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-export const CALL_TYPES = ["smoke", "extract", "extract_retry", "write", "judge"] as const;
+/** "write" is kept for runs logged by the old whole-email writer; new sequences use "personal_line". */
+export const CALL_TYPES = ["smoke", "extract", "extract_retry", "write", "personal_line", "judge"] as const;
 export type CallType = (typeof CALL_TYPES)[number];
 
 /** One row per Anthropic API call (successful or failed). Cost is computed locally from config/prices.json. */

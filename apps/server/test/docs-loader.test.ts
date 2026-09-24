@@ -52,7 +52,7 @@ describe("real docs (tests run against the files in docs/)", () => {
   it("docs/01 offer parses; unfilled settings are empty, so no proof can be claimed", () => {
     const offer = loadOffer();
     expect(offer.sender_name).toBe("Mikaila Brown");
-    expect(offer.cta_url).toBe("https://www.clearpathsecure.com/contact");
+    expect(offer).toMatchObject({ booking_link: "", region: "", founding_client_offer: null, company_one_liner: "" });
     expect(offer.approved_proof).toEqual([]);
   });
 
@@ -141,8 +141,9 @@ describe("placeholders in docs/01", () => {
       "```json clearpath:offer",
       JSON.stringify({
         sender_name: "Mikaila Brown",
-        cta_url: "https://www.clearpathsecure.com/contact",
         opt_out_line: "[e.g. reply no]",
+        booking_link: "[your calendar link]",
+        region: "[e.g. Cleveland-area]",
         physical_address: " [address] ",
         approved_proof: ["[Leave empty until true]", ""],
         founding_client_offer: "[approved wording, or none]",
@@ -150,7 +151,7 @@ describe("placeholders in docs/01", () => {
       "```",
     ].join("\n");
     const offer = parseOffer(md);
-    expect(offer).toMatchObject({ opt_out_line: "", physical_address: "", approved_proof: [], founding_client_offer: null });
+    expect(offer).toMatchObject({ opt_out_line: "", physical_address: "", approved_proof: [], founding_client_offer: null, booking_link: "", region: "" });
   });
 });
 

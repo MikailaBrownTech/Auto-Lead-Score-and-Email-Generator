@@ -6,6 +6,7 @@ import { leads, sequences, suppressions } from "../db/schema";
 import { contactWarning, publicAddress } from "../scoring/direct-contact";
 import { renderEmail } from "../validators/email";
 import type { WriteDeps } from "../write/generate";
+import { emptySettingsUsed, renderSettings, renderSignature } from "../write/merge";
 
 // ---- suppression list ----
 
@@ -69,7 +70,8 @@ export interface ExportRow {
   contact_note: string;
   subject_a: string;
   subject_b: string;
-  emails: { n: number; send_day: number; text: string }[];
+  /** subject: emails 2-5, the subject used if the email starts a new thread (docs/09); "" if none. */
+  emails: { n: number; send_day: number; subject: string; text: string }[];
 }
 
 export interface ExportResult {
@@ -98,7 +100,7 @@ export const EXPORT_COLUMNS = [
   "contact_note",
   "subject_a",
   "subject_b",
-  ...[1, 2, 3, 4, 5].flatMap((n) => [`email_${n}_send_day`, `email_${n}_text`]),
+  ...[1, 2, 3, 4, 5].flatMap((n) => [`email_${n}_send_day`, ...(n > 1 ? [`email_${n}_subject`] : []), `email_${n}_text`]),
 ];
 
 export function toCsv(rows: ExportRow[]): string {
@@ -107,7 +109,7 @@ export function toCsv(rows: ExportRow[]): string {
     const cells: (string | number)[] = [r.lead_id, r.firm_name, r.to_email, r.send_ready, r.contact_note, r.subject_a, r.subject_b];
     for (let n = 1; n <= 5; n++) {
       const e = r.emails.find((x) => x.n === n);
-      cells.push(e?.send_day ?? "", e?.text ?? "");
+      cells.push(e?.send_day ?? "", ...(n > 1 ? [e?.subject ?? ""] : []), e?.text ?? "");
     }
     lines.push(cells.map(csvCell).join(","));
   }
@@ -121,7 +123,7 @@ export function toCsv(rows: ExportRow[]): string {
  * only the rendered emails, the address, and the contact note, never dossier notes. "ready" exports
  * rows with an address; "drafts" exports every approved row (send_ready N without an address).
  */
-export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">, mode: ExportMode = "ready"): ExportResult {
+export function buildExport(db: Db, deps: Pick<WriteDeps, "offer" | "templates">, mode: ExportMode = "ready"): ExportResult {
   const offer = deps.offer;
   const latest = new Map<string, { status: string; sequence: Sequence | null }>();
   for (const row of db.select().from(sequences).orderBy(asc(sequences.id)).all()) {
@@ -132,7 +134,16 @@ export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">, mode: Export
   const blocked: string[] = [];
   const missing = (["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address"] as const).filter((k) => offer[k].trim() === "");
   if (missing.length > 0) blocked.push(`Fill in these settings first: ${missing.join(", ")}. Every email needs the full signature, the opt-out line, and a mailing address.`);
-  if (offer.cta_type === "checklist" && !offer.checklist_ready && approved.some(([, v]) => v.sequence!.emails.some((e) => e.n === 3))) {
+  // docs/09 merge settings: offer, booking_link, and region always; any other one an approved email uses.
+  const used = new Set(approved.flatMap(([, v]) => v.sequence!.emails.flatMap((e) => emptySettingsUsed([e.body, e.subject_a ?? ""].join("\n"), offer))));
+  const mergeMissing = [
+    ...(!offer.founding_client_offer?.trim() ? ["founding_client_offer (the {{offer}} in email 4)"] : []),
+    ...(!offer.booking_link.trim() ? ["booking_link"] : []),
+    ...(!offer.region.trim() ? ["region"] : []),
+    ...[...used].filter((f) => !["offer", "booking_link", "region"].includes(f)),
+  ];
+  if (mergeMissing.length > 0) blocked.push(`Fill in these settings first: ${mergeMissing.join(", ")}. The emails use them.`);
+  if (!offer.checklist_ready && approved.some(([, v]) => v.sequence!.emails.some((e) => e.n === 3))) {
     blocked.push("Email 3 offers the checklist, but checklist_ready is off in Settings. Turn it on once the checklist can be sent.");
   }
   if (approved.length === 0) blocked.push("No approved sequences yet. Approve a sequence first.");
@@ -158,15 +169,16 @@ export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">, mode: Export
     }
     const seq = v.sequence!;
     const e1 = seq.emails.find((e) => e.n === 1);
+    const signature = renderSignature(deps.templates.signature, offer);
     all.push({
       lead_id: leadId,
       firm_name: firm,
       to_email: address ?? "",
       send_ready: address ? "Y" : "N",
       contact_note: contactWarning(d) ?? "",
-      subject_a: e1?.subject_a ?? "",
-      subject_b: e1?.subject_b ?? "",
-      emails: seq.emails.map((e) => ({ n: e.n, send_day: e.send_day, text: renderEmail(e.body, offer) })),
+      subject_a: e1?.subject_a ? renderSettings(e1.subject_a, offer) : "",
+      subject_b: e1?.subject_b ? renderSettings(e1.subject_b, offer) : "",
+      emails: seq.emails.map((e) => ({ n: e.n, send_day: e.send_day, subject: e.n > 1 && e.subject_a ? renderSettings(e.subject_a, offer) : "", text: renderEmail(e.body, offer, signature) })),
     });
   }
   const ready = all.filter((r) => r.send_ready === "Y");

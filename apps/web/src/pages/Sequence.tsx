@@ -25,33 +25,48 @@ export function approvalState(view: SequenceView, dirty: boolean): { enabled: bo
   return { enabled: reasons.length === 0, reasons };
 }
 
-/** The body with code-inserted approved sentences marked apart from other text. */
-export function markApproved(body: string, approved: { id: string; text: string }[]): ReactNode[] {
+interface Mark {
+  text: string;
+  className: "approved" | "personal";
+  title: string;
+}
+
+/** The body with inserted text marked apart: approved docs/02 sentences, and email 1's personal line. */
+export function markInserted(body: string, marks: Mark[]): ReactNode[] {
   const parts: ReactNode[] = [];
   let rest = body;
   let key = 0;
   for (;;) {
-    let first: { at: number; a: { id: string; text: string } } | null = null;
-    for (const a of approved) {
-      const at = rest.indexOf(a.text);
-      if (at >= 0 && (!first || at < first.at)) first = { at, a };
+    let first: { at: number; m: Mark } | null = null;
+    for (const m of marks) {
+      const at = m.text ? rest.indexOf(m.text) : -1;
+      if (at >= 0 && (!first || at < first.at)) first = { at, m };
     }
     if (!first) break;
     if (first.at > 0) parts.push(<span key={key++}>{rest.slice(0, first.at)}</span>);
     parts.push(
-      <mark key={key++} className="approved" title={`Inserted by code from docs/02 (${first.a.id}). Edit it and it is no longer an approved sentence.`}>
-        {first.a.text}
+      <mark key={key++} className={first.m.className} title={first.m.title}>
+        {first.m.text}
       </mark>,
     );
-    rest = rest.slice(first.at + first.a.text.length);
+    rest = rest.slice(first.at + first.m.text.length);
   }
   if (rest) parts.push(<span key={key++}>{rest}</span>);
   return parts;
 }
 
+/** The body with code-inserted approved sentences marked apart from other text. */
+export function markApproved(body: string, approved: { id: string; text: string }[]): ReactNode[] {
+  return markInserted(
+    body,
+    approved.map((a) => ({ text: a.text, className: "approved", title: `Inserted by code from docs/02 (${a.id}). Edit it and it is no longer an approved sentence.` })),
+  );
+}
+
 function origin(e: SequenceView["sequence"]["emails"][number]): { text: string; tone: "neutral" | "info" | "warning" } {
   if (e.edited) return { text: "Edited by you", tone: "warning" };
-  return e.template ? { text: "Template (no model call)", tone: "neutral" } : { text: "Written by the model", tone: "info" };
+  if (e.personal_line) return e.personal_line.source === "model" ? { text: "docs/09 + model line", tone: "info" } : { text: "docs/09 + fallback line", tone: "neutral" };
+  return { text: "docs/09 copy", tone: "neutral" };
 }
 
 export function EmailCard(props: {
@@ -69,6 +84,8 @@ export function EmailCard(props: {
   const errors = issues.filter((i) => i.severity === "error").length;
   const warnings = issues.length - errors;
   const o = origin(props.meta);
+  // As sent: settings merge fields ({{offer}}, {{booking_link}}, ...) filled from docs/01 by the server.
+  const rendered = view.rendered.find((r) => r.n === email.n);
   return (
     <article className={`email-card${errors ? " has-error" : warnings ? " has-warning" : ""}`} data-testid={`email-${email.n}`} aria-label={`Email ${email.n}`}>
       <header className="email-head">
@@ -95,8 +112,8 @@ export function EmailCard(props: {
           </Badge>
         )}
         {props.onRewrite && (
-          <button type="button" className="btn ghost sm" onClick={props.onRewrite} disabled={props.busy}>
-            Rewrite this email
+          <button type="button" className="btn ghost sm" onClick={props.onRewrite} disabled={props.busy} title="One small model call; email 1 is rebuilt from docs/09 with the new line">
+            New personal line
           </button>
         )}
       </header>
@@ -114,6 +131,12 @@ export function EmailCard(props: {
       )}
       <div className="email-body">
         <div className="email-edit">
+          {email.n > 1 && email.subject_a !== null && (
+            <label className="field">
+              <span className="field-label">Subject {email.n === 4 ? "" : "(if it starts a new thread)"}</span>
+              <input value={email.subject_a ?? ""} onChange={(e) => props.onChange({ ...email, subject_a: e.target.value })} />
+            </label>
+          )}
           {email.n === 1 && (
             <div className="subjects">
               <label className="field">
@@ -132,15 +155,20 @@ export function EmailCard(props: {
           </label>
           <div className="email-foot">
             <span className={limit && words > limit ? "status-text error" : "muted"}>
-              {words} words{limit ? ` (limit ${limit})` : ` (break-up: ${view.breakupSentences.min}-${view.breakupSentences.max} sentences)`}
+              {words} words{limit ? ` (limit ${limit})` : ""}
             </span>
           </div>
         </div>
         <div className="preview">
           <span className="eyebrow">Preview as sent</span>
           <div className="preview-box">
-            {email.n === 1 && email.subject_a && <span className="subject">Subject: {email.subject_a}</span>}
-            {markApproved(email.body, view.approvedSentences)}
+            {rendered?.subject_a && <span className="subject">Subject: {rendered.subject_a}</span>}
+            {markInserted(rendered?.body ?? email.body, [
+              ...view.approvedSentences.map((a) => ({ text: a.text, className: "approved" as const, title: `Inserted by code from docs/02 (${a.id}).` })),
+              ...(props.meta.personal_line
+                ? [{ text: props.meta.personal_line.text, className: "personal" as const, title: props.meta.personal_line.source === "model" ? "Personal line written by the model, checked by code." : "docs/09 fallback personal line." }]
+                : []),
+            ])}
             <div className="signature">{view.signature.join("\n")}</div>
           </div>
         </div>
@@ -205,7 +233,7 @@ export function SequenceEditor(props: { initial: SequenceView }) {
   const approval = approvalState(view, dirty);
   const errors = view.issues.filter((i) => i.severity === "error").length;
   const judgeText = !view.judgeRequired
-    ? "Judge: not needed (templates only)"
+    ? "Judge: not needed (no hand edits)"
     : view.judge
       ? view.judge.unsupported_claims.length
         ? `Judge: ${view.judge.unsupported_claims.length} unsupported claim(s)`
@@ -233,7 +261,7 @@ export function SequenceEditor(props: { initial: SequenceView }) {
             )
           }
           disabled={!!busy || !view.judgeRequired}
-          title={view.judgeRequired ? "Checks the model-written and edited emails for unsupported claims" : "Only fixed templates: nothing to judge"}
+          title={view.judgeRequired ? "Checks the emails you edited by hand for unsupported claims" : "Nothing edited by hand: nothing to judge"}
         >
           {busy === "judge" ? "Judging…" : "Run judge"}
         </button>
@@ -275,10 +303,15 @@ export function SequenceEditor(props: { initial: SequenceView }) {
           Contact: {view.contactWarning}. This is a warning only; it does not block approval or export.
         </NoticeBanner>
       )}
-      {view.kind === "template" && (
-        <NoticeBanner tone="info">Template (no model call): every email is fixed docs/09 text with the greeting and firm name filled in. No model was used, so no judge is needed.</NoticeBanner>
+      {view.personalLine?.source === "fallback" && (
+        <NoticeBanner tone="info">
+          Personal line: the docs/09 fallback line is used{view.personalLine.note ? ` (${view.personalLine.note.replace(", so the docs/09 fallback line is used", "")})` : ""}. Nothing to fix
+          {view.rewritable.includes(1) ? "; choose New personal line on email 1 to try the model again." : "."}
+        </NoticeBanner>
       )}
-      {!view.validationPass && <NoticeBanner>This draft is blocked by the validators. It is shown in full below with its errors: edit it and save, or rewrite an email.</NoticeBanner>}
+      {!view.validationPass && (
+        <NoticeBanner>A validator error remains in the docs/09 copy or your edits. It is shown on the email below: edit it here and save, or fix docs/09_sequences.md.</NoticeBanner>
+      )}
       {view.issues
         .filter((i) => i.email === null)
         .map((i, k) => (
@@ -301,32 +334,11 @@ export function SequenceEditor(props: { initial: SequenceView }) {
           </ul>
         </section>
       )}
-      {view.drafts.length > 0 && (
-        <details className="card">
-          <summary>Model drafts for this sequence ({view.drafts.length})</summary>
-          <div className="stack-sm small">
-            {view.drafts.map((d) => (
-              <div key={d.attempt}>
-                <strong>{d.attempt === 1 ? "First draft" : "Rewrite"}</strong>:{" "}
-                {d.formatProblem ? `could not be used (${d.formatProblem})` : d.errors.length === 0 ? "passed the validators" : `${d.errors.length} validator error(s)`}
-                {d.errors.length > 0 && (
-                  <ul>
-                    {d.errors.map((i, k) => (
-                      <li key={k}>
-                        {i.email ? `Email ${i.email}: ` : ""}
-                        {i.message}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
       <p className="legend">
-        <mark className="approved">Highlighted</mark>
-        <span>sentences were inserted by code from docs/02 (approved wording). Everything else is model-written or template text.</span>
+        <mark className="personal">Personal line</mark>
+        <span>is the one sentence the model writes (checked by code, or the docs/09 fallback).</span>
+        <mark className="approved">Approved sentence</mark>
+        <span>is inserted by code from docs/02. Everything else is your docs/09 copy.</span>
       </p>
       <div className="email-stack">
         {emails.map((e) => (
@@ -338,7 +350,7 @@ export function SequenceEditor(props: { initial: SequenceView }) {
             busy={!!busy}
             onChange={edit}
             {...(view.rewritable.includes(e.n)
-              ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), `Email ${e.n} rewritten. Run the judge again.`) }
+              ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), "New personal line written.") }
               : {})}
           />
         ))}
@@ -366,7 +378,7 @@ export function SequencePage(props: { id: string }) {
           <div className="lead-meta">
             <TierChip tier={data.tier} />
             <StatusBadge status={data.status} />
-            {data.kind === "template" ? <Badge>Template (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}
+            {data.kind === "template" ? <Badge>docs/09 + fallback line</Badge> : <Badge tone="info">docs/09 + model line</Badge>}
           </div>
         </div>
       </div>
@@ -406,7 +418,7 @@ export function SequencesPage() {
             </a>
           }
         >
-          Open a lead and choose Write sequence. Tier C leads get template emails with no model call.
+          Open a lead and choose Write sequence. Tier C leads get the docs/09 copy with the fallback line (no model call).
         </EmptyState>
       )}
       {data && data.length > 0 && (
@@ -430,7 +442,7 @@ export function SequencesPage() {
                   <td>
                     <TierChip tier={s.tier} />
                   </td>
-                  <td>{s.kind === "template" ? <Badge>Template (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}</td>
+                  <td>{s.kind === "template" ? <Badge>docs/09 + fallback line</Badge> : <Badge tone="info">docs/09 + model line</Badge>}</td>
                   <td>
                     <StatusBadge status={s.status} />
                   </td>

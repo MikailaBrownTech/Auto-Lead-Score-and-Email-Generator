@@ -1,7 +1,8 @@
-import { FIRM_TYPES, NOT_FOUND, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
+import { NOT_FOUND, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
 import { describe, expect, it } from "vitest";
 import { loadOffer, loadStyle } from "../src/docs/loader";
-import { loadTemplates, templateEmail } from "../src/docs/templates";
+import { loadTemplates } from "../src/docs/templates";
+import { renderSignature } from "../src/write/merge";
 import {
   bodySentences,
   containsPhrase,
@@ -19,6 +20,9 @@ const offer: OfferConfig = {
   ...realOffer,
   opt_out_line: "If this isn't relevant, reply 'no' and I won't email again.",
   physical_address: "123 Example St, Columbus, OH 43215",
+  founding_client_offer: "half off the first three months",
+  booking_link: "https://www.clearpathsecure.com/contact",
+  region: "Columbus-area",
 };
 const ctx: ValidationContext = { style, offer, dossier: strongDossier() };
 
@@ -62,16 +66,15 @@ describe("validateSequence", () => {
   });
 
   it("enforces per-email word limits from docs/03 (sign-off and footer not counted)", () => {
-    const long = "Hi Jane,\n" + "word ".repeat(80).trim() + "?";
+    const long = "Hi Jane,\n" + "word ".repeat(135).trim() + "?";
     expect(codes(withEmail(1, { body: long }))).toContain("word_count");
-    const exactly75 = "Hi Jane,\n" + "word ".repeat(73).trim() + "?";
-    expect(codes(withEmail(1, { body: exactly75 }))).not.toContain("word_count");
+    const exactly130 = "Hi Jane,\n" + "word ".repeat(128).trim() + "?";
+    expect(codes(withEmail(1, { body: exactly130 }))).not.toContain("word_count");
   });
 
-  it("limits the break-up email to 2-3 sentences (greeting excluded)", () => {
-    expect(codes(withEmail(5, { body: "Hi Jane,\nOne sentence only." }))).toContain("sentence_count");
-    expect(codes(withEmail(5, { body: "Hi Jane,\nOne. Two. Three. Four." }))).toContain("sentence_count");
-    expect(codes(withEmail(5, { body: "Hi,\nOne. Two? Three." }))).not.toContain("sentence_count");
+  it("limits email 5 by words (75), not by sentence count", () => {
+    expect(codes(withEmail(5, { body: "One. Two. Three. Four. Five." }))).toEqual([]);
+    expect(codes(withEmail(5, { body: `${"word ".repeat(76).trim()}.` }))).toContain("word_count");
   });
 
   it.each([
@@ -105,7 +108,7 @@ describe("validateSequence", () => {
     expect(codes(withEmail(1, { subject_a: "wisp for {{firm_name}}" }))).toContain("placeholder");
   });
 
-  it("allows at most one link, and only the CTA link from docs/01", () => {
+  it("allows at most one link, and only booking_link from docs/01", () => {
     const two = "Hi Jane,\nSee https://www.clearpathsecure.com/contact and clearpathsecure.com/contact.";
     expect(codes(withEmail(4, { body: two }))).toContain("link_count");
     const other = "Hi Jane,\nRead https://example.com/guide for more.";
@@ -143,7 +146,8 @@ describe("validateSequence", () => {
   it("checks subjects: lowercase except the firm name, word limit, no fake Re:", () => {
     expect(codes(withEmail(1, { subject_a: "Wisp for you" }))).toContain("subject_case");
     expect(codes(withEmail(1, { subject_a: "wisp for Smith Tax Services" }))).not.toContain("subject_case");
-    expect(codes(withEmail(1, { subject_a: "a very long subject line here" }))).toContain("subject_length");
+    expect(codes(withEmail(1, { subject_a: "a very long subject line right here" }))).toContain("subject_length");
+    expect(codes(withEmail(1, { subject_a: "a long subject line for Smith Tax Services" }))).not.toContain("subject_length");
     expect(codes(withEmail(1, { subject_a: "re: your plan" }))).toContain("fake_reply");
   });
 
@@ -227,7 +231,7 @@ ${sentence}` }))).toContain("dollar_amount");
     const c = { ...ctx, dossier: mismatch };
     const errs = validateSequence(sequence(), c).issues.filter((i) => i.code === "greeting_contact_mismatch");
     expect(errs).toHaveLength(5);
-    expect(errs[0]!.message).toMatch(/john\.phillips@smithtax\.example is not tied to Jane Smith; use "Hi there,"/);
+    expect(errs[0]!.message).toMatch(/john\.phillips@smithtax\.example is not tied to Jane Smith; open with the role-based line instead/);
     const neutral = sequence({}, [1, 2, 3, 4, 5].map((n) => email(n, { body: email(n).body.replace("Hi Jane,", "Hi,") })));
     expect(codes(neutral, c)).not.toContain("greeting_contact_mismatch");
     // Wrong name entirely.
@@ -258,9 +262,10 @@ ${sentence}` }))).toContain("dollar_amount");
   });
 
   it("renders the signature and footer from docs/01", () => {
-    const text = renderEmail("Hi Jane,\nBody.", offer);
-    const signature = [offer.sender_name, offer.sender_title, offer.company_name, offer.company_website].filter(Boolean).join("\n");
-    expect(text).toBe(`Hi Jane,\nBody.\n\n${signature}\n\n${offer.opt_out_line}\n${offer.physical_address}`);
+    const text = renderEmail("Hi Jane,\nBody at {{booking_link}}.", offer, renderSignature(loadTemplates().signature, offer));
+    expect(text).toBe(
+      `Hi Jane,\nBody at ${offer.booking_link}.\n\n${offer.sender_name}\n${offer.sender_title}, ${offer.company_name}\n${offer.company_website}\n\n${offer.opt_out_line}\n${offer.physical_address}`,
+    );
   });
 
   it("splits sentences without counting the greeting", () => {
@@ -268,58 +273,11 @@ ${sentence}` }))).toContain("dollar_amount");
   });
 });
 
-describe("docs/09 templates pass the same validators", () => {
+describe("docs/09 copy", () => {
   const templates = loadTemplates();
 
-  // Every greeting the code can produce: the tied first name, and each docs/01 neutral style.
-  const cases = FIRM_TYPES.flatMap((firmType) =>
-    ["Hi Jane,", "Hi there,", "Hi,", "Hi Smith Tax Services team,"].map((greeting) => ({ firmType, greeting, firmRef: "Smith Tax Services" })),
-  );
-
-  const withCta = cases.flatMap((c) => [
-    { ...c, ctaType: "checklist" as const },
-    { ...c, ctaType: "scorecard" as const },
-  ]);
-
-  it.each(withCta)("tier C sequence for $firmType, $ctaType ($greeting / $firmRef)", ({ firmType, greeting, firmRef, ctaType }) => {
-    const vars = { greeting, firm_ref: firmRef, cta_url: offer.cta_url };
-    const emails = [1, 2, 3, 4, 5].map((n) => templateEmail(templates, n, firmType, vars, style, ctaType));
-    const seq: Sequence = {
-      lead_id: "LT",
-      tier: "C",
-      persona: "template",
-      angle: style.firm_type_angles[firmType][0]!,
-      emails,
-    };
-    const dossier = strongDossier({
-      firm_type: { value: { primary: firmType, secondary: [] }, evidence_url: "https://smithtax.example/", evidence_quote: "x" },
-    });
-    const r = validateSequence(seq, { style, offer, dossier });
-    expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);
-    expect(r.issues.filter((i) => i.severity === "warning")).toEqual([]);
-  });
-
-  it("templates contain no dollar amounts or penalty language", () => {
-    for (const [name, t] of templates) {
-      const all = [t.subject_a ?? "", t.subject_b ?? "", t.body].join(" ");
-      expect(all, name).not.toMatch(/\$\s?\d|dollars|penalt|per violation/i);
-    }
-  });
-
-  it("email 3 follows cta_type: the default checklist offer never mentions the scorecard", () => {
-    expect(realOffer.cta_type).toBe("checklist");
-    const vars = { greeting: "Hi,", firm_ref: "your firm", cta_url: offer.cta_url };
-    const checklist = templateEmail(templates, 3, "cpa", vars, style, "checklist").body;
-    expect(checklist).toMatch(/one-page checklist/);
-    expect(checklist).not.toMatch(/scorecard/i);
-    expect(templateEmail(templates, 3, "cpa", vars, style, "scorecard").body).toMatch(/scorecard/);
-  });
-
-  it("without a firm name, template email 1 ('your firm' + neutral greeting) is generic and blocked", () => {
-    const vars = { greeting: "Hi there,", firm_ref: "your firm", cta_url: offer.cta_url };
-    const emails = [1, 2, 3, 4, 5].map((n) => templateEmail(templates, n, "tax_preparer", vars, style, "checklist"));
-    const seq: Sequence = { lead_id: "LT", tier: "C", persona: "template", angle: style.firm_type_angles.tax_preparer[0]!, emails };
-    const r = validateSequence(seq, { style, offer, dossier: strongDossier({ firm_name: NOT_FOUND }) });
-    expect(r.issues.filter((i) => i.severity === "error")).toEqual([expect.objectContaining({ email: 1, code: "generic_email_1" })]);
+  it("contains no dollar amounts or penalty language (the copy and the fallback lines)", () => {
+    const all = [...templates.emails.values()].flatMap((t) => [t.subject_a ?? "", t.subject_b ?? "", ...t.paragraphs]);
+    for (const text of [...all, ...Object.values(templates.fallbackLines)]) expect(text).not.toMatch(/$s?d|dollars|penalt|per violation/i);
   });
 });

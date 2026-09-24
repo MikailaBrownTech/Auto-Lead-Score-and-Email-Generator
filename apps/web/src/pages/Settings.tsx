@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NEUTRAL_GREETING_STYLES, type OfferSettingsView, type SuppressionView } from "@clearpath/shared";
+import type { OfferSettingsView, SuppressionView } from "@clearpath/shared";
 import { api, useApi } from "../api";
 import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { Badge, EmptyState, PageSkeleton } from "../components/ui";
@@ -13,6 +13,14 @@ const TEXT_FIELDS: [keyof OfferSettingsView, string][] = [
   ["company_website", "Company website"],
   ["opt_out_line", "Opt-out line"],
   ["physical_address", "Mailing address"],
+];
+
+/** docs/09 merge fields filled from docs/01 (emails show the {{placeholder}} until set). */
+const MERGE_FIELDS: [keyof OfferSettingsView, string, string, boolean][] = [
+  ["founding_client_offer", "Founding-client offer", "{{offer}} in email 4, e.g. half off the first three months. Export is blocked while empty.", true],
+  ["booking_link", "Booking link", "{{booking_link}} in email 4: your calendar link, the only link an email may contain. Export is blocked while empty.", true],
+  ["region", "Region", '{{region}} in email 4 and its subject, as it reads in a sentence, e.g. "Cleveland-area". Export is blocked while empty.', true],
+  ["company_one_liner", "Company one-liner", "{{company_one_liner}}, for a template that uses it. Optional unless a template uses it.", false],
 ];
 
 export function SettingsPage() {
@@ -81,27 +89,19 @@ export function SettingsPage() {
         </div>
         <hr style={{ margin: 0 }} />
         <div>
-          <h2>Emails</h2>
+          <h2>Merge fields in the emails</h2>
+          <p className="small muted">The copy lives in docs/09_sequences.md. These values fill its {"{{...}}"} fields when an email is shown or exported, so changes apply to every sequence without writing it again.</p>
         </div>
         <div className="form-grid">
-          <label className="field">
-            <span className="field-label">Greeting without a named contact</span>
-            <select value={form.neutral_greeting_style} onChange={(e) => set("neutral_greeting_style", e.target.value as OfferSettingsView["neutral_greeting_style"])}>
-              {NEUTRAL_GREETING_STYLES.map((s) => (
-                <option key={s} value={s}>
-                  {s === "Hi {{firm_name}} team," ? "Hi <firm name> team," : s}
-                </option>
-              ))}
-            </select>
-            <span className="field-hint">Used for generic inboxes, unattributed addresses, and leads with no address. A first name is used only when the address is tied to that person.</span>
-          </label>
-          <label className="field">
-            <span className="field-label">Email 3 offers</span>
-            <select value={form.cta_type} onChange={(e) => set("cta_type", e.target.value as OfferSettingsView["cta_type"])}>
-              <option value="checklist">the one-page checklist</option>
-              <option value="scorecard">the 2-minute scorecard (only once it exists)</option>
-            </select>
-          </label>
+          {MERGE_FIELDS.map(([k, label, hint, required]) => (
+            <label key={k} className={`field${k === "founding_client_offer" || k === "company_one_liner" ? " span-2" : ""}`}>
+              <span className="field-label">
+                {label} {required && (form[k] as string).trim() === "" && <Badge tone="warning">empty</Badge>}
+              </span>
+              <input value={form[k] as string} onChange={(e) => set(k, e.target.value)} />
+              <span className="field-hint">{hint}</span>
+            </label>
+          ))}
           <label className="check span-2">
             <input type="checkbox" checked={form.checklist_ready} onChange={(e) => set("checklist_ready", e.target.checked)} /> The checklist is ready to send
           </label>

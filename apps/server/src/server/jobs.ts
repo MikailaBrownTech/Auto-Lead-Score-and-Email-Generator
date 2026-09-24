@@ -127,7 +127,7 @@ export class JobRunner {
         return;
       }
       item.state = "writing";
-      item.message = r.score.tier === "C" ? "Filling in the template emails" : "Writing the custom emails";
+      item.message = r.score.tier === "C" ? "Assembling the emails (fallback line, no model call)" : "Assembling the emails and writing the personal line";
       const gateApproved = s.db.select({ v: leads.gateApproved }).from(leads).where(eq(leads.id, item.leadId)).get()?.v ?? false;
       const g = await generateSequence(item.leadId, r.dossier, r.score.tier, writeDeps(s), { gateApproved, directContactOverride: leadOverride(s.db, item.leadId) });
       item.sequenceStatus = g.status;

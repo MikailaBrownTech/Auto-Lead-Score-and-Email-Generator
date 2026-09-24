@@ -7,6 +7,7 @@ import { ExportPanel } from "./pages/Export";
 import { approvalState, SequenceEditor } from "./pages/Sequence";
 
 const APPROVED = "The FTC Safeguards Rule applies to non-bank financial institutions.";
+const LINE = "Smith Tax handles Tax Preparation, which means holding a lot of sensitive client financial data.";
 
 function view(over: Partial<SequenceView> = {}): SequenceView {
   const email = (n: number, template: boolean) => ({
@@ -14,17 +15,19 @@ function view(over: Partial<SequenceView> = {}): SequenceView {
     send_day: [0, 3, 7, 12, 18][n - 1]!,
     subject_a: n === 1 ? "security plan question" : null,
     subject_b: n === 1 ? "client data question" : null,
-    body: n === 1 ? `Hi,\nI noticed your firm works with local clients. ${APPROVED} Is a written plan on file?` : `Hi,\nEmail ${n}. Does that help?`,
+    body: n === 1 ? `Quick question for whoever looks after IT at Smith Tax:\n\n${LINE}\n\n${APPROVED} Is a written plan on file?` : `Email ${n}. Does that help?`,
     grounding: [],
     template,
+    ...(n === 1 ? { personal_line: { text: LINE, source: "model" as const } } : {}),
   });
+  const emails = [email(1, true), email(2, true), email(3, true), email(4, true), email(5, true)];
   return {
     id: 7,
     leadId: "lead-smith",
     firm: "Smith Tax",
     tier: "B",
     status: "blocked",
-    sequence: { lead_id: "lead-smith", tier: "B", persona: "p", angle: "irs_pub_4557_wisp", emails: [email(1, false), email(2, false), email(3, true), email(4, true), email(5, true)] },
+    sequence: { lead_id: "lead-smith", tier: "B", persona: "p", angle: "irs_pub_4557_wisp", emails },
     issues: [],
     validationPass: true,
     judgeRequired: true,
@@ -32,13 +35,13 @@ function view(over: Partial<SequenceView> = {}): SequenceView {
     contactWarning: null,
     exportBlockers: [],
     approvedSentences: [{ id: "applies_non_bank", text: APPROVED }],
-    rewritable: [1, 2],
-    wordLimits: { "1": 75, "2": 90, "3": 90, "4": 80 },
-    breakupSentences: { min: 2, max: 3 },
-    subjectMaxWords: 5,
-    signature: ["Mikaila Brown", "Founder", "ClearPath IT"],
+    rewritable: [1],
+    wordLimits: { "1": 130, "2": 140, "3": 100, "4": 130, "5": 75 },
+    subjectMaxWords: 6,
+    signature: ["Mikaila Brown", "Founder, ClearPath IT"],
+    rendered: emails.map((e) => ({ n: e.n, subject_a: e.subject_a, subject_b: e.subject_b, body: e.body })),
     kind: "custom",
-    drafts: [],
+    personalLine: { text: LINE, source: "model", note: null },
     ...over,
   };
 }

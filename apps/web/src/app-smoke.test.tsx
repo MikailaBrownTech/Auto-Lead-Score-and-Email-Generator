@@ -64,6 +64,8 @@ describe("every screen renders against the real API", { timeout: 30_000 }, () =>
     await at(`#/sequences/${sequenceId}`, /Email 5/);
     expect(document.querySelectorAll("article.email-card").length).toBe(5);
     expect(document.querySelectorAll("mark.approved").length).toBeGreaterThan(0);
+    // The model's one sentence is marked apart from the docs/09 copy.
+    expect(document.querySelectorAll("article.email-card mark.personal").length).toBe(1);
     expect(screen.getByText(/Contact: generic inbox: lower reply odds\. This is a warning only/)).toBeTruthy();
     // Validators and judge passed in the harness: nothing else stands in the way of approval.
     expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(false);
@@ -72,6 +74,6 @@ describe("every screen renders against the real API", { timeout: 30_000 }, () =>
   it("Settings: footer fields and the suppression list", async () => {
     await at("#/settings", /Suppression list/);
     expect(screen.getByDisplayValue("ClearPath IT")).toBeTruthy();
-    expect(screen.getByDisplayValue("Hi there,")).toBeTruthy();
+    for (const label of ["Founding-client offer", "Booking link", "Region"]) expect(screen.getByText(label)).toBeTruthy();
   });
 });

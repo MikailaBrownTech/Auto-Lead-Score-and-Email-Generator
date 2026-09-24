@@ -5,6 +5,7 @@ import type { Db } from "../db/client";
 import { leadEvents, leads } from "../db/schema";
 import { BlockError } from "../docs/blocks";
 import { DOCS_DIR, loadOffer, saveBlock } from "../docs/loader";
+import { loadTemplates } from "../docs/templates";
 import { cacheHealth } from "../llm/cache-health";
 import { OutdatedDossierError } from "../pipeline/stored-dossier";
 import type { SpendGate } from "../llm/spend-gate";
@@ -36,7 +37,7 @@ export class UserError extends Error {
   }
 }
 
-const OFFER_FIELDS = ["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address", "cta_type", "checklist_ready", "include_dns_observation", "neutral_greeting_style"] as const;
+const OFFER_FIELDS = ["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address", "founding_client_offer", "booking_link", "region", "company_one_liner", "checklist_ready", "include_dns_observation"] as const;
 
 async function body<T>(c: Context): Promise<T> {
   try {
@@ -176,13 +177,14 @@ export function createApp(deps: AppDeps) {
     const id = c.req.param("id");
     const l = db.select().from(leads).where(eq(leads.id, id)).get();
     if (!l?.dossierJson || !l.tier) throw new UserError(`Lead ${id} has no research yet.`, 404);
-    const wd = writeDeps(s);
     const detail = leadDetail(s, id);
     let g;
+    let wd;
     try {
+      wd = writeDeps(s);
       g = await generateSequence(id, detail.dossier, detail.tier, wd, { gateApproved: l.gateApproved, directContactOverride: leadOverride(db, id) });
     } catch (err) {
-      // Spend cap, settings, or API failures: keep the reason on the lead page, then report it.
+      // Broken docs (settings, docs/09) or anything else the code cannot repair: keep the reason on the lead page, then report it.
       logWriteAttempt(db, id, `Not written: ${plainError(err)}`);
       throw err;
     }
@@ -201,7 +203,7 @@ export function createApp(deps: AppDeps) {
     const edits = editsOf(await body(c));
     const r = checkEdits(db, id, edits, wd);
     const ctx = loadSequenceContext(db, id, wd);
-    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.drafts));
+    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.personalLine));
   });
 
   app.put("/api/sequences/:id", async (c) => {
@@ -243,36 +245,36 @@ export function createApp(deps: AppDeps) {
   // ---- export ----
   const exportMode = (c: Context): ExportMode => (c.req.query("mode") === "drafts" ? "drafts" : "ready");
   app.get("/api/export", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir) }, exportMode(c));
+    const r = buildExport(db, { offer: loadOffer(docsDir), templates: loadTemplates(docsDir) }, exportMode(c));
     const view: ExportView = { mode: r.mode, blocked: r.blocked, rowCount: r.rows.length, readyCount: r.readyCount, draftCount: r.draftCount, excluded: r.excluded, csv: r.csv };
     return c.json(view);
   });
   app.get("/api/export.csv", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir) }, exportMode(c));
+    const r = buildExport(db, { offer: loadOffer(docsDir), templates: loadTemplates(docsDir) }, exportMode(c));
     if (r.blocked.length > 0) throw new UserError(r.blocked.join(" "), 409);
     const name = `clearpath-${r.mode === "drafts" ? "drafts" : "ready-to-send"}-${new Date().toISOString().slice(0, 10)}.csv`;
     return c.body(r.csv, 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}"` });
   });
 
   // ---- settings ----
-  app.get("/api/settings", (c) => {
-    const offer = loadOffer(docsDir);
-    const view = Object.fromEntries(OFFER_FIELDS.map((k) => [k, offer[k]])) as unknown as OfferSettingsView;
-    return c.json({ offer: view, suppressions: listSuppressions(db) });
-  });
+  /** founding_client_offer is null in docs/01 while empty; the form shows "". */
+  const settingsView = (offer: ReturnType<typeof loadOffer>) =>
+    Object.fromEntries(OFFER_FIELDS.map((k) => [k, k === "founding_client_offer" ? (offer[k] ?? "") : offer[k]])) as unknown as OfferSettingsView;
+  app.get("/api/settings", (c) => c.json({ offer: settingsView(loadOffer(docsDir)), suppressions: listSuppressions(db) }));
   /** Saves the footer fields through the safe docs/01 write-back (validated, backed up, round-tripped). */
   app.put("/api/settings/offer", async (c) => {
     const b = await body<Partial<OfferSettingsView>>(c);
     const current = loadOffer(docsDir);
     const next = { ...current };
     for (const k of OFFER_FIELDS) if (k in b) (next as Record<string, unknown>)[k] = (b as Record<string, unknown>)[k];
+    if (typeof next.founding_client_offer === "string" && next.founding_client_offer.trim() === "") next.founding_client_offer = null;
     try {
       saveBlock("offer", next, { docsDir, ...(s.backupDir ? { backupDir: s.backupDir } : {}) });
     } catch (err) {
       throw new UserError(`Settings were not saved: ${plainError(err)}`);
     }
     const saved = loadOffer(docsDir);
-    return c.json({ offer: Object.fromEntries(OFFER_FIELDS.map((k) => [k, saved[k]])), suppressions: listSuppressions(db) });
+    return c.json({ offer: settingsView(saved), suppressions: listSuppressions(db) });
   });
   app.post("/api/suppressions", async (c) => {
     const value = String((await body<{ value?: unknown }>(c)).value ?? "");

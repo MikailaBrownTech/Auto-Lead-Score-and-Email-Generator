@@ -1,0 +1,38 @@
+{
+  "fixture": "essentialacctg-com",
+  "model": "claude-haiku-4-5-20251001",
+  "captured_at": "2026-09-24T22:54:57.081Z",
+  "request": {
+    "facts": {
+      "firm_name": "Essential Accounting Consultants",
+      "firm_type": "bookkeeper",
+      "city": "Cleveland",
+      "state": "Ohio",
+      "service": "Bookkeeping Services"
+    },
+    "theme": "emphasize remote access and bank feeds",
+    "before": "Quick question for whoever looks after IT and client data at Essential Accounting Consultants:",
+    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
+    "subjects": {
+      "A": "written security plan at Essential Accounting Consultants?",
+      "B": "quick question about client data"
+    }
+  },
+  "tool_input": {
+    "personal_line": "Essential Accounting Consultants handles Bookkeeping Services, which means managing bank feeds and remote access to sensitive client financial data.",
+    "subject": "B"
+  },
+  "usage": {
+    "input_tokens": 1532,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 0,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 77,
+    "service_tier": "standard",
+    "inference_geo": "not_available"
+  },
+  "cost_usd": 0.0019169999999999999
+}

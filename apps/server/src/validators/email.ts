@@ -2,7 +2,6 @@ import {
   containsPhrase,
   countWords,
   isFound,
-  NEUTRAL_GREETING_STYLES,
   normalizeText,
   type Dossier,
   type FactField,
@@ -12,8 +11,10 @@ import {
   type SequenceEmail,
   type StyleConfig,
 } from "@clearpath/shared";
-import { contactPlan, neutralGreeting } from "../scoring/contact";
-import { dnsObservation } from "../write/writer-input";
+import { SETTINGS_FIELDS } from "../docs/templates";
+import { contactPlan } from "../scoring/contact";
+import { firmShort, renderSettings } from "../write/merge";
+import { dnsObservation } from "../write/values";
 
 export { containsPhrase };
 
@@ -87,31 +88,40 @@ export function findLinks(text: string): string[] {
   return [...urls, ...bare].map((l) => l.replace(/[.,;:!?)"']+$/, ""));
 }
 
-/** A greeting line: "Hi Jane,", "Hi there,", "Hi,", "Hi Smith & Co. team," (a firm name may hold periods). */
+/** A greeting line: "Hi Jane," (a firm name may hold periods). */
 const GREETING_LINE_RE = /^(hi|hello|dear)\b.*,$/i;
+const BULLET_RE = /^[-*•]\s+/;
 
-/** Sentences in the body, excluding a greeting line like "Hi Jane," or "Hi there,". */
+/**
+ * Sentences in the body, excluding a greeting line like "Hi Jane,". Each bullet line is its own item
+ * (bullet lists are allowed); other lines are joined and split at sentence ends.
+ */
 export function bodySentences(body: string): string[] {
   const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length > 0 && GREETING_LINE_RE.test(lines[0]!)) lines.shift();
-  return lines
-    .join(" ")
-    .split(/(?<=[.?!])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => /\w/.test(s));
+  const out: string[] = [];
+  let prose: string[] = [];
+  const flush = () => {
+    out.push(...prose.join(" ").split(/(?<=[.?!])\s+/));
+    prose = [];
+  };
+  for (const line of lines) {
+    if (BULLET_RE.test(line)) {
+      flush();
+      out.push(line.replace(BULLET_RE, ""));
+    } else prose.push(line);
+  }
+  flush();
+  return out.map((s) => s.trim()).filter((s) => /\w/.test(s));
 }
 
-/** The signature and footer lines from docs/01, in order (empty values left out). */
-export function signatureLines(offer: OfferConfig): string[] {
-  const signature = [offer.sender_name, offer.sender_title, offer.company_name, offer.company_website].map((l) => l.trim()).filter(Boolean);
-  const footer = [offer.opt_out_line, offer.physical_address].map((l) => l.trim()).filter(Boolean);
-  return footer.length > 0 ? [...signature, "", ...footer] : signature;
+/** The full email as sent: body (settings merge fields filled), a blank line, then the docs/09 signature block. */
+export function renderEmail(body: string, offer: OfferConfig, signature: string[]): string {
+  return [renderSettings(body, offer).trim(), "", ...signature].join("\n").trimEnd();
 }
 
-/** The full email as sent: body, then sender name, title, company, website, opt-out line, address (docs/01). */
-export function renderEmail(body: string, offer: OfferConfig): string {
-  return [body.trim(), "", ...signatureLines(offer)].join("\n").trimEnd();
-}
+/** Settings merge fields left as placeholders because their docs/01 value is empty: export blockers, not text errors. */
+const SETTINGS_PLACEHOLDER_RE = new RegExp(`\\{\\{(?:${SETTINGS_FIELDS.join("|")})\\}\\}`, "g");
 
 /** Terms that make a sentence regulatory (only approved docs/02 sentences may contain them). */
 export const REGULATORY_SENTENCE_RE =
@@ -172,11 +182,14 @@ function checkSubject(
 ): void {
   const err = (code: string, message: string) => issues.push({ severity: "error", email: n, code, message });
   const label = `subject ${which}`;
+  // The firm's name (full or short) and the region are exempt from the case rule and the word limit.
   const firmName = ctx.dossier && isFound(ctx.dossier.firm_name) ? ctx.dossier.firm_name.value : null;
-  const withoutFirm = firmName ? subject.split(firmName).join("") : subject;
-  if (withoutFirm !== withoutFirm.toLowerCase()) err("subject_case", `${label} must be lowercase (firm name excepted)`);
-  if (countWords(subject) > ctx.style.subject_max_words) {
-    err("subject_length", `${label} has ${countWords(subject)} words (max ${ctx.style.subject_max_words})`);
+  const exempt = [firmName, firmName ? firmShort(firmName) : null, ctx.offer.region.trim() || null, "{{region}}"].filter((x): x is string => !!x);
+  const withoutFirm = exempt.reduce((s, x) => s.split(x).join(" "), subject).replace(SETTINGS_PLACEHOLDER_RE, " ");
+  if (withoutFirm !== withoutFirm.toLowerCase()) err("subject_case", `${label} must be lowercase (firm name and region excepted)`);
+  const words = countWords(withoutFirm);
+  if (words > ctx.style.subject_max_words) {
+    err("subject_length", `${label} has ${words} words, not counting the firm name or region (max ${ctx.style.subject_max_words})`);
   }
   if (/^\s*(re|fwd?|fw)\s*:/i.test(subject)) err("fake_reply", `${label} starts with Re:/Fwd:`);
   if (findLinks(subject).length > 0) err("subject_link", `${label} contains a link`);
@@ -260,9 +273,17 @@ export function findAbsenceClaims(text: string, style: StyleConfig): string[] {
   });
 }
 
-function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): void {
+function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[]): void {
   const { style, offer } = ctx;
-  const n = e.n;
+  const n = raw.n;
+  // Checked as it will be sent: settings merge fields filled from docs/01. An empty setting stays a
+  // placeholder, which blocks export (exportBlockers), not the text.
+  const e: SequenceEmail = {
+    ...raw,
+    body: renderSettings(raw.body, offer),
+    subject_a: raw.subject_a ? renderSettings(raw.subject_a, offer) : null,
+    subject_b: raw.subject_b ? renderSettings(raw.subject_b, offer) : null,
+  };
   const err = (code: string, message: string) => issues.push({ severity: "error", email: n, code, message });
   const warn = (code: string, message: string) => issues.push({ severity: "warning", email: n, code, message });
 
@@ -270,25 +291,22 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
     err("send_day", `send day ${e.send_day} should be ${style.send_days[n - 1]}`);
   }
 
-  if (n <= 4) {
-    const limit = style.word_limits[String(n) as "1"]!;
-    const words = countWords(e.body);
-    if (words > limit) err("word_count", `${words} words (max ${limit})`);
-  } else {
-    const count = bodySentences(e.body).length;
-    const { min, max } = style.breakup_sentences;
-    if (count < min || count > max) err("sentence_count", `break-up email has ${count} sentences (needs ${min}-${max})`);
-  }
+  const limit = style.word_limits[String(n) as "1"]!;
+  const words = countWords(e.body);
+  if (words > limit) err("word_count", `${words} words (max ${limit})`);
 
-  checkText(n, "body", e.body, style, issues);
+  // The firm's own name (full or short) is exempt from the text checks ("RBV Financial" is not ALL CAPS shouting).
+  const firmName = ctx.dossier && isFound(ctx.dossier.firm_name) ? ctx.dossier.firm_name.value : null;
+  const bodyText = (firmName ? [firmName, firmShort(firmName)] : []).reduce((s, x) => s.split(x).join(" "), e.body);
+  checkText(n, "body", bodyText.replace(SETTINGS_PLACEHOLDER_RE, " "), style, issues);
 
   const links = findLinks(e.body);
   if (links.length > style.max_links_per_email) {
     err("link_count", `${links.length} links (max ${style.max_links_per_email})`);
   }
-  const cta = canonicalLink(offer.cta_url);
+  const booking = offer.booking_link.trim() ? canonicalLink(offer.booking_link) : null;
   for (const link of links) {
-    if (canonicalLink(link) !== cta) err("link_not_allowed", `link ${link} is not the CTA link in docs/01`);
+    if (canonicalLink(link) !== booking) err("link_not_allowed", `link ${link} is not the booking_link in docs/01`);
   }
   if (n === 1 && links.length > 0) warn("link_in_email_1", "email 1 has a link (style guide: none in email 1 if possible)");
   if (n === 1 && (e.body.match(/\?/g) ?? []).length !== 1) {
@@ -300,7 +318,8 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   const questions = (e.body.match(/\?/g) ?? []).length;
   if (questions > 1) err("too_many_questions", `${questions} questions (max one per email)`);
   // The company name comes only from docs/01 (the signature); a variant in the text is invented.
-  for (const m of e.body.matchAll(/\bclear\s*path(?:\s+(?:it|secure|security|technologies|solutions))?\b/gi)) {
+  // Links are skipped: the booking link may carry the company's name in its path.
+  for (const m of e.body.replace(URL_RE, " ").matchAll(/\bclear\s*path(?:\s+(?:it|secure|security|technologies|solutions))?\b/gi)) {
     if (!ctx.offer.company_name || normalizeText(m[0]) !== normalizeText(ctx.offer.company_name)) {
       err("company_name", `names the company as "${m[0]}"; only docs/01 company_name ("${ctx.offer.company_name}") may be used`);
     }
@@ -356,29 +375,29 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
         err("grounding_not_found", `grounded on ${f}, which is NOT_FOUND`);
       }
     }
-    // Greet by name only when the public address belongs to the decision maker (docs/03 + contact rule).
-    // Any of the docs/01 neutral greetings ("Hi there,", "Hi,", "Hi <firm> team,") is never a name.
+    // Greet by name only when the public address belongs to the decision maker (docs/09 greeting rules);
+    // otherwise email 1 opens with the role-based line and no name.
     const d = ctx.dossier;
-    const plan = contactPlan(d, neutralGreeting(ctx.offer.neutral_greeting_style, d));
+    const plan = contactPlan(d);
     const lines = e.body.trim().split(/\r?\n/);
     const firstLine = lines[0]!.trim();
-    const neutral = NEUTRAL_GREETING_STYLES.some((s) => neutralGreeting(s, d).toLowerCase() === firstLine.toLowerCase());
-    const greeted = neutral ? null : (/^(?:hi|hello|dear)\s+([^\s,]+)\s*,/i.exec(firstLine)?.[1] ?? null);
+    const greeted = /^(?:hi|hello|dear)\s+([^\s,]+)\s*,/i.exec(firstLine)?.[1] ?? null;
     if (greeted && (plan.greetFirstName === null || greeted.toLowerCase() !== plan.greetFirstName.toLowerCase())) {
-      err("greeting_contact_mismatch", `greets "${greeted}" but ${plan.reason}; use "${plan.greeting}"`);
+      err("greeting_contact_mismatch", `greets "${greeted}" but ${plan.reason}; open with the role-based line instead`);
     }
-    // With a neutral greeting, email 1 must still be about this firm: its name or one verified detail
-    // outside the greeting line, so it is never a generic template.
+    // Without a name, email 1 must still be about this firm: its name (full or short) or one verified
+    // detail outside a greeting line, so it is never a generic template.
     if (n === 1 && !greeted) {
       const rest = [(GREETING_LINE_RE.test(firstLine) ? lines.slice(1) : lines).join(" "), e.subject_a ?? "", e.subject_b ?? ""].join(" ");
-      const namesFirm = isFound(d.firm_name) && containsPhrase(rest, d.firm_name.value);
+      const namesFirm = isFound(d.firm_name) && (containsPhrase(rest, d.firm_name.value) || containsPhrase(rest, firmShort(d.firm_name.value)));
       const hasDetail = e.grounding.some((f) => !ADDRESSING_FIELDS.has(f));
       if (!namesFirm && !hasDetail) {
         err("generic_email_1", "email 1 has a neutral greeting, so it must name the firm or use one verified detail (it reads as a generic template otherwise)");
       }
     }
   }
-  if (e.template && !e.edited && e.grounding.length > 0) {
+  // Template copy uses no dossier details; only email 1's personal line (checked by code) may.
+  if (e.template && !e.edited && !e.personal_line && e.grounding.length > 0) {
     err("template_grounding", "template emails must not use dossier details");
   }
 }
@@ -416,12 +435,14 @@ export function validateSequence(seq: Sequence, ctx: ValidationContext): Validat
     }
   });
 
-  if ([ctx.offer.opt_out_line, ctx.offer.physical_address, ctx.offer.sender_title, ctx.offer.company_name, ctx.offer.company_website].some((v) => v.trim() === "")) {
+  const o = ctx.offer;
+  if ([o.opt_out_line, o.physical_address, o.sender_title, o.company_name, o.company_website, o.founding_client_offer ?? "", o.booking_link, o.region].some((v) => v.trim() === "")) {
     issues.push({
       severity: "warning",
       email: null,
       code: "footer_incomplete",
-      message: "a signature or footer setting (sender_title, company_name, company_website, opt_out_line, physical_address) is empty in docs/01; export is blocked until all are set",
+      message:
+        "a setting is empty in docs/01 (signature, footer, founding_client_offer, booking_link, or region); the preview shows its {{placeholder}} and export is blocked until all are set",
     });
   }
 

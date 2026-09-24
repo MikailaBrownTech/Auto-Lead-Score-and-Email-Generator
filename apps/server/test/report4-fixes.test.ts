@@ -5,18 +5,18 @@ import { exitDecision } from "../scripts/exit";
 import { openDb, type Db } from "../src/db/client";
 import { leadEvents, leads } from "../src/db/schema";
 import { dmarcReportDomains, emailSecurityHint, loadDmarcVendors } from "../src/dns/lookup";
-import { loadApprovedSentences, loadEvidence, loadOffer, loadScoring, loadStyle, loadWriterFacts } from "../src/docs/loader";
-import { loadTemplates } from "../src/docs/templates";
+import { loadEvidence, loadOffer, loadScoring } from "../src/docs/loader";
 import { dropFalseBooleans, isClientCount, verifyExtraction } from "../src/extract/verify";
 import { classifyPage } from "../src/fetch/select";
 import { firmTypeFromKeywords, keywordQuote } from "../src/scoring/derive";
 import { contactWarning, leadOverride, namedContactChecklist, overrideDirectContact } from "../src/scoring/direct-contact";
 import { computeFreshness, urlPathDate } from "../src/scoring/freshness";
 import { scoreDossier } from "../src/scoring/score";
-import { approveSequence, generateSequence, type WriteDeps } from "../src/write/generate";
-import { loadPersonaHeadings, writerMessage } from "../src/write/prompt";
-import { planSequence } from "../src/write/writer-input";
+import { approveSequence, generateSequence } from "../src/write/generate";
+import { lineRequest } from "../src/write/personal-line";
+import { personalLineMessage } from "../src/write/prompt";
 import { ev, HOME, strongDossier } from "./fixtures/dossiers";
+import { templates, testWriteDeps } from "./fixtures/write-deps";
 
 const evidence = loadEvidence();
 const scoring = loadScoring();
@@ -140,12 +140,10 @@ describe("email_security_hint (internal only)", () => {
     expect(emailSecurityHint(null, "smithtax.example", vendors)).toBe(NOT_FOUND);
   });
 
-  it("never reaches the writer", () => {
+  it("never reaches the personal-line model", () => {
     const hint = emailSecurityHint(record, "smithtax.example", vendors);
     const d = strongDossier({ email_security_hint: hint });
-    const plan = planSequence(d, [1, 2], { offer, evidence, style: loadStyle(), approved: loadApprovedSentences().sentences, personas: loadPersonaHeadings(), greeting: "Hi," });
-    expect(JSON.stringify(plan)).not.toMatch(/mynetworkplace|IT provider/);
-    expect(writerMessage(plan, 5)).not.toMatch(/mynetworkplace|IT provider/);
+    expect(personalLineMessage(lineRequest(d, { offer, evidence, templates }, null))).not.toMatch(/mynetworkplace|IT provider/);
   });
 });
 
@@ -183,7 +181,7 @@ describe("no_named_contact (a warning) and the optional per-lead override", () =
     for (const s of ["paste mode", "accountancy board license lookup", "Secretary of State business search", "Google Business Profile"]) expect(checklist).toContain(s);
   });
 
-  it("an override needs a reason, is logged, clears the status, and forces the neutral greeting", async () => {
+  it("an override needs a reason, is logged, clears the status, and email 1 then opens with the role-based line", async () => {
     const d = strongDossier({ public_contact_email: ev({ address: "info@smithtax.example", owner_name: null }, "info@smithtax.example"), public_email_kind: "generic_inbox" });
     db.insert(leads).values({ id: "L1", source: "web", status: "no_named_contact", dossierJson: JSON.stringify(d) }).run();
     expect(() => overrideDirectContact(db, "L1", "ok")).toThrow(/reason/);
@@ -192,23 +190,11 @@ describe("no_named_contact (a warning) and the optional per-lead override", () =
     expect(db.select().from(leads).where(eq(leads.id, "L1")).get()!.status).toBe("extracted");
     expect(db.select().from(leadEvents).all()).toMatchObject([{ leadId: "L1", kind: "direct_contact_override", detail: "Solo practice; info@ is the owner's only inbox" }]);
 
-    const deps = {
-      db,
-      llm: {} as WriteDeps["llm"],
-      modelWrite: "unused",
-      writerSystem: "",
-      judgeSystem: "",
-      style: loadStyle(),
-      offer,
-      evidence,
-      templates: loadTemplates(),
-      facts: loadWriterFacts(),
-      approved: loadApprovedSentences().sentences,
-      personas: loadPersonaHeadings(),
-    };
-    const named = strongDossier(); // would normally greet "Hi Jane,"
+    const { deps } = testWriteDeps(db);
+    const named = strongDossier(); // would normally open "Hi Jane,"
     const r = await generateSequence("L1", named, "C", deps, { directContactOverride: o });
-    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi there,\n")).toBe(true);
+    expect(r.sequence!.emails[0]!.body).toMatch(/^Quick question for whoever looks after IT/);
+    for (const e of r.sequence!.emails) expect(e.body).not.toMatch(/\bJane\b/);
     const g = await generateSequence("L1", d, "C", deps, { directContactOverride: o });
     expect(g.contactWarning).toBe("generic inbox: lower reply odds");
     approveSequence(db, g.sequenceId!);

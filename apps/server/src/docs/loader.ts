@@ -27,7 +27,7 @@ export const DOC_FILES = {
   regulatory: "02_regulatory_facts.md",
   style: "03_email_style_guide.md",
   scoring: "06_scoring_rubric.md",
-  templates: "09_template_emails.md",
+  templates: "09_sequences.md",
 } as const;
 
 /** A setting still holding its "[fill me in]" bracket text is treated as empty. */
@@ -55,6 +55,9 @@ export function normalizeOffer(offer: OfferConfig): OfferConfig {
     ...offer,
     opt_out_line: clean(offer.opt_out_line),
     physical_address: clean(offer.physical_address),
+    booking_link: clean(offer.booking_link),
+    region: clean(offer.region),
+    company_one_liner: clean(offer.company_one_liner),
     approved_proof: offer.approved_proof.map(clean).filter((s) => s !== ""),
     founding_client_offer:
       founding === null || isPlaceholder(founding) || founding.trim() === "" || founding.trim().toLowerCase() === "none"

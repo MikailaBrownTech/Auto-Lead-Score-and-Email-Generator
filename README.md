@@ -27,19 +27,24 @@ Screens:
 - **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
   NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
   DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
+- **Sequences are template-first.** The copy is yours, in docs/09_sequences.md. The app fills the merge
+  fields and the model writes only one sentence, {{personal_line}} in email 1 (one small call per tier A/B
+  lead; tier C and any line that fails the code checks use the fallback line from the same file).
 - **Contact without a named person** is a warning, never a block. A generic or unattributed inbox shows
-  "lower reply odds"; a lead with no public email shows "no public email; add before sending". Emails use
-  the neutral greeting from Settings ("Hi there," by default) and still name the firm or one verified
-  detail. The lead page lists optional public sources to find an owner name or email.
+  "lower reply odds"; a lead with no public email shows "no public email; add before sending". Email 1
+  then opens with the role-based line from docs/09; with a named contact tied to the address it opens
+  "Hi <first name>,". The lead page lists optional public sources to find an owner name or email.
 - **Sequence**: five email cards, word counts, validators re-run as you type with problems shown on the
-  email they belong to, code-inserted approved sentences highlighted (with a legend), Run judge, Rewrite
-  one email, Approve (only when validators and judge pass; the reason shows when it is disabled).
+  email they belong to, the personal line and the docs/02 approved sentence highlighted (with a legend),
+  a preview with the settings filled in, "New personal line" on email 1, Run judge (only needed after
+  hand edits), Approve (the reason shows when it is disabled).
 - **Export**: approved leads only, in two modes: "Ready to send" (rows with an address) and "Drafts"
   (every approved row). The CSV has send_ready (Y/N) and contact_note columns. Blocked until the
-  signature/footer settings are complete (and checklist_ready is on if email 3 offers the checklist).
-  The suppression list is checked before every row.
-- **Settings**: signature/footer fields, the neutral greeting, email 3 offer (saved into docs/01 with a
-  backup in data/backups), and the suppression list.
+  signature/footer, founding_client_offer, booking_link, and region settings are filled in, and while
+  checklist_ready is off. The suppression list is checked before every row.
+- **Settings**: signature/footer fields, the merge fields the emails use (founding-client offer, booking
+  link, region, company one-liner), checklist ready, DNS remark (saved into docs/01 with a backup in
+  data/backups), and the suppression list.
 
 Other commands (from the repo root):
 - `npm test` runs every test offline (fixtures and recorded model answers; no network, no API spend).
@@ -49,6 +54,9 @@ Other commands (from the repo root):
   First time only: `npx playwright install chromium`.
 - `npm run extract-live -- <url> [...]` and `npm run write-sequence -- <url> [...]` run live research
   from the command line; full reports go to data/reports/.
+- `npm run record-personal-lines` records 5 real personal-line generations for the regression test (about
+  $0.01; `-- --dry-run` shows the requests without calling the API). Re-record after editing
+  prompts/personal_line.md.
 
 ---
 

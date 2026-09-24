@@ -1,392 +1,360 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { JUDGE_TOOL_NAME, WRITER_TOOL_NAME, type Dossier } from "@clearpath/shared";
+import { FIRM_TYPES, NOT_FOUND, type Dossier, type FirmType, type OfferConfig, type Sequence } from "@clearpath/shared";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { openDb, type Db } from "../src/db/client";
 import { leads, runs, sequences } from "../src/db/schema";
-import { loadApprovedSentences, loadEvidence, loadOffer, loadStyle, loadWriterFacts, usableApprovedSentences } from "../src/docs/loader";
-import { loadTemplates } from "../src/docs/templates";
-import { createLlmClient } from "../src/llm/client";
-import { SpendGate } from "../src/llm/spend-gate";
-import { renderEmail, unapprovedSentences, unverifiedRegulatoryNumbers, validateSequence } from "../src/validators/email";
-import { approveSequence, exportBlockers, generateSequence, type WriteDeps } from "../src/write/generate";
-import { judgeMessage, loadJudgeSystemPrompt, loadPersonaHeadings, loadWriterSystemPrompt, writerMessage } from "../src/write/prompt";
-import { dnsObservation, planSequence, verifiedValues } from "../src/write/writer-input";
-import { dnsEv, ev, strongDossier } from "./fixtures/dossiers";
-import { fakeApi, testPrices, TEST_MODEL, userText } from "./fixtures/fakeapi";
-
-const style = loadStyle();
-const offer = loadOffer();
-const evidence = loadEvidence();
-const facts = loadWriterFacts();
-const templates = loadTemplates();
-const approved = loadApprovedSentences().sentences;
-const personas = loadPersonaHeadings();
-const APPLIES = approved.find((s) => s.id === "applies_accounting_tax")!.text;
-const IRS = approved.find((s) => s.id === "irs_pub_4557_wisp")!.text;
-
-function toolMessage(name: string, input: unknown, i: number): Anthropic.Message {
-  return {
-    id: `msg_${i}`,
-    type: "message",
-    role: "assistant",
-    model: TEST_MODEL,
-    content: [{ type: "tool_use", id: `toolu_${i}`, name, input }],
-    stop_reason: "tool_use",
-    stop_sequence: null,
-    usage: { input_tokens: 900, output_tokens: 400, cache_read_input_tokens: i > 0 ? 4000 : 0, cache_creation_input_tokens: i === 0 ? 4000 : 0 },
-  } as unknown as Anthropic.Message;
-}
-
-type WriterEmail = { n: number; subject_a: string | null; subject_b: string | null; opening: string; closing: string };
-const E1: WriterEmail = {
-  n: 1,
-  subject_a: "plan for Smith Tax Services",
-  subject_b: "client data question",
-  opening: "I noticed Smith Tax Services prepares individual tax returns for clients around Columbus.",
-  closing: "Is a written security plan something you already keep on file?",
-};
-const E2: WriterEmail = {
-  n: 2,
-  subject_a: null,
-  subject_b: null,
-  opening: "Following up, since payroll services put client bank details in your hands too.",
-  closing: "Would a short outline of what that plan covers be useful?",
-};
-const GOOD_DRAFT = { emails: [E1, E2] };
-const draftWith = (e1: Partial<WriterEmail>, e2: Partial<WriterEmail> = {}) => ({ emails: [{ ...E1, ...e1 }, { ...E2, ...e2 }] });
-const CLEAN_JUDGMENT = { unsupported_claims: [] };
+import { parseTemplates } from "../src/docs/templates";
+import { bodySentences, renderEmail, validateSequence } from "../src/validators/email";
+import { assembleEmails } from "../src/write/assemble";
+import { checkEdits, rewriteOne, runJudge, saveEdits } from "../src/write/edit";
+import { approveSequence, buildSequence, exportBlockers, generateSequence, validationContext, type WriteDeps } from "../src/write/generate";
+import { firmShort, renderSettings, renderSignature } from "../src/write/merge";
+import { validatePersonalLine } from "../src/write/personal-line";
+import { verifiedValues } from "../src/write/values";
+import { ev, strongDossier } from "./fixtures/dossiers";
+import { approved, evidence, offer, READY_OFFER, scripted, style, templates, testWriteDeps } from "./fixtures/write-deps";
 
 let db: Db;
-function deps(responder: Parameters<typeof fakeApi>[0], over: Partial<WriteDeps> = {}) {
-  const f = fakeApi(responder);
-  const now = () => new Date("2026-09-24T12:00:00Z");
-  const llm = createLlmClient({ api: f.api, db, prices: testPrices, gate: new SpendGate(db, 5, now), leadTokenBudget: 1_000_000, backoff: { sleep: async () => undefined } });
-  const d: WriteDeps = {
-    db,
-    llm,
-    modelWrite: TEST_MODEL,
-    writerSystem: loadWriterSystemPrompt({ offer, facts }),
-    judgeSystem: loadJudgeSystemPrompt({ offer, facts }),
-    style,
-    offer,
-    evidence,
-    templates,
-    facts,
-    approved,
-    personas,
-    ...over,
-  };
-  return { deps: d, ...f };
-}
-
-/** Writer answers for writer calls, judge answers for judge calls (by tool name). */
-function scripted(drafts: unknown[], judgment: unknown = CLEAN_JUDGMENT) {
-  let w = 0;
-  return (p: Anthropic.MessageCreateParamsNonStreaming, i: number) => {
-    const tool = (p.tools![0] as Anthropic.Tool).name;
-    return toolMessage(tool, tool === WRITER_TOOL_NAME ? drafts[Math.min(w++, drafts.length - 1)] : judgment, i);
-  };
-}
-
-const plan = (d: Dossier, ns = [1, 2]) => planSequence(d, ns, { offer, evidence, style, approved, personas, greeting: "Hi Jane," });
-
 beforeEach(() => {
   db = openDb(":memory:");
 });
 
-describe("constrained writer input (code chooses everything)", () => {
-  it("one ranked detail per email: services naming the firm type first, then software, then staff size", () => {
-    const p = plan(strongDossier(), [1, 2, 3, 4, 5]);
-    expect(p.emails.map((e) => e.detail)).toEqual([
-      { field: "services", value: "Individual tax returns" },
-      { field: "services", value: "Payroll services" },
-      null,
-      null,
-      null,
-    ]);
-    expect(p.context).toMatchObject({ firm_name: "Smith Tax Services", firm_type: "tax_preparer", location: { city: "Columbus", state: "OH" }, persona: "Solo or small tax preparer", angle: "irs_pub_4557_wisp" });
-    const noServices = plan(strongDossier({ services: "NOT_FOUND", software_mentioned: "NOT_FOUND" }));
-    expect(noServices.emails[0]!.detail).toEqual({ field: "size_signal", value: "a team of 6" });
+// strongDossier: Smith Tax Services (tax_preparer), Columbus OH, services "Individual tax returns" and
+// "Payroll services", decision maker Jane Smith with jane@ (tied to her), software Drake, a team of six.
+const generic = (over: Partial<Dossier> = {}) =>
+  strongDossier({ public_contact_email: ev({ address: "info@smithtax.example", owner_name: null }, "info@smithtax.example"), public_email_kind: "generic_inbox", ...over });
+const ofType = (primary: FirmType, d: Dossier = generic()): Dossier => ({
+  ...d,
+  firm_type: ev({ primary, secondary: [] }, "firm type quote"),
+  target_industry_fit: { value: true, reason: "test", qualifying_type: primary },
+});
+const GOOD_LINE = "Smith Tax Services handles individual tax returns, which means holding a lot of sensitive client financial data.";
+const saveLead = (id: string, d: Dossier) => db.insert(leads).values({ id, source: "web", status: "extracted", dossierJson: JSON.stringify(d) }).run();
+const values = (d: Dossier) => verifiedValues(d, offer, evidence).prospect_facts;
+const build = (d: Dossier, line = GOOD_LINE, source: "model" | "fallback" = "model", firstName: string | null = null) =>
+  assembleEmails({ dossier: d, templates, style, approved, personalLine: { text: line, source }, firstName, subjectChoice: null, values: values(d) });
+const seqOf = (d: Dossier, firstName: string | null = null): Sequence => ({
+  lead_id: "L1",
+  tier: "B",
+  persona: "p",
+  angle: style.firm_type_angles.tax_preparer[0]!,
+  emails: build(d, GOOD_LINE, "model", firstName),
+});
+const errorsOf = (s: Sequence, d: Dossier, o: OfferConfig = READY_OFFER) => validateSequence(s, { style, offer: o, dossier: d }).issues.filter((i) => i.severity === "error");
+
+describe("docs/09_sequences.md is read as the founder wrote it", () => {
+  it("five emails, subjects, the role-based line, fallback lines, segment swaps, and the signature block", () => {
+    expect([...templates.emails.keys()]).toEqual([1, 2, 3, 4, 5]);
+    const e1 = templates.emails.get(1)!;
+    expect(e1.subject_a).toBe("written security plan at {{firm_short}}?");
+    expect(e1.subject_b).toBe("quick question about client data");
+    expect(e1.roleLine).toBe("Quick question for whoever looks after IT and client data at {{firm}}:");
+    expect(templates.emails.get(4)!.subject_a).toBe("helping a few firms in {{region}} first");
+    // Notes after {{signature}} ("Sends only when checklist_ready ...") are not copy.
+    expect(templates.emails.get(3)!.paragraphs.join(" ")).not.toMatch(/Sends only when/);
+    expect(Object.keys(templates.fallbackLines).sort()).toEqual(["bookkeeper", "cpa", "payroll", "tax_preparer"]);
+    expect(templates.segments.bookkeeper).toEqual({ email3Subject: "one-page checklist for bookkeeping firms", notes: "emphasize remote access and bank feeds" });
+    expect(templates.signature).toEqual(["{{sender_name}}", "{{sender_title}}, {{company}}", "{{website}}", "", "{{opt_out_line}}", "{{physical_address}}"]);
   });
 
-  it("slots get approved docs/02 sentences by email and firm type", () => {
-    const tax = plan(strongDossier(), [1, 2, 3, 4, 5]);
-    expect(tax.emails.map((e) => e.approved?.id ?? null)).toEqual(["applies_accounting_tax", "irs_pub_4557_wisp", null, "rule_requirements", null]);
-    const cpa = plan(strongDossier({ target_industry_fit: { value: true, reason: "t", qualifying_type: "cpa" } }));
-    expect(cpa.emails.map((e) => e.approved?.id)).toEqual(["applies_accounting_tax", "insurers_ask_at_renewal"]);
-    const payroll = plan(strongDossier({ target_industry_fit: { value: true, reason: "t", qualifying_type: "payroll" } }));
-    expect(payroll.emails.map((e) => e.approved?.id)).toEqual(["applies_non_bank", "rule_requirements"]);
-  });
-
-  it("the writer message has only the chosen values: no quotes, URLs, addresses, people, other details, or money", () => {
-    const text = writerMessage(plan(strongDossier()), 5);
-    expect(text).not.toMatch(/evidence_quote|https?:\/\/smithtax|@|Jane Smith|Drake|\$\s?\d|penalt/i);
-    expect(text).toContain('"email_1": "Individual tax returns"');
-    expect(text).toContain(APPLIES);
-    expect(text).toContain("greeting (added by the code; do not write it): Hi Jane,");
-  });
-
-  it("personal-detail filter drops values before ranking (the firm's own name is exempt)", () => {
-    const d = strongDossier({
-      firm_name: ev("Godfrey & Sons CPAs", "Godfrey & Sons CPAs"),
-      services: { value: ["Help for divorced clients", "Tax returns"], evidence: [{ item: "Help for divorced clients", evidence_url: "https://smithtax.example/" }, { item: "Tax returns", evidence_url: "https://smithtax.example/" }] },
-    });
-    const p = plan(d);
-    expect(p.context.firm_name).toBe("Godfrey & Sons CPAs");
-    expect(p.emails[0]!.detail).toEqual({ field: "services", value: "Tax returns" });
-    expect(p.filtered.join()).toMatch(/divorced/);
-  });
-
-  it("DNS observation: off by default; when on, only with MX and an evidenced finding", () => {
-    const on = { ...offer, include_dns_observation: true };
-    const d = strongDossier();
-    expect(dnsObservation(d, offer)).toBeNull();
-    expect(dnsObservation(d, on)).toBe("I noticed your domain does not publish a DMARC record.");
-    const noMx = strongDossier({ dns: { ...d.dns, no_domain_email: dnsEv(true, "smithtax.example", "MX") } });
-    expect(dnsObservation(noMx, on)).toBeNull();
-    expect(verifiedValues(d, offer, evidence).prospect_facts.dns_observation).toBeUndefined();
+  it("refuses a file with an unknown merge field or an email without {{signature}}", () => {
+    const md = (e1: string) =>
+      [`## Fallback personal lines\n- cpa: "x."`, `## Email 1\nSubject A: a\nSubject B: b\n\n${e1}`, ...[2, 3, 4, 5].map((n) => `## Email ${n}\nText.\n\n{{signature}}`), `## Signature block\n{{sender_name}}`].join("\n\n");
+    expect(() => parseTemplates(md("{{personal_line}}\n\n{{signature}}"))).not.toThrow();
+    expect(() => parseTemplates(md("{{personal_line}} {{favorite_color}}\n\n{{signature}}"))).toThrow(/unknown merge field \{\{favorite_color\}\}/);
+    expect(() => parseTemplates(md("{{personal_line}}"))).toThrow(/email 1 must end with a \{\{signature\}\} line/);
   });
 });
 
-describe("docs/02 approved sentences", () => {
-  it("loads only sentences that restate a VERIFIED line, with no money or penalties", () => {
-    expect(approved.map((s) => s.id)).toEqual(["applies_accounting_tax", "applies_non_bank", "irs_pub_4557_wisp", "insurers_ask_at_renewal", "rule_requirements"]);
-    const md = [
-      "- The rule applies to banks. [VERIFY]",
-      "- Maximum civil penalty per violation: $50,000. VERIFIED",
-      "```json clearpath:regulatory",
-      JSON.stringify({
-        approved_sentences: [
-          { id: "unverified", text: "The rule applies to banks.", source: "The rule applies to banks", emails: [1], firm_types: ["any"] },
-          { id: "money", text: "Fines reach $50,000.", source: "Maximum civil penalty", emails: [1], firm_types: ["any"] },
-        ],
-      }),
-      "```",
-    ].join("\n");
-    expect(usableApprovedSentences(md)).toMatchObject({ sentences: [], excluded: [{ id: "unverified" }, { id: "money" }] });
-  });
-});
-
-describe("tier and gate gating", () => {
-  it("Tier C: five template emails, zero writer or judge calls", async () => {
-    const { deps: d, create } = deps(scripted([GOOD_DRAFT]));
-    const r = await generateSequence("L1", strongDossier(), "C", d);
-    expect(create).not.toHaveBeenCalled();
-    expect(r.sequence!.emails.every((e) => e.template)).toBe(true);
-    expect(r).toMatchObject({ status: "passed", writerCalls: 0, judgeCalls: 0, judge: null, firstPassValid: null });
+describe("merge fields", () => {
+  it("firm_short strips legal suffixes only", () => {
+    expect(firmShort("Smith & Jones, LLC")).toBe("Smith & Jones");
+    expect(firmShort("Maple Street CPAs, P.C.")).toBe("Maple Street CPAs");
+    expect(firmShort("Acme Tax Inc.")).toBe("Acme Tax");
+    expect(firmShort("Doe Accounting PLLC")).toBe("Doe Accounting");
+    expect(firmShort("Inc Tax Services")).toBe("Inc Tax Services");
   });
 
-  it("needs_review and out_of_icp: no sequence and no calls until the founder approves the gate", async () => {
-    const { deps: d, create } = deps(scripted([GOOD_DRAFT]));
-    for (const status of ["needs_review", "out_of_icp"] as const) {
-      const r = await generateSequence("L1", strongDossier({ gate: { status, reasons: ["test"] } }), "A", d);
-      expect(r).toMatchObject({ status: "no_sequence", sequence: null });
-    }
-    expect(create).not.toHaveBeenCalled();
-    const approvedGate = await generateSequence("L1", strongDossier({ gate: { status: "needs_review", reasons: ["test"] } }), "B", d, { gateApproved: true });
-    expect(approvedGate.status).toBe("passed");
-  });
-
-  it("every template variant passes the validators; email 3 does not assess the firm", async () => {
-    for (const t of ["cpa", "tax_preparer", "bookkeeper", "payroll", "credit_counseling", "collections"] as const) {
-      const d = strongDossier({ firm_type: ev({ primary: t, secondary: [] }, "x"), target_industry_fit: { value: true, reason: "t", qualifying_type: t } });
-      const r = await generateSequence("L1", d, "C", deps(scripted([GOOD_DRAFT])).deps);
-      expect(r.validation!.issues.filter((i) => i.severity === "error"), t).toEqual([]);
-    }
-    expect(templates.get("email3.checklist")!.body).toContain("so you can check your firm against it");
-    expect(templates.get("email3.checklist")!.body).not.toMatch(/stands/);
-    expect(templates.get("email3.scorecard")!.body).not.toMatch(/stands/);
-  });
-});
-
-describe("Tier B: writer emails 1-2 with code-inserted approved sentences", () => {
-  it("assembles greeting + model opening + approved sentence (verbatim) + model closing, and passes", async () => {
-    const { deps: d, create } = deps(scripted([GOOD_DRAFT]));
-    const r = await generateSequence("L1", strongDossier(), "B", d);
-    expect(r).toMatchObject({ status: "passed", firstPassValid: true, rewritesUsed: 0, writerCalls: 1, judgeCalls: 1 });
-    expect(r.sequence!.emails[0]!.body).toBe(`Hi Jane,\n${E1.opening} ${APPLIES} ${E1.closing}`);
-    expect(r.sequence!.emails[1]!.body).toBe(`Hi Jane,\n${E2.opening} ${IRS} ${E2.closing}`);
-    expect(r.sequence!.emails.map((e) => e.template)).toEqual([false, false, true, true, true]);
-    // The city is context, not a detail: email 1 uses services + location and still has one detail.
-    expect(r.sequence!.emails[0]!.grounding).toEqual(expect.arrayContaining(["services", "location"]));
-    expect(r.drafts[0]!.emails[0]!.inserted).toEqual([{ id: "applies_accounting_tax", text: APPLIES }]);
-    expect(db.select().from(runs).all().map((x) => x.callType)).toEqual(["write", "judge"]);
-    const writeParams = create.mock.calls[0]![0] as Anthropic.MessageCreateParamsNonStreaming;
-    expect(writeParams).toMatchObject({ max_tokens: 2500, thinking: { type: "disabled" }, tool_choice: { type: "tool", name: WRITER_TOOL_NAME } });
-    expect((writeParams.system as Anthropic.TextBlockParam[])[0]!.cache_control).toEqual({ type: "ephemeral" });
-    const judgeParams = create.mock.calls[1]![0] as Anthropic.MessageCreateParamsNonStreaming;
-    expect(judgeParams).toMatchObject({ max_tokens: 800, tool_choice: { type: "tool", name: JUDGE_TOOL_NAME } });
-    expect(userText(judgeParams)).toContain("approved_sentences (inserted by code");
-  });
-
-  it("a model-written regulatory sentence is rejected; one rewrite only; every draft is kept", async () => {
-    const bad = draftWith({ closing: "Tax preparers must have a WISP under the rule. Do you have one?" });
-    const { deps: d, create } = deps(scripted([bad, bad]));
-    const r = await generateSequence("L1", strongDossier(), "B", d);
-    expect(create).toHaveBeenCalledTimes(3); // write, one rewrite, judge
-    expect(r).toMatchObject({ status: "blocked", firstPassValid: false, rewritesUsed: 1 });
-    expect(r.drafts).toHaveLength(2);
-    expect(r.drafts[0]!.errors.map((i) => i.code)).toContain("unapproved_regulatory_sentence");
-    expect(userText(create.mock.calls[1]![0] as Anthropic.MessageCreateParamsNonStreaming)).toContain("Your previous draft failed these checks");
-  });
-
-  it("a rewrite that fixes the problems passes", async () => {
-    const { deps: d } = deps(scripted([draftWith({ opening: "That is a good sign for Smith Tax Services." }), GOOD_DRAFT]));
-    const r = await generateSequence("L1", strongDossier(), "B", d);
-    expect(r).toMatchObject({ status: "passed", firstPassValid: false, rewritesUsed: 1 });
-  });
-
-  it("judge findings block approval; JSON-string arrays are accepted; unreadable verdicts block", async () => {
-    const claim = { unsupported_claims: [{ email: 2, claim: "client bank details", reason: "not_in_prospect_facts" }] };
-    const blocked = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], claim)).deps);
-    expect(blocked).toMatchObject({ status: "blocked", reason: "judge listed unsupported claims" });
-    expect(() => approveSequence(db, blocked.sequenceId!)).toThrow(/blocked/);
-    const stringified = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], { unsupported_claims: "[]" })).deps);
-    expect(stringified.status).toBe("passed");
-    const broken = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], { verdict: "fine" })).deps);
-    expect(broken.judge!.unsupported_claims[0]!.claim).toMatch(/^judge output could not be read: /);
-  });
-});
-
-describe("approval and export blockers", () => {
-  const saveLead = (d: Dossier) => db.insert(leads).values({ id: "L1", source: "web", status: "extracted", dossierJson: JSON.stringify(d) }).run();
-
-  it("generic inbox: a warning only; neutral greeting, and approval is allowed", async () => {
-    const generic = strongDossier({ public_contact_email: ev({ address: "info@smithtax.example", owner_name: null }, "info@smithtax.example"), public_email_kind: "generic_inbox" });
-    saveLead(generic);
-    const r = await generateSequence("L1", generic, "B", deps(scripted([GOOD_DRAFT])).deps);
-    expect(r.status).toBe("passed");
-    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi there,\n")).toBe(true);
-    expect(r.contactWarning).toBe("generic inbox: lower reply odds");
-    approveSequence(db, r.sequenceId!);
-    expect(db.select().from(sequences).all().at(-1)!.status).toBe("approved");
-  });
-
-  it("an older sequence can never be approved over a newer one", async () => {
-    saveLead(strongDossier());
-    const older = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT])).deps);
-    await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT])).deps);
-    expect(() => approveSequence(db, older.sequenceId!)).toThrow(/newest/);
-  });
-
-  it("export is blocked while checklist_ready is false, and while signature or footer settings are empty", () => {
-    const seq = { lead_id: "L1", tier: "C" as const, persona: "p", angle: "a", emails: [] as never[] };
-    const withEmail3 = { ...seq, emails: [{ n: 3 }] as never[] };
-    expect(exportBlockers(offer, withEmail3).join("\n")).toMatch(/checklist_ready is false/);
-    expect(exportBlockers(offer, seq).join("\n")).toMatch(/opt_out_line, physical_address/);
-    const ready = { ...offer, checklist_ready: true, opt_out_line: "Reply no to stop.", physical_address: "1 Main St" };
-    expect(exportBlockers(ready, withEmail3)).toEqual([]);
-  });
-});
-
-describe("validators: allowlist, insurers, quantifiers, questions, evaluations, company name, details", () => {
-  const seqWith = (body: string, grounding: string[] = [], template = false) => ({
-    lead_id: "L1",
-    tier: "B" as const,
-    persona: "p",
-    angle: "irs_pub_4557_wisp",
-    emails: [1, 2, 3, 4, 5].map((n) => ({
-      n,
-      send_day: style.send_days[n - 1]!,
-      subject_a: n === 1 ? "written plan" : null,
-      subject_b: n === 1 ? "client data" : null,
-      body: n === 1 ? `Hi Jane,\n${body}` : "Hi Jane,\nShort note. Does that help?",
-      grounding: n === 1 ? grounding : [],
-      template: n >= 3 || template,
-    })),
-  });
-  const codes = (body: string, grounding: string[] = [], o = offer, assigned: string | null = "services", template = false) =>
-    validateSequence(seqWith(body, grounding, template) as never, {
-      style,
-      offer: o,
-      dossier: strongDossier(),
-      verifiedFacts: facts,
-      approvedSentences: approved.map((s) => s.text),
-      assignedDetails: { 1: assigned, 2: null },
-    }).issues.filter((i) => i.email === 1 && i.severity === "error").map((i) => i.code);
-
-  it("regulatory sentences only as approved docs/02 sentences, verbatim", () => {
-    expect(codes(`${APPLIES} Is a written plan on file?`)).toEqual([]);
-    expect(codes("The FTC Safeguards Rule covers firms like yours. Is a written plan on file?")).toContain("unapproved_regulatory_sentence");
-    expect(codes("Tax preparers must keep a written plan. Is yours on file?")).toContain("unapproved_regulatory_sentence");
-    expect(unapprovedSentences("Staying in compliance takes time.", [])).toEqual([{ sentence: "Staying in compliance takes time.", code: "unapproved_regulatory_sentence" }]);
-    // Templates are fixed docs/09 text, checked by the other validators.
-    expect(codes("The FTC Safeguards Rule covers many firms. Is a written plan on file?", [], offer, null, true)).toEqual([]);
-  });
-
-  it("insurer assertions need an approved sentence; insurer questions are fine", () => {
-    expect(codes("Insurers are asking firms like yours for a written plan. Is yours on file?")).toContain("unapproved_insurer_claim");
-    expect(codes("Has your insurer asked about a written security plan yet?")).toEqual([]);
-  });
-
-  it("universal quantifiers only inside approved sentences", () => {
-    expect(codes("Every firm needs a written plan. Is yours on file?")).toContain("universal_quantifier");
-    expect(codes("Firms like yours are generally covered. Is a plan on file?")).toContain("universal_quantifier");
-  });
-
-  it("one question per email at most", () => {
-    expect(codes("Is a plan on file? Would a checklist help?")).toContain("too_many_questions");
-  });
-
-  it("evaluative phrases about the prospect are banned", () => {
-    for (const phrase of ["That is a good sign.", "Maybe it is still on your to-do list.", "Firms are falling behind.", "You're behind on this.", "You are not compliant.", "Client data is at risk.", "Your files are exposed."]) {
-      expect(codes(`${phrase} Is a plan on file?`), phrase).toContain("banned_phrase");
-    }
-  });
-
-  it("the company name comes only from docs/01", () => {
-    expect(codes("I run ClearPath Security, a small IT shop. Is a plan on file?")).toContain("company_name");
-    expect(codes("I run ClearPath IT, a small IT shop. Is a plan on file?")).not.toContain("company_name");
-  });
-
-  it("city/state is free context; a detail other than the assigned one is rejected", () => {
-    expect(codes("Noticed you prepare individual tax returns around Columbus. Is a plan on file?", ["services", "location"])).toEqual([]);
-    expect(codes("Noticed you use Drake. Is a plan on file?", ["software_mentioned"])).toContain("unassigned_detail");
-    expect(codes("Noticed your tax returns and Drake. Is a plan on file?", ["services", "software_mentioned"])).toContain("too_many_details");
-  });
-
-  it("DNS remarks: blocked while the setting is off; allowed hedged and evidenced when on", () => {
-    expect(codes("I noticed your domain does not publish a DMARC record. Is that on purpose?", ["dns_observation"])).toContain("dns_not_enabled");
-    const on = { ...offer, include_dns_observation: true };
-    expect(codes("I noticed your domain does not publish a DMARC record. Is that on purpose?", ["dns_observation"], on)).toEqual([]);
-  });
-
-  it("numbers in regulatory sentences must come from the VERIFIED facts", () => {
-    expect(unverifiedRegulatoryNumbers("The FTC Safeguards Rule requires notice within 45 days.", facts)).toHaveLength(1);
-    expect(unverifiedRegulatoryNumbers("Here is what the rule asks for: 1. A Qualified Individual 2. Encryption", facts)).toEqual([]);
-  });
-});
-
-describe("signature and prompts", () => {
-  it("every email ends with sender name, title, company, website, then opt-out and address", () => {
-    const full = { ...offer, opt_out_line: "Reply no and I will not email again.", physical_address: "1 Main St, Columbus, OH" };
-    expect(renderEmail("Hi Jane,\nBody.", full)).toBe(
-      "Hi Jane,\nBody.\n\nMikaila Brown\nFounder\nClearPath IT\nhttps://www.clearpathsecure.com\n\nReply no and I will not email again.\n1 Main St, Columbus, OH",
+  it("settings fields are filled from docs/01 when shown; an empty setting stays a visible placeholder", () => {
+    expect(renderSettings("rate: {{offer}} at {{booking_link}} for {{region}} firms by {{company}}", READY_OFFER)).toBe(
+      "rate: half off the first three months at https://cal.example.com/clearpath/15min for Columbus-area firms by ClearPath IT",
     );
+    expect(renderSettings("rate: {{offer}}", offer)).toBe("rate: {{offer}}");
   });
 
-  it("writer system prompt: docs read at runtime; forbids regulatory writing; no penalty figures, no lead content", () => {
-    const p = loadWriterSystemPrompt({ offer, facts });
-    expect(p).toContain("# Email style guide");
-    expect(p).toContain("Never write a regulatory or insurer statement yourself");
-    expect(p).not.toMatch(/\$50,000|civil penalty/i);
-    expect(p).not.toMatch(/\{\{[A-Z_]+\}\}/);
-    expect(p).not.toContain("Smith Tax Services");
-    expect(judgeMessage(plan(strongDossier()), [])).toContain(APPLIES);
+  it("the signature block follows docs/09 and drops lines whose fields are all empty", () => {
+    expect(renderSignature(templates.signature, READY_OFFER)).toEqual([
+      "Mikaila Brown",
+      "Founder, ClearPath IT",
+      "https://www.clearpathsecure.com",
+      "",
+      READY_OFFER.opt_out_line,
+      READY_OFFER.physical_address,
+    ]);
+    expect(renderSignature(templates.signature, { ...READY_OFFER, opt_out_line: "", physical_address: "" })).toEqual(["Mikaila Brown", "Founder, ClearPath IT", "https://www.clearpathsecure.com"]);
   });
 });
 
-describe("writer output tolerance", () => {
-  it("ignores unknown extra keys in the writer's output, but still rejects missing fields", async () => {
-    const extra = { emails: [{ ...E1, n_check: 1 }, E2] };
-    expect((await generateSequence("L1", strongDossier(), "B", deps(scripted([extra])).deps)).status).toBe("passed");
-    const missing = { emails: [{ n: 1, subject_a: "x", subject_b: "y" }, E2] };
-    const r = await generateSequence("L1", strongDossier(), "B", deps(scripted([missing, missing])).deps);
-    expect(r).toMatchObject({ rewritesUsed: 1 });
-    expect(r.drafts[0]!.formatProblem).toMatch(/writer output invalid/);
-    // Nothing usable from the model twice: the template emails are shown (never an empty result), and
-    // the reason says so.
-    expect(r.sequence!.emails.every((e) => e.template)).toBe(true);
-    expect(r.reason).toMatch(/template emails are shown instead/);
+describe("assembly and greeting", () => {
+  it("no named contact: email 1 opens with the role-based line; emails 2-5 have no greeting", () => {
+    const emails = build(generic());
+    expect(emails[0]!.body.split("\n")[0]).toBe("Quick question for whoever looks after IT and client data at Smith Tax Services:");
+    expect(emails[0]!.body).toContain(GOOD_LINE);
+    for (const e of emails.slice(1)) expect(e.body).not.toMatch(/^(hi|hello|dear)\b/i);
+    expect(emails[0]!.personal_line).toEqual({ text: GOOD_LINE, source: "model" });
+    expect([...emails[0]!.grounding].sort()).toEqual(["firm_name", "services"]);
+  });
+
+  it('named contact tied to the address: "Hi Jane," and no role-based line', () => {
+    const emails = build(strongDossier(), GOOD_LINE, "model", "Jane");
+    expect(emails[0]!.body.startsWith("Hi Jane,\n\n")).toBe(true);
+    expect(emails[0]!.body).not.toMatch(/Quick question for whoever/);
+    for (const e of emails.slice(1)) expect(e.body).not.toMatch(/^hi\b/i);
+  });
+
+  it("the approved sentence comes verbatim from a VERIFIED docs/02 line for the segment", () => {
+    const text = (t: FirmType) => build(ofType(t))[1]!.body;
+    expect(text("cpa")).toContain(approved.find((a) => a.id === "insurers_ask_at_renewal")!.text);
+    expect(text("tax_preparer")).toContain(approved.find((a) => a.id === "irs_pub_4557_wisp")!.text);
+    expect(text("bookkeeper")).toContain(approved.find((a) => a.id === "rule_requirements")!.text);
+    expect(text("payroll")).toContain(approved.find((a) => a.id === "rule_requirements")!.text);
+    for (const t of FIRM_TYPES) expect(build(ofType(t))[1]!.body).not.toContain("{{approved_sentence}}");
+  });
+
+  it("segment swaps pick email 3's subject by primary type; other types use the cpa row", () => {
+    const subject = (t: FirmType) => build(ofType(t))[2]!.subject_a;
+    expect(subject("cpa")).toBe("one-page checklist for Smith Tax Services");
+    expect(subject("tax_preparer")).toBe("one-page checklist for tax preparers");
+    expect(subject("bookkeeper")).toBe("one-page checklist for bookkeeping firms");
+    expect(subject("payroll")).toBe("one-page checklist for payroll firms");
+    expect(subject("collections")).toBe("one-page checklist for Smith Tax Services");
+  });
+
+  it("the model's subject pick goes first; both stay for A/B", () => {
+    const d = generic();
+    const e1 = assembleEmails({ dossier: d, templates, style, approved, personalLine: { text: GOOD_LINE, source: "model" }, firstName: null, subjectChoice: "B", values: values(d) })[0]!;
+    expect([e1.subject_a, e1.subject_b]).toEqual(["quick question about client data", "written security plan at Smith Tax Services?"]);
+  });
+});
+
+describe("validators on the assembled sequence", () => {
+  it("every segment, named or not, with the model line or the fallback: no validator errors", () => {
+    for (const t of FIRM_TYPES) {
+      for (const [d, first] of [
+        [ofType(t), null],
+        [ofType(t, strongDossier()), "Jane"],
+      ] as const) {
+        const fb = templates.fallbackLines[t] ?? templates.fallbackLines.cpa!;
+        for (const [line, source] of [
+          [GOOD_LINE, "model"],
+          [fb, "fallback"],
+        ] as const) {
+          const s: Sequence = { lead_id: "L1", tier: "B", persona: "p", angle: style.firm_type_angles[t][0]!, emails: build(d, line, source, first) };
+          expect(errorsOf(s, d), `${t} ${first ?? "role line"} ${source}`).toEqual([]);
+        }
+      }
+    }
+  });
+
+  it("relaxed word limits from docs/03, email 5 by words", () => {
+    expect(style.word_limits).toEqual({ "1": 130, "2": 140, "3": 100, "4": 130, "5": 75 });
+    const d = generic();
+    const s = seqOf(d);
+    s.emails[4] = { ...s.emails[4]!, body: `${"word ".repeat(76).trim()}.` };
+    expect(errorsOf(s, d).map((i) => [i.email, i.code])).toContainEqual([5, "word_count"]);
+  });
+
+  it("allows bullet lists in email 2: each bullet is its own item", () => {
+    expect(bodySentences("Intro:\n- A written plan\n- One named person\nIs that close?")).toEqual(["Intro:", "A written plan", "One named person", "Is that close?"]);
+    expect(errorsOf(seqOf(generic()), generic()).filter((i) => i.email === 2)).toEqual([]);
+  });
+
+  it("keeps one question mark per email", () => {
+    const d = generic();
+    const s = seqOf(d);
+    s.emails[2] = { ...s.emails[2]!, body: `${s.emails[2]!.body} Does that help?` };
+    expect(errorsOf(s, d).map((i) => [i.email, i.code])).toContainEqual([3, "too_many_questions"]);
+  });
+
+  it("subject words: the firm name (full or short) and the region do not count", () => {
+    const d = generic({ firm_name: ev("Smith Tax and Accounting Services of Ohio, LLC", "Smith Tax and Accounting Services of Ohio, LLC") });
+    const wide = { ...READY_OFFER, region: "Greater Columbus Metro-area" };
+    const s = seqOf(d);
+    expect(errorsOf(s, d, wide)).toEqual([]);
+    s.emails[3] = { ...s.emails[3]!, subject_a: "helping a small number of firms in {{region}} first" };
+    expect(errorsOf(s, d, wide).map((i) => i.code)).toContain("subject_length");
+  });
+
+  it("the only allowed link is booking_link; proof and DNS remarks stay blocked", () => {
+    const d = generic();
+    const s = seqOf(d);
+    s.emails[3] = { ...s.emails[3]!, body: `${s.emails[3]!.body} See https://other.example.com.` };
+    s.emails[1] = { ...s.emails[1]!, body: `${s.emails[1]!.body} Our clients trust us.` };
+    s.emails[2] = { ...s.emails[2]!, body: `${s.emails[2]!.body} Your DMARC record is set to none.` };
+    expect(errorsOf(s, d).map((i) => i.code)).toEqual(expect.arrayContaining(["link_not_allowed", "unapproved_proof", "dns_not_enabled"]));
+  });
+
+  it("empty docs/01 merge settings block export, not the text; the preview shows the placeholder", () => {
+    const d = generic();
+    const s = seqOf(d);
+    expect(errorsOf(s, d, offer)).toEqual([]);
+    const blockers = exportBlockers(offer, s).join("\n");
+    expect(blockers).toMatch(/founding_client_offer \(offer\), booking_link, region/);
+    expect(blockers).toMatch(/opt_out_line, physical_address/);
+    expect(blockers).toMatch(/checklist_ready is false/);
+    expect(exportBlockers(READY_OFFER, s)).toEqual([]);
+    expect(renderEmail(s.emails[3]!.body, offer, renderSignature(templates.signature, offer))).toContain("{{booking_link}}");
+  });
+
+  it("a name is never used unless the address is tied to that person", () => {
+    const d = generic();
+    const s = seqOf(d);
+    s.emails[0] = { ...s.emails[0]!, body: s.emails[0]!.body.replace(/^[^\n]*/, "Hi Jane,") };
+    expect(errorsOf(s, d).map((i) => i.code)).toContain("greeting_contact_mismatch");
+  });
+
+  it("no firm name found: email 1 still names the firm through the role line fallback, never a generic template", () => {
+    const d = generic({ firm_name: NOT_FOUND });
+    const s: Sequence = { lead_id: "L1", tier: "C", persona: "p", angle: style.firm_type_angles.tax_preparer[0]!, emails: build(d, templates.fallbackLines.tax_preparer!, "fallback") };
+    expect(errorsOf(s, d).map((i) => i.code)).toContain("generic_email_1");
+  });
+});
+
+describe("personal line checks (code)", () => {
+  const d = strongDossier();
+  const check = (line: string) => validatePersonalLine(line, { dossier: d, values: values(d), style, evidence });
+
+  it("accepts one plain sentence with one or two verified values", () => {
+    expect(check(GOOD_LINE)).toEqual([]);
+    expect(check("Payroll services put a lot of client bank details in your hands.")).toEqual([]);
+    expect(check("A tax practice in Columbus holds a lot of client financial data.")).toEqual([]);
+  });
+
+  it.each([
+    ["Does Smith Tax Services keep client data safe?", /question/],
+    [`${GOOD_LINE} It is busy season.`, /one sentence/],
+    [`Smith Tax Services handles individual tax returns ${"and more ".repeat(12)}for clients.`, /words \(max 30\)/],
+    ["Smith Tax Services handles individual tax returns and payroll services in Columbus.", /uses 4 values/],
+    ["Firms like yours handle a lot of client data.", /uses none of the verified values/],
+    ["Smith Tax Services uses Drake for individual tax returns.", /uses software_mentioned/],
+    ["Smith Tax Services, with a team of six, handles individual tax returns.", /size_signal/],
+    ["Smith Tax Services falls under the FTC Safeguards Rule.", /regulatory/],
+    ["Insurers now look closely at firms like Smith Tax Services.", /insurers/],
+    ["Smith Tax Services has an impressive reputation in Columbus.", /evaluates/],
+    ["Smith Tax Services does not have a written security plan.", /lacks a plan|regulatory/],
+    ["Jane at Smith Tax Services handles individual tax returns.", /names a person/],
+    ["Smith Tax Services has been in Columbus since 2004.", /number/],
+    ["Smith Tax Services is a firm we work with in Columbus.", /proof/],
+    ["The DMARC record for Smith Tax Services is missing.", /DNS/],
+  ])("rejects: %s", (line, problem) => {
+    expect(check(line).join("; ")).toMatch(problem);
+  });
+});
+
+describe("generateSequence: one small call, repaired to the fallback line when needed", () => {
+  it("tier B: one personal_line call; the model's line is used and its subject pick goes first", async () => {
+    saveLead("L1", generic());
+    const { deps, create } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE, subject: "B" }]));
+    const g = await generateSequence("L1", generic(), "B", deps);
+    expect(g).toMatchObject({ status: "passed", modelCalls: 1, personalLine: { line: { text: GOOD_LINE, source: "model" }, note: null } });
+    expect(create).toHaveBeenCalledTimes(1);
+    const p = create.mock.calls[0]![0];
+    expect(p.max_tokens).toBe(200);
+    expect(JSON.stringify(p.messages)).not.toMatch(/evidence_quote|evidence_url|jane@|Jane Smith/);
+    expect(g.sequence!.emails[0]!.subject_a).toBe("quick question about client data");
+    expect(db.select().from(runs).all().map((r) => r.callType)).toEqual(["personal_line"]);
+  });
+
+  it("tier C: the docs/09 fallback line for the type, no model call", async () => {
+    saveLead("L1", generic());
+    const { deps, create } = testWriteDeps(db);
+    const g = await generateSequence("L1", generic(), "C", deps);
+    expect(create).not.toHaveBeenCalled();
+    expect(g).toMatchObject({ status: "passed", modelCalls: 0, personalLine: { line: { text: templates.fallbackLines.tax_preparer, source: "fallback" } } });
+  });
+
+  it.each([
+    ["a line that fails the checks", scripted([{ personal_line: "Smith Tax Services has an impressive reputation." }]), /did not pass the checks \(evaluates or hypes/],
+    ["an unreadable answer", scripted([{ line: "wrong field" }]), /could not be read/],
+    ["an API error", () => Object.assign(new Error("bad request"), { status: 400 }), /the model was not used/],
+  ])("%s: fallback line, still passed, with a plain note (never an error)", async (_label, responder, note) => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db, responder);
+    const g = await generateSequence("L1", generic(), "A", deps);
+    expect(g.status).toBe("passed");
+    expect(g.personalLine!.line).toEqual({ text: templates.fallbackLines.tax_preparer, source: "fallback" });
+    expect(g.personalLine!.note).toMatch(note);
+  });
+
+  it("the monthly spend cap: fallback line, no call, still passed", async () => {
+    saveLead("L1", generic());
+    const { deps, create } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }]), {}, 0);
+    const g = await generateSequence("L1", generic(), "B", deps);
+    expect(create).not.toHaveBeenCalled();
+    expect(g.status).toBe("passed");
+    expect(g.personalLine!.note).toMatch(/model was not used/);
+  });
+
+  it("a gated lead gets no sequence until approved", async () => {
+    const d = generic({ gate: { status: "out_of_icp", reasons: ["staff count 85 is above 60"] } });
+    const { deps } = testWriteDeps(db);
+    expect((await generateSequence("L1", d, "B", deps)).status).toBe("no_sequence");
+  });
+});
+
+describe("approval, edits, judge, rewrite", () => {
+  const ready = (over: Partial<WriteDeps> = {}) => ({ offer: READY_OFFER, ...over });
+
+  it("a passed sequence is approved without any judge call; an older one never over a newer one", async () => {
+    saveLead("L1", generic());
+    const { deps, create } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }]), ready());
+    const older = await generateSequence("L1", generic(), "B", deps);
+    const newer = await generateSequence("L1", generic(), "B", deps);
+    expect(() => approveSequence(db, older.sequenceId!)).toThrow(/newest/);
+    approveSequence(db, newer.sequenceId!);
+    expect(db.select().from(sequences).where(eq(sequences.id, newer.sequenceId!)).get()!.status).toBe("approved");
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("a hand edit keeps the docs/09 copy allowed, needs the judge, and approval then works", async () => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }]), ready());
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const e2 = g.sequence!.emails[1]!;
+    const edited = saveEdits(db, g.sequenceId!, [{ n: 2, body: e2.body.replace("Here's something", "Here is something") }], deps);
+    expect(edited.validation.issues.filter((i) => i.severity === "error")).toEqual([]);
+    expect(edited).toMatchObject({ judgeRequired: true, status: "blocked" });
+    const judged = await runJudge(db, g.sequenceId!, deps);
+    expect(judged.status).toBe("passed");
+    approveSequence(db, g.sequenceId!);
+  });
+
+  it("a hand-edited regulatory sentence outside docs/02 and the template is caught", async () => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }]), ready());
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const e2 = g.sequence!.emails[1]!;
+    const r = checkEdits(db, g.sequenceId!, [{ n: 2, body: `${e2.body} The FTC requires a plan by next year.` }], deps);
+    expect(r.validation.issues.map((i) => i.code)).toContain("unapproved_regulatory_sentence");
+  });
+
+  it("rewrite: only email 1's personal line, one call; other emails are refused", async () => {
+    saveLead("L1", generic());
+    const other = "Payroll services put a lot of client bank details in your hands.";
+    const { deps, create } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }, { personal_line: other }]), ready());
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const r = await rewriteOne(db, g.sequenceId!, 1, deps);
+    expect(r.sequence.emails[0]!.body).toContain(other);
+    expect(create).toHaveBeenCalledTimes(2);
+    await expect(rewriteOne(db, g.sequenceId!, 2, deps)).rejects.toThrow(/only email 1's personal line/);
+  });
+
+  it("buildSequence + validationContext reproduce a stored sequence", async () => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db, scripted([{ personal_line: GOOD_LINE }]), ready());
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const again = buildSequence("L1", generic(), "B", deps, g.sequence!.emails[0]!.personal_line!, null, null);
+    expect(again.emails.slice(1)).toEqual(g.sequence!.emails.slice(1));
+    expect(validateSequence(again, validationContext(generic(), deps)).pass).toBe(true);
   });
 });

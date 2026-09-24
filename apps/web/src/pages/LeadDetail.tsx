@@ -173,7 +173,7 @@ function ContactCard(props: { lead: LeadDetail; onChange: (l: LeadDetail) => voi
           </Badge>
         </div>
         <p className="small">
-          Emails greet “{c.greeting}”: the public address is tied to that person.
+          Email 1 greets “{c.greeting}”: the public address is tied to that person.
         </p>
       </section>
     );
@@ -191,7 +191,7 @@ function ContactCard(props: { lead: LeadDetail; onChange: (l: LeadDetail) => voi
       <div className="stack-sm">
         {c.warning && (
           <p className="small">
-            Drafting, approval, and export are not blocked. Emails use the neutral greeting “{c.greeting}” and stay specific to this firm.
+            Drafting, approval, and export are not blocked. Email 1 opens with the docs/09 role-based line (no name) and stays specific to this firm.
             {c.warning.startsWith("no public email") && " Without an address, approved sequences export only in the Drafts CSV (send_ready N)."}
           </p>
         )}
@@ -200,7 +200,7 @@ function ContactCard(props: { lead: LeadDetail; onChange: (l: LeadDetail) => voi
         )}
         {c.override && (
           <NoticeBanner tone="success">
-            You marked this contact as fine: “{c.override.reason}”. Emails use the neutral greeting.
+            You marked this contact as fine: “{c.override.reason}”. Email 1 opens with the role-based line.
           </NoticeBanner>
         )}
         {c.checklist.length > 0 && (
@@ -296,7 +296,7 @@ export function LeadDetailPage(props: { id: string }) {
           </button>
         </div>
       </div>
-      {lead.tier === "C" && !lead.notWrittenReason && <p className="small muted">Tier C: template emails, no model call.</p>}
+      {lead.tier === "C" && !lead.notWrittenReason && <p className="small muted">Tier C: docs/09 copy with the fallback personal line, no model call.</p>}
       {/* Why nothing was (or can be) written, always in words next to the button. */}
       {lead.notWrittenReason && <NoticeBanner>{lead.notWrittenReason} (See the gate box below.)</NoticeBanner>}
       {lead.lastWriteAttempt && (

@@ -33,7 +33,7 @@ import { Recorder } from "../src/fetch/recording";
 import { loadSkipPatterns } from "../src/fetch/select";
 import { userAgentFor } from "../src/fetch/site";
 import { systemResolver, undiciTransport } from "../src/fetch/transport";
-import { contactPlan, neutralGreeting } from "../src/scoring/contact";
+import { contactPlan } from "../src/scoring/contact";
 import { completeLead, prepareWebLead, type PreparedLead, type ResearchDeps, type ResearchReport } from "../src/pipeline/research";
 
 const args = process.argv.slice(2);
@@ -162,8 +162,8 @@ function report(r: ResearchReport, firstRunId: number) {
   log(`  public_email_kind   ${d.public_email_kind}`);
   log(`  decision_maker      ${isFound(d.decision_maker) ? `${q(d.decision_maker.value)}   (from people, by title preference)` : "NOT_FOUND"}`);
   if (isFound(d.decision_maker)) printEvidence(d.decision_maker.evidence_url, d.decision_maker.evidence_quote, texts);
-  const plan = contactPlan(d, neutralGreeting(offer.neutral_greeting_style, d));
-  log(`  greeting            ${q(plan.greeting)}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
+  const plan = contactPlan(d);
+  log(`  greeting            ${plan.greeting ? q(plan.greeting) : "(role-based line)"}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
   log(`  us_location         ${q(d.us_location.value)}   (${d.us_location.reason})`);
   log(`  target_industry_fit ${q(d.target_industry_fit.value)}   (${d.target_industry_fit.reason})`);
   const fresh = d.latest_dated_content;

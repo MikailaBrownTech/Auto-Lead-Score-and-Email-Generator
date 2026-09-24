@@ -1,21 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOT_FOUND, type Dossier } from "@clearpath/shared";
+import { NOT_FOUND, PERSONAL_LINE_TOOL_NAME, type Dossier } from "@clearpath/shared";
 import { leads } from "../src/db/schema";
-import { makeHarness, PORT, WRITER_ANSWER } from "./fixtures/app-harness";
+import { makeHarness, PORT } from "./fixtures/app-harness";
 import { strongDossier } from "./fixtures/dossiers";
 
 /**
- * Every path that ends without a clean sequence must leave a plain reason the lead page shows:
- * gates, tier C templates, validator-blocked drafts, unusable model output, spend cap, broken
- * settings, rejected requests, and a failure inside a background job.
+ * Every path that ends without a sequence leaves a plain reason the lead page shows. Anything the code
+ * can repair (a model line that fails the checks, an unreadable answer, an API error, the spend cap)
+ * is repaired with the docs/09 fallback line and a note, never shown as a failure.
  */
 function insertLead(h: ReturnType<typeof makeHarness>, id: string, d: Dossier, tier: "A" | "B" | "C" = "B") {
   h.db.insert(leads).values({ id, source: "web", status: "extracted", tier, score: 60, gateStatus: d.gate.status, dossierJson: JSON.stringify(d) }).run();
 }
-
-const BAD = { emails: WRITER_ANSWER.emails.map((e) => (e.n === 1 ? { ...e, opening: "Great news for your firm!" } : e)) };
+const lineCalls = (h: ReturnType<typeof makeHarness>) => h.calls.filter((c) => JSON.stringify(c.tools).includes(PERSONAL_LINE_TOOL_NAME));
 
 describe("why no sequence was written: always visible on the lead page", { timeout: 60_000 }, () => {
   it("out_of_icp and needs_review: 409 with a plain reason and how to proceed; logged; the override clears it", async () => {
@@ -41,77 +40,45 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     }
   });
 
-  it("tier C: a template sequence (no model call) is written and listed on the Sequences screen", async () => {
+  it("tier C: docs/09 copy with the fallback line (no model call), listed on the Sequences screen", async () => {
     const h = makeHarness();
     try {
-      // A qualified lead that scores tier C (too few signals found).
       const c = strongDossier({ size_signal: NOT_FOUND, decision_maker: NOT_FOUND, people: [], services: NOT_FOUND, personal_email_domain_on_site: NOT_FOUND, client_portal_or_doc_exchange: NOT_FOUND, security_mention_search: "NOT_CHECKED" });
       insertLead(h, "L-c", { ...c, dns: { ...c.dns, dmarc_present: NOT_FOUND } }, "C");
       const w = await h.call("POST", "/api/leads/L-c/sequence");
       expect(w.status).toBe(200);
       const seq = (await h.call("GET", `/api/sequences/${w.json.id}`)).json;
-      expect(seq).toMatchObject({ kind: "template", judgeRequired: false, tier: "C" });
-      expect(seq.sequence.emails.every((e: { template: boolean }) => e.template)).toBe(true);
-      const list = (await h.call("GET", "/api/sequences")).json;
-      expect(list).toMatchObject([{ leadId: "L-c", kind: "template", tier: "C" }]);
-      expect(h.calls.filter((c) => JSON.stringify(c.tools).includes("write_sequence"))).toHaveLength(0);
+      expect(seq).toMatchObject({ kind: "template", judgeRequired: false, tier: "C", rewritable: [], personalLine: { source: "fallback" } });
+      expect((await h.call("GET", "/api/sequences")).json).toMatchObject([{ leadId: "L-c", kind: "template", tier: "C" }]);
+      expect(lineCalls(h)).toHaveLength(0);
     } finally {
       h.cleanup();
     }
   });
 
-  it("validator-blocked drafts are returned in full with their errors (both drafts kept), not hidden", async () => {
-    const h = makeHarness({ writer: BAD });
+  it.each([
+    ["a line that fails the checks", { line: { personal_line: "Great news for your firm!" } }, /did not pass the checks/],
+    ["an unreadable answer", { line: { oops: true } }, /could not be read/],
+    [
+      "an API error",
+      {
+        line: () => {
+          throw new Error("model endpoint unavailable");
+        },
+      },
+      /the model was not used \(.*model endpoint unavailable/,
+    ],
+    ["the monthly spend cap", { capUsd: 0.000001 }, /the model was not used \(.*cap/i],
+  ])("%s: repaired with the fallback line, approvable, and the note says why (not an error)", async (_label, opts, note) => {
+    const h = makeHarness(opts as Parameters<typeof makeHarness>[0]);
     try {
-      insertLead(h, "L-bad", strongDossier());
-      const r = await h.call("POST", "/api/leads/L-bad/sequence");
+      insertLead(h, "L-fb", strongDossier());
+      const r = await h.call("POST", "/api/leads/L-fb/sequence");
       expect(r.status).toBe(200);
-      expect(r.json.validationPass).toBe(false);
-      expect(r.json.sequence.emails[0].body).toContain("Great news for your firm!");
-      expect(r.json.issues.map((i: { code: string }) => i.code)).toContain("exclamation");
-      expect(r.json.drafts).toHaveLength(2);
-      expect(r.json.drafts[0].errors.length).toBeGreaterThan(0);
-      expect((await h.call("GET", "/api/leads/L-bad")).json.lastWriteAttempt.detail).toMatch(/^Written, needs fixes: .*code validators failed/);
-    } finally {
-      h.cleanup();
-    }
-  });
-
-  it("an unusable rewrite keeps the first draft on screen (the old behavior returned nothing)", async () => {
-    const h = makeHarness({ writer: (n: number) => (n === 0 ? BAD : { oops: true }) });
-    try {
-      insertLead(h, "L-keep", strongDossier());
-      const r = await h.call("POST", "/api/leads/L-keep/sequence");
-      expect(r.status).toBe(200);
-      expect(r.json.sequence.emails[0].body).toContain("Great news for your firm!");
-      expect(r.json.drafts[1].formatProblem).toMatch(/writer output invalid/);
-      expect((await h.call("GET", "/api/leads/L-keep")).json.lastWriteAttempt.detail).toMatch(/rewrite could not be used.*first draft is shown with its errors/);
-    } finally {
-      h.cleanup();
-    }
-  });
-
-  it("two unusable answers fall back to the template emails, labeled, instead of nothing", async () => {
-    const h = makeHarness({ writer: { oops: true } });
-    try {
-      insertLead(h, "L-tpl", strongDossier());
-      const r = await h.call("POST", "/api/leads/L-tpl/sequence");
-      expect(r.status).toBe(200);
-      expect(r.json.kind).toBe("template");
-      expect((await h.call("GET", "/api/leads/L-tpl")).json.lastWriteAttempt.detail).toMatch(/template emails are shown instead/);
-    } finally {
-      h.cleanup();
-    }
-  });
-
-  it("spend-cap refusal: a plain 409 and the reason stays on the lead page", async () => {
-    const h = makeHarness({ capUsd: 0.000001 });
-    try {
-      insertLead(h, "L-cap", strongDossier());
-      const r = await h.call("POST", "/api/leads/L-cap/sequence");
-      expect(r.status).toBe(409);
-      expect(r.json.error).toMatch(/cap/i);
-      expect((await h.call("GET", "/api/leads/L-cap")).json.lastWriteAttempt.detail).toMatch(/^Not written: .*cap/i);
+      expect(r.json).toMatchObject({ validationPass: true, personalLine: { source: "fallback" } });
+      expect(r.json.personalLine.note).toMatch(note);
+      expect(r.json.sequence.emails[0].body).not.toContain("Great news");
+      expect((await h.call("GET", "/api/leads/L-fb")).json.lastWriteAttempt).toBeNull();
     } finally {
       h.cleanup();
     }
@@ -122,11 +89,12 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     try {
       insertLead(h, "L-set", strongDossier());
       const f = path.join(h.docsDir, "01_offer_and_icp.md");
-      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace('"cta_type": "checklist"', '"cta_type": "brochure"'));
+      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace('"checklist_ready": false', '"checklist_ready": "no"'));
       const r = await h.call("POST", "/api/leads/L-set/sequence");
       expect(r.status).toBe(400);
       expect(r.json.error).toMatch(/01_offer_and_icp\.md clearpath:offer is invalid/);
       expect(r.json.error).not.toMatch(/\bat\s+\S+\.ts:\d+/);
+      expect((await h.call("GET", "/api/leads/L-set")).json.lastWriteAttempt.detail).toMatch(/^Not written: /);
     } finally {
       h.cleanup();
     }
@@ -145,22 +113,27 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     }
   });
 
-  it("a failure while a background job writes: the job says so and the lead page keeps the reason", async () => {
-    const h = makeHarness({ writer: () => {
-      throw new Error("model endpoint unavailable");
-    } });
+  it("a background job: a model error is repaired; a broken docs/09 file fails the write with a plain reason", async () => {
+    const h = makeHarness({
+      line: () => {
+        throw new Error("model endpoint unavailable");
+      },
+    });
     try {
       const job = (await h.call("POST", "/api/jobs", { mode: "web", urls: ["smithtax.example"] })).json;
       await h.jobs.idle();
-      const item = (await h.call("GET", `/api/jobs/${job.id}`)).json.items[0];
-      expect(item.state).toBe("failed");
-      expect(item.message).toMatch(/^Research done, but the sequence was not written: /);
-      const detail = (await h.call("GET", "/api/leads/lead-smithtax-example")).json;
-      expect(detail.lastWriteAttempt.detail).toMatch(/^Not written: /);
-      expect(detail.sequenceId).toBeNull();
+      expect((await h.call("GET", `/api/jobs/${job.id}`)).json.items[0]).toMatchObject({ state: "done", sequenceStatus: "passed" });
+
+      const f = path.join(h.docsDir, "09_sequences.md");
+      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("## Email 5", "## Notes"));
+      await h.call("POST", "/api/jobs", { mode: "web", urls: ["smithtax.example/other"] });
+      await h.jobs.idle();
+      const again = (await h.call("POST", "/api/leads/lead-smithtax-example/sequence"));
+      expect(again.status).toBe(400);
+      expect(again.json.error).toMatch(/09_sequences\.md: missing "## Email 5"/);
+      expect((await h.call("GET", "/api/leads/lead-smithtax-example")).json.lastWriteAttempt.detail).toMatch(/^Not written: .*09_sequences\.md/);
     } finally {
       h.cleanup();
     }
   });
 });
-
