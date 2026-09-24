@@ -42,10 +42,20 @@ export interface ValidationContext {
    * sentence must appear in these facts (no invented deadlines, counts, or section numbers).
    */
   verifiedFacts?: RegulatoryFact[];
+  /**
+   * docs/02 approved sentences (text). When present, writer emails may state regulatory or insurer
+   * facts only through these exact sentences, and may use universal quantifiers only inside them.
+   */
+  approvedSentences?: string[];
+  /** The one detail field the code gave the writer for each email (null = none). */
+  assignedDetails?: Record<number, string | null>;
 }
 
-/** Dossier fields used for addressing (greeting, firm name) that do not count as a personal detail. */
-const ADDRESSING_FIELDS: ReadonlySet<string> = new Set(["firm_name", "firm_type", "decision_maker", "people"]);
+/**
+ * Fields that do not count as a personal detail: addressing (greeting, firm name, type), the city or
+ * state as a free contextual reference, and the code-worded DNS observation (a security observation).
+ */
+const ADDRESSING_FIELDS: ReadonlySet<string> = new Set(["firm_name", "firm_type", "decision_maker", "people", "location", "dns_observation"]);
 
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 const PLACEHOLDER_RE = /\{\{[^}]*\}\}|\[[^\]]*\]/;
@@ -82,9 +92,39 @@ export function bodySentences(body: string): string[] {
     .filter((s) => /\w/.test(s));
 }
 
-/** The full email as sent: body, sign-off, opt-out line, address. */
+/** The signature and footer lines from docs/01, in order (empty values left out). */
+export function signatureLines(offer: OfferConfig): string[] {
+  const signature = [offer.sender_name, offer.sender_title, offer.company_name, offer.company_website].map((l) => l.trim()).filter(Boolean);
+  const footer = [offer.opt_out_line, offer.physical_address].map((l) => l.trim()).filter(Boolean);
+  return footer.length > 0 ? [...signature, "", ...footer] : signature;
+}
+
+/** The full email as sent: body, then sender name, title, company, website, opt-out line, address (docs/01). */
 export function renderEmail(body: string, offer: OfferConfig): string {
-  return [body.trim(), "", offer.sender_name, offer.opt_out_line, offer.physical_address].join("\n").trimEnd();
+  return [body.trim(), "", ...signatureLines(offer)].join("\n").trimEnd();
+}
+
+/** Terms that make a sentence regulatory (only approved docs/02 sentences may contain them). */
+export const REGULATORY_SENTENCE_RE =
+  /\b(ftc|safeguards?|irs|pub(lication)?\.?\s*4557|4557|wisps?|penalt(y|ies)|fines?|fined|required|requires?|requirements?|must|compliance|compliant|regulations?|regulators?|regulatory|law|laws|legally|cfr)\b/i;
+/** Assertions about insurers are regulatory-type claims; questions about them are allowed. */
+export const INSURER_RE = /\b(insurers?|insurance|underwriters?|carriers?|renewals?|policyholders?)\b/i;
+export const QUANTIFIER_RE = /\b(all|every|always)\b|\bgenerally covered\b/i;
+
+/**
+ * Allowlist check for writer emails: every sentence that mentions a regulatory term, asserts what
+ * insurers do, or uses a universal quantifier must be one of the approved docs/02 sentences, verbatim.
+ */
+export function unapprovedSentences(body: string, approved: string[]): { sentence: string; code: string }[] {
+  const ok = new Set(approved.map((a) => normalizeText(a).toLowerCase()));
+  const out: { sentence: string; code: string }[] = [];
+  for (const sentence of bodySentences(body)) {
+    if (ok.has(normalizeText(sentence).toLowerCase())) continue;
+    if (REGULATORY_SENTENCE_RE.test(sentence)) out.push({ sentence, code: "unapproved_regulatory_sentence" });
+    else if (INSURER_RE.test(sentence) && !sentence.trim().endsWith("?")) out.push({ sentence, code: "unapproved_insurer_claim" });
+    if (QUANTIFIER_RE.test(sentence)) out.push({ sentence, code: "universal_quantifier" });
+  }
+  return out;
 }
 
 function checkText(
@@ -248,6 +288,25 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
 
   checkProof(n, e.body, ctx, issues);
   checkDns(e, ctx, issues);
+  const questions = (e.body.match(/\?/g) ?? []).length;
+  if (questions > 1) err("too_many_questions", `${questions} questions (max one per email)`);
+  // The company name comes only from docs/01 (the signature); a variant in the text is invented.
+  for (const m of e.body.matchAll(/\bclear\s*path(?:\s+(?:it|secure|security|technologies|solutions))?\b/gi)) {
+    if (!ctx.offer.company_name || normalizeText(m[0]) !== normalizeText(ctx.offer.company_name)) {
+      err("company_name", `names the company as "${m[0]}"; only docs/01 company_name ("${ctx.offer.company_name}") may be used`);
+    }
+  }
+  if (!e.template && ctx.approvedSentences) {
+    for (const hit of unapprovedSentences(e.body, ctx.approvedSentences)) {
+      const what =
+        hit.code === "universal_quantifier"
+          ? "uses all/every/always/generally covered outside an approved docs/02 sentence"
+          : hit.code === "unapproved_insurer_claim"
+            ? "asserts what insurers do; only approved docs/02 sentences may (ask instead)"
+            : "is a regulatory sentence that is not an approved docs/02 sentence";
+      err(hit.code, `${what}: "${hit.sentence}"`);
+    }
+  }
   if (ctx.verifiedFacts) {
     for (const hit of unverifiedRegulatoryNumbers(e.body, ctx.verifiedFacts)) {
       err("unverified_regulatory_number", `regulatory sentence uses ${hit.numbers.join(", ")}, not in the VERIFIED docs/02 facts: "${hit.sentence}"`);
@@ -264,6 +323,12 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   if (e.subject_b) checkSubject(n, "B", e.subject_b, ctx, issues);
 
   const details = e.grounding.filter((f) => !ADDRESSING_FIELDS.has(f));
+  const assigned = ctx.assignedDetails?.[n];
+  if (!e.template && assigned !== undefined) {
+    for (const f of details) {
+      if (f !== assigned) err("unassigned_detail", `uses ${f}, but the detail given for this email was ${assigned ?? "none"}`);
+    }
+  }
   if (details.length > style.max_personal_details_per_email) {
     err(
       "too_many_details",
@@ -328,12 +393,12 @@ export function validateSequence(seq: Sequence, ctx: ValidationContext): Validat
     }
   });
 
-  if (ctx.offer.opt_out_line === "" || ctx.offer.physical_address === "") {
+  if ([ctx.offer.opt_out_line, ctx.offer.physical_address, ctx.offer.sender_title, ctx.offer.company_name, ctx.offer.company_website].some((v) => v.trim() === "")) {
     issues.push({
       severity: "warning",
       email: null,
       code: "footer_incomplete",
-      message: "opt_out_line or physical_address is empty in docs/01; export is blocked until both are set",
+      message: "a signature or footer setting (sender_title, company_name, company_website, opt_out_line, physical_address) is empty in docs/01; export is blocked until all are set",
     });
   }
 

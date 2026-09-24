@@ -110,7 +110,19 @@ The app reads and writes only the block below (Settings screen). Validators enfo
     "IRS-approved",
     "IRS approved",
     "government-approved",
-    "final notice"
+    "final notice",
+    "good sign",
+    "to-do list",
+    "todo list",
+    "falling behind",
+    "fall behind",
+    "you're behind",
+    "you are behind",
+    "not compliant",
+    "non-compliant",
+    "noncompliant",
+    "at risk",
+    "exposed"
   ],
   "allowed_acronyms": [
     "WISP",

@@ -44,6 +44,8 @@ export interface ResearchDeps {
   now: () => Date;
   /** Ignore the page, robots, and extraction caches (fresh fetch and fresh model call). */
   refresh?: boolean;
+  /** docs/01 allow_generic_inbox_outreach. When false, generic-inbox leads become needs_direct_contact. */
+  allowGenericInbox?: boolean;
 }
 
 export interface ResearchReport {
@@ -251,6 +253,7 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
 
   const dossier = assembleDossier(p, facts, { failures, findings }, deps);
   const score = scoreDossier(dossier, deps.scoring, deps.now());
+  if (status === "extracted" && dossier.public_email_kind === "generic_inbox" && !deps.allowGenericInbox) status = "needs_direct_contact";
   saveLead(deps.db, p.leadId, {
     status,
     error,

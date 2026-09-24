@@ -61,28 +61,31 @@ export const WRITER_GROUNDING = [
 ] as const;
 export type WriterGrounding = (typeof WRITER_GROUNDING)[number];
 
-/** One email as the writer model returns it. The code adds the greeting, sign-off, footer, and send day. */
+/**
+ * One email as the writer model returns it: only its own words around the slot. The code adds the
+ * greeting, inserts the approved docs/02 sentence (when the email has a slot) between opening and
+ * closing, and appends the signature and footer.
+ */
 export const WriterEmailSchema = z
   .object({
     n: z.number().int().min(1).max(5).describe("Email number."),
     subject_a: z.string().trim().min(1).nullable().describe("Email 1 only: subject line A (lowercase). null for emails 2-5."),
     subject_b: z.string().trim().min(1).nullable().describe("Email 1 only: subject line B (lowercase). null for emails 2-5."),
-    body: z
+    opening: z
       .string()
       .trim()
       .min(1)
-      .describe("The email text after the greeting and before the sign-off. No greeting line, no sign-off, no name, no opt-out line."),
-    grounding: z
-      .array(z.enum(WRITER_GROUNDING))
-      .describe("Every prospect fact this email uses. At most one besides firm_name and firm_type."),
+      .describe("Text before the slot: the first sentence(s) after the greeting. No greeting line."),
+    closing: z
+      .string()
+      .trim()
+      .describe("Text after the slot, ending the email (the one question or the ask). No sign-off, no name. Empty string only if the email has no slot."),
   })
   .strict();
 export type WriterEmail = z.infer<typeof WriterEmailSchema>;
 
 export const WriterOutputSchema = z
   .object({
-    persona: z.string().trim().min(1).max(80).describe("The docs/08 persona heading this sequence is written for."),
-    angle: z.string().regex(/^[a-z0-9_]+$/).describe("One angle from allowed_angles."),
     emails: z.array(WriterEmailSchema).min(1).max(5).describe("Exactly the emails listed in emails_to_write, in order."),
   })
   .strict();

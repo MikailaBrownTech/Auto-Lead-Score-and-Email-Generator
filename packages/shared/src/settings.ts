@@ -5,6 +5,11 @@ import { FIRM_TYPES, FirmTypeSchema } from "./dossier";
 export const OfferConfigSchema = z
   .object({
     sender_name: z.string().trim().min(1),
+    /** Signature lines under the sender name. Empty values block export (like the footer). */
+    sender_title: z.string().default(""),
+    /** The only company name an email may use; the writer never invents one. */
+    company_name: z.string().default(""),
+    company_website: z.string().default(""),
     cta_url: z.string().url(),
     opt_out_line: z.string(),
     physical_address: z.string(),
@@ -17,6 +22,13 @@ export const OfferConfigSchema = z
      * only), and only when the domain has MX records. Default false: no DNS remarks.
      */
     include_dns_observation: z.boolean().default(false),
+    /** Email 3 offers the checklist by reply. While false, a sequence with email 3 is blocked from export. */
+    checklist_ready: z.boolean().default(false),
+    /**
+     * Override: allow approval and export for leads whose only public address is a generic inbox
+     * (info@, office@). Default false: such leads are needs_direct_contact.
+     */
+    allow_generic_inbox_outreach: z.boolean().default(false),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
@@ -173,6 +185,31 @@ export const EvidenceConfigSchema = z
   })
   .strict();
 export type EvidenceConfig = z.infer<typeof EvidenceConfigSchema>;
+
+/**
+ * docs/02 `clearpath:regulatory` block: the only regulatory (and insurer) sentences an email may
+ * contain. Code inserts them verbatim into slots; the writer never writes regulatory sentences.
+ * Each restates one VERIFIED docs/02 line (source = that line's opening words).
+ */
+export const ApprovedSentenceSchema = z
+  .object({
+    id: z.string().regex(/^[a-z0-9_]+$/),
+    text: z.string().trim().min(1),
+    /** Opening words of the VERIFIED docs/02 line this sentence restates. */
+    source: z.string().trim().min(1),
+    /** Email numbers whose slot may use it (1 observation, 2 requirement, 4 checklist). */
+    emails: z.array(z.number().int().min(1).max(5)).min(1),
+    /** Firm types it fits ("any" for all). The first matching sentence fills the slot. */
+    firm_types: z.array(z.enum([...FIRM_TYPES, "any"])).min(1),
+  })
+  .strict();
+export type ApprovedSentence = z.infer<typeof ApprovedSentenceSchema>;
+
+export const RegulatoryConfigSchema = z
+  .object({ approved_sentences: z.array(ApprovedSentenceSchema).min(1) })
+  .strict()
+  .refine((c) => new Set(c.approved_sentences.map((s) => s.id)).size === c.approved_sentences.length, "approved sentence ids must be unique");
+export type RegulatoryConfig = z.infer<typeof RegulatoryConfigSchema>;
 
 /** A docs/02 line carrying the exact VERIFIED marker. Only these may reach the writer. */
 export interface RegulatoryFact {

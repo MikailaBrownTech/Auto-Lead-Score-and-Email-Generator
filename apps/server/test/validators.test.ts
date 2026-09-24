@@ -147,8 +147,9 @@ describe("validateSequence", () => {
     expect(codes(withEmail(1, { subject_a: "re: your plan" }))).toContain("fake_reply");
   });
 
-  it("allows at most one personal detail per email (firm name and greeting don't count)", () => {
-    expect(codes(withEmail(1, { grounding: ["firm_name", "services", "location"] }))).toContain("too_many_details");
+  it("allows at most one personal detail per email (firm name, greeting, and city/state don't count)", () => {
+    expect(codes(withEmail(1, { grounding: ["firm_name", "services", "software_mentioned"] }))).toContain("too_many_details");
+    expect(codes(withEmail(1, { grounding: ["firm_name", "services", "location"] }))).not.toContain("too_many_details");
     expect(codes(withEmail(1, { grounding: ["firm_name", "decision_maker", "services"] }))).not.toContain(
       "too_many_details",
     );
@@ -256,9 +257,10 @@ ${sentence}` }))).toContain("dollar_amount");
     expect(r.issues.find((i) => i.code === "footer_incomplete")?.severity).toBe("warning");
   });
 
-  it("renders the footer from docs/01", () => {
+  it("renders the signature and footer from docs/01", () => {
     const text = renderEmail("Hi Jane,\nBody.", offer);
-    expect(text).toBe(`Hi Jane,\nBody.\n\nMikaila Brown\n${offer.opt_out_line}\n${offer.physical_address}`);
+    const signature = [offer.sender_name, offer.sender_title, offer.company_name, offer.company_website].filter(Boolean).join("\n");
+    expect(text).toBe(`Hi Jane,\nBody.\n\n${signature}\n\n${offer.opt_out_line}\n${offer.physical_address}`);
   });
 
   it("splits sentences without counting the greeting", () => {

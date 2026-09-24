@@ -33,7 +33,8 @@ export const runs = sqliteTable(
   (t) => [index("runs_created_at_idx").on(t.createdAt), index("runs_lead_id_idx").on(t.leadId), index("runs_prefix_key_idx").on(t.prefixKey)],
 );
 
-export const LEAD_STATUSES = ["new", "researching", "extracted", "budget_exceeded", "failed"] as const;
+/** needs_direct_contact: extracted, but the only public address is a generic inbox (approval and export blocked). */
+export const LEAD_STATUSES = ["new", "researching", "extracted", "needs_direct_contact", "budget_exceeded", "failed"] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
 export const leads = sqliteTable("leads", {

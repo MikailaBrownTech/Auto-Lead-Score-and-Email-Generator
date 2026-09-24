@@ -11,7 +11,7 @@ List every claim in the emails that is not supported. A claim is unsupported whe
 - it mentions a personal detail (family, health, religion, home) (personal_detail).
 - it guarantees compliance or security, or uses fines, threats, or urgency (guarantee_or_fear).
 
-Facts about ClearPath IT's own services from the offer below are supported. Generic, obviously true statements are fine. Do not judge style or length; code checks those.
+Sentences listed under approved_sentences were inserted by code from verified sources and are supported; check everything else. Facts about ClearPath IT's own services from the offer below are supported. Generic, obviously true statements are fine. Do not judge style or length; code checks those.
 
 Quote each claim briefly. If nothing is unsupported, return an empty list. Call record_judgment exactly once. Do not write any other text.
 

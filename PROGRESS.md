@@ -12,10 +12,14 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       declined_automated_access, url_date freshness + one dated post, generic inboxes, role_unconfirmed,
       security mention definition, recent_signal removed, over-long verbatim quotes cut by code, plural
       keywords; 4 sites re-recorded as fixtures
-- [x] M4 Writer + judge (no UI), CLI `npm run write-sequence -- <url>`. AWAITING FOUNDER REVIEW
+- [x] M4 Writer + judge (no UI), CLI `npm run write-sequence -- <url> [<url>...]`
+- [x] M4 review round 1: constrained writer input, regulatory allowlist (docs/02 approved sentences),
+      insurer/quantifier/question/evaluation checks, signature block, needs_direct_contact,
+      checklist_ready, email 3 wording, report mode with every draft. AWAITING: live run on the two
+      extra sites the founder will provide, then founder review. Do not start the UI.
 - [ ] M5 UI, M6 Results + settings, M7 Hardening
 
-Tests: 427 passing in 24 files (vitest). Typecheck clean (strict). Month to date about $0.54 of $5.
+Tests: 437 passing in 24 files (vitest). Typecheck clean (strict). Month to date about $0.60 of $5.
 
 ## Key decisions and settings
 - Gates (docs/06): out_of_icp when staff_count > max_staff_for_sequence (60) or target_industry_fit
@@ -31,8 +35,27 @@ Tests: 427 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - Public email: 10 pts when tied to a named person, 5 for generic_inbox or unattributed (docs/06
   partial_points, generic_inbox_prefixes). A generic inbox is never greeted by name.
 - Decision maker: 10 pts only when the title is on the preference list; else 5 + role_unconfirmed.
-- 403/429 from a prospect site (robots.txt included): stop that host for the run, never retry, same UA,
-  paste-text prompt in the report. Extraction uses the pages already fetched.
+- 403/429 from a prospect site: stop that host for the run, never retry, same UA, paste-text prompt in
+  the report. Extraction uses the pages already fetched. INTENTIONAL (founder decision): robots.txt
+  answering 403/429 is treated the same way (strict), not as "no robots.txt".
+- Writer input is chosen by code: firm name, firm type (qualifying type leads), docs/08 persona, the
+  type's first angle, the code greeting, city/state as free context, and exactly one ranked detail for
+  emails 1 and 2 (service naming the firm type > other service > software > "a team of N"). Never
+  people or dollar figures. City/state does not count as a detail; any other detail is rejected.
+- Regulatory content by allowlist: docs/02 `clearpath:regulatory` approved sentences (each restates a
+  VERIFIED line; unverified or money/penalty ones are excluded) are inserted verbatim by code into slots
+  (email 1 applicability, email 2 one requirement, email 4 checklist). The writer writes only the
+  opening and closing around the slot. Writer emails are rejected for any other sentence with
+  FTC/Safeguards/IRS/Pub 4557/WISP/penalty/fine/required/must/compliance terms, any insurer assertion
+  (questions allowed), and all/every/always/"generally covered". Templates (docs/09) are fixed text,
+  exempt from the allowlist but checked by every other validator. The judge is a second layer.
+- No thinking, one rewrite at most. Unknown extra keys in writer output are ignored; missing fields fail.
+- Every email: at most one question; banned evaluative phrases (docs/03); company name only from docs/01.
+- Signature from docs/01: sender_name, sender_title, company_name, company_website, then opt_out_line
+  and physical_address (founder fills the last two).
+- Generic-inbox leads: lead status needs_direct_contact; approval and export blocked until a person-tied
+  address is provided (paste mode, M5) or docs/01 allow_generic_inbox_outreach is true.
+- checklist_ready (docs/01, default false): while false, sequences with email 3 are blocked from export.
 - services/software: plain lists from the model; code keeps items found (normalized, whole phrase) in
   a fetched page's full text; evidence = {item, evidence_url}. Never retried.
 - Over-long quotes that are verbatim are cut by code to the first 15-word window holding the value
@@ -53,17 +76,16 @@ Tests: 427 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - Page cache and robots.txt answers reused for PAGE_CACHE_DAYS (7). Crawl-delay > 10s skips a site.
 
 ## Known open issues
-1. Writer quality (live, innercircle, 3 runs): Sonnet with thinking off stacks details (service + city)
-   even after the one rewrite, and overstates coverage ("CPA firms are generally covered", "usually").
-   Validators catch the stacking; the judge missed the overstatement. Options: adaptive thinking with
-   tool_choice auto, drop location from the email-1 input, a second rewrite. Founder to decide.
-2. cehcpas decision maker "President/Shareholder" is role_unconfirmed; "president" is not on the list.
+1. innercircle live (after round 1): first pass invalid (6-word subject B; an insurer-flavored sentence),
+   the one rewrite passed validators and judge. Subject length is the most common first-pass miss.
+2. sender_title "Founder", company_name "ClearPath IT", company_website https://www.clearpathsecure.com
+   were filled from docs/01 text and the CTA domain; founder to confirm.
 3. RBV qualifies via the tax_preparer keyword "tax filing"; confirm that keyword belongs in docs/06.
 4. innercircle.cpa answers 403 on /meet-our-team/; each new run requests it once more (per-run rule).
 5. Gated leads still get a score and tier; UI must show the gate first.
 6. Playwright fallback not built; JS-only pages are recorded as failures.
 7. Node 22.14 pins undici 7 and jsdom 29 (newer majors need Node 22.19+/22.22+).
-8. opt_out_line and physical_address are empty in docs/01; export stays blocked until set.
+8. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
 
 ## How to run (from repo root)
 - Tests: `npm test`  (offline; fixtures + fake network/API)
@@ -72,7 +94,9 @@ Tests: 427 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - Live extraction check: `npm run extract-live -- <url> [<url>...] [--refresh] [--record]`
   (batch: fetch all, then extract; `--record` saves regression fixtures). Full reports go to
   data/reports/<lead>.txt; the console shows only the summary.
-- Sequence for one lead: `npm run write-sequence -- <url> [--refresh]` -> data/reports/<lead>-sequence.txt
+- Sequences: `npm run write-sequence -- <url> [<url>...] [--refresh]` -> one summary line per lead;
+  report mode writes every draft (blocked ones too), validator errors, code-inserted approved sentences
+  marked apart from model text, judge, blockers, tokens, cost to data/reports/<lead>-sequence.txt
 - Dev: `npm run dev:server` (127.0.0.1:8787) and `npm run dev:web` (Vite 5173, proxies /api with token)
 - Migrations: `npm run db:generate` after editing apps/server/src/db/schema.ts
 
@@ -99,9 +123,9 @@ Tests: 427 passing in 24 files (vitest). Typecheck clean (strict). Month to date
 - apps/server/scripts/extract-live.ts, write-sequence.ts, smoke.ts
 - apps/server/test/fixtures/live/ - Pease Bell, cehcpas, innercircle, RBV recordings (byte-exact)
 
-## Next: founder review of M4, then M5 UI
-Do not start the UI until the founder approves M4. Open decisions: writer quality (issue 1), "president"
-in decision_maker_title_preferences, the robots.txt 403 rule, opt_out_line and physical_address.
+## Next
+Run `npm run write-sequence` on the two extra sites the founder provides (one summary line each),
+then founder review. Do not start the UI until the founder approves.
 
 ## Never break
 - Every fact: evidence (url + verbatim quote <= 15 words, value inside its quote) or NOT_FOUND; enforced

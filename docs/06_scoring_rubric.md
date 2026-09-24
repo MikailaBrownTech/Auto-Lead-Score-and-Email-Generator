@@ -295,11 +295,16 @@ RULE: score only from fields with evidence. NOT_FOUND earns zero points and neve
   "decision_maker_title_preferences": [
     "managing partner",
     "owner",
+    "founder",
+    "president",
+    "ceo",
+    "managing member",
     "principal",
+    "shareholder",
+    "partner",
     "firm administrator",
     "office manager",
-    "coo",
-    "partner"
+    "coo"
   ],
   "generic_inbox_prefixes": [
     "info",

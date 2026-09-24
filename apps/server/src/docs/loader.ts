@@ -1,6 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  normalizeText,
+  RegulatoryConfigSchema,
+  type ApprovedSentence,
+  type RegulatoryConfig,
   OfferConfigSchema,
   EvidenceConfigSchema,
   ScoringConfigSchema,
@@ -101,6 +105,43 @@ export function writerFacts(facts: RegulatoryFact[]): RegulatoryFact[] {
   return facts.filter((f) => !isMoneyOrPenaltyFact(f.text));
 }
 
+export function parseRegulatory(markdown: string): RegulatoryConfig {
+  return parseWith(RegulatoryConfigSchema, readBlock(markdown, "regulatory", DOC_FILES.regulatory), `${DOC_FILES.regulatory} clearpath:regulatory`);
+}
+
+/** At most this many words in an approved sentence (it has to fit an email slot). */
+export const MAX_APPROVED_SENTENCE_WORDS = 40;
+
+/**
+ * The approved sentences that may be inserted: each must restate a VERIFIED docs/02 line (its
+ * source matches the start of that line), be one sentence, and mention no money or penalties.
+ * Anything else is excluded with a reason (shown in reports and on the Settings screen).
+ */
+export function usableApprovedSentences(markdown: string): { sentences: ApprovedSentence[]; excluded: { id: string; reason: string }[] } {
+  const config = parseRegulatory(markdown);
+  const verified = parseVerifiedFacts(markdown);
+  const norm = (s: string) => normalizeText(s).toLowerCase();
+  const sentences: ApprovedSentence[] = [];
+  const excluded: { id: string; reason: string }[] = [];
+  for (const s of config.approved_sentences) {
+    const fact = verified.find((f) => norm(f.text).startsWith(norm(s.source)));
+    const reason = !fact
+      ? `source "${s.source}" is not the start of a VERIFIED docs/02 line`
+      : isMoneyOrPenaltyFact(fact.text) || isMoneyOrPenaltyFact(s.text)
+        ? "mentions money or penalties"
+        : !/[.?]$/.test(s.text) || /[.?!]\s+\S/.test(s.text)
+          ? "must be exactly one sentence"
+          : s.text.split(/\s+/).length > MAX_APPROVED_SENTENCE_WORDS
+            ? `longer than ${MAX_APPROVED_SENTENCE_WORDS} words`
+            : null;
+    if (reason) excluded.push({ id: s.id, reason });
+    else sentences.push(s);
+  }
+  return { sentences, excluded };
+}
+
+export const loadApprovedSentences = (docsDir = DOCS_DIR) => usableApprovedSentences(readDoc(docsDir, DOC_FILES.regulatory));
+
 export const loadOffer = (docsDir = DOCS_DIR) => parseOffer(readDoc(docsDir, DOC_FILES.offer));
 export const loadStyle = (docsDir = DOCS_DIR) => parseStyle(readDoc(docsDir, DOC_FILES.style));
 export const loadScoring = (docsDir = DOCS_DIR) => parseScoring(readDoc(docsDir, DOC_FILES.scoring));
@@ -113,6 +154,7 @@ const BLOCKS = {
   style: { file: DOC_FILES.style, parse: parseStyle, schema: StyleConfigSchema },
   scoring: { file: DOC_FILES.scoring, parse: parseScoring, schema: ScoringConfigSchema },
   evidence: { file: DOC_FILES.scoring, parse: parseEvidence, schema: EvidenceConfigSchema },
+  regulatory: { file: DOC_FILES.regulatory, parse: parseRegulatory, schema: RegulatoryConfigSchema },
 } as const;
 export type BlockName = keyof typeof BLOCKS;
 

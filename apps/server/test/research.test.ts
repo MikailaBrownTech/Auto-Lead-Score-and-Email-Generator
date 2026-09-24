@@ -81,7 +81,10 @@ describe("researchWebLead on the smithtax fixture", () => {
     const deps = makeDeps(web, api);
     const r = await researchWebLead("L-smith", "smithtax.example", deps);
 
-    expect(r.status).toBe("extracted");
+    // office@ is the only public address: a generic inbox, so the lead needs a direct contact.
+    expect(r.status).toBe("needs_direct_contact");
+    expect(r.dossier.public_email_kind).toBe("generic_inbox");
+    expect((await researchWebLead("L-smith2", "smithtax.example", { ...deps, allowGenericInbox: true, fetch: { ...deps.fetch, limiter: fakeLimiter().limiter } })).status).toBe("extracted");
     expect(DossierSchema.safeParse(r.dossier).success).toBe(true);
     expect(r.dossier.pages_opened).toEqual([SMITH.HOME, SMITH.ABOUT, SMITH.SERVICES, "https://smithtax.example/contact", SMITH.PRIVACY]);
     expect(r.dossier.firm_name).toMatchObject({ value: "Smith Tax Services" });
@@ -93,7 +96,7 @@ describe("researchWebLead on the smithtax fixture", () => {
     expect(r.score.total).toBeGreaterThan(0);
 
     const lead = deps.db.select().from(leads).where(eq(leads.id, "L-smith")).get()!;
-    expect(lead).toMatchObject({ status: "extracted", score: r.score.total, tier: r.score.tier });
+    expect(lead).toMatchObject({ status: "needs_direct_contact", score: r.score.total, tier: r.score.tier });
     expect(JSON.parse(lead.dossierJson!)).toEqual(r.dossier);
 
     const logged = deps.db.select().from(runs).all();
@@ -231,9 +234,9 @@ describe("researchWebLead on the smithtax fixture", () => {
     // Budget fits one run but not two; the rerun (refresh) must still be allowed.
     const deps = makeDeps(sampleWeb(), api, { budget: 6000 });
     const first = await researchWebLead("L-budget", "smithtax.example", deps);
-    expect(first.status).toBe("extracted");
+    expect(first.status).toBe("needs_direct_contact");
     const second = await researchWebLead("L-budget", "smithtax.example", { ...deps, refresh: true, fetch: { ...deps.fetch, limiter: fakeLimiter().limiter } });
-    expect(second.status).toBe("extracted");
+    expect(second.status).toBe("needs_direct_contact");
     expect(create).toHaveBeenCalledTimes(2);
   });
 

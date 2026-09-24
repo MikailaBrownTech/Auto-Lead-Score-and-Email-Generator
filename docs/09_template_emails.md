@@ -83,20 +83,20 @@ Following up on my note about the FTC Safeguards Rule. Its core requirements are
 
 ## Email 3 (day 7): offer the checklist or scorecard (by reply)
 
-The app picks the variant named by cta_type in docs/01 (default "checklist").
+The app picks the variant named by cta_type in docs/01 (default "checklist"). Neither variant assesses the firm. While checklist_ready in docs/01 is false, a sequence with email 3 is blocked from export.
 
 Checklist. Relies on docs/02: "Requires a written information security program ...". Assumes the one-page checklist can be sent by reply.
 
 ```text clearpath:template email3.checklist
 {{greeting}}
-I put together a one-page checklist of what the FTC Safeguards Rule asks for, in plain language, so you can see where {{firm_ref}} stands in a few minutes. It covers the written plan, the Qualified Individual, multi-factor authentication, encryption, and incident response. Want me to send it over?
+I put together a one-page checklist of what the FTC Safeguards Rule asks for, in plain language, so you can check your firm against it in a few minutes. It covers the written plan, the Qualified Individual, multi-factor authentication, encryption, and incident response. Want me to send it over?
 ```
 
 Scorecard. Relies on docs/02: "Requires a written information security program ...". Only used when cta_type is "scorecard"; do not switch until the scorecard exists.
 
 ```text clearpath:template email3.scorecard
 {{greeting}}
-I put together a 2-minute scorecard that checks the main Safeguards Rule items: a written plan, a Qualified Individual, multi-factor authentication, encryption, and an incident response plan. It shows where {{firm_ref}} stands without a call or a sales pitch. Want me to send it over?
+I put together a 2-minute scorecard that checks the main Safeguards Rule items: a written plan, a Qualified Individual, multi-factor authentication, encryption, and an incident response plan. You can check your firm against it on your own, without a call or a sales pitch. Want me to send it over?
 ```
 
 ## Email 4 (day 12): useful checklist (no founding-client offer is approved)

@@ -73,7 +73,8 @@ function allQuotes(d: Dossier): string[] {
 }
 
 function commonChecks(r: ResearchReport) {
-  expect(r.status).toBe("extracted");
+  // Generic-inbox leads (info@, marketing@) wait for a direct contact.
+  expect(r.status).toBe(r.dossier.public_email_kind === "generic_inbox" ? "needs_direct_contact" : "extracted");
   expect(DossierSchema.safeParse(r.dossier).success).toBe(true);
   const search = r.dossier.security_mention_search;
   if (search !== "NOT_CHECKED") expect(search.matches.map((m) => m.keyword)).not.toContain("secure portal");

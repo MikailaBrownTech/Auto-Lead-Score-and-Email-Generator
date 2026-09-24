@@ -17,7 +17,9 @@ const services = (...items: string[]): ExtractedFacts["services"] => ({ value: i
 
 describe("decision maker by title preference (docs/06)", () => {
   it("uses the preference list order", () => {
-    expect(evidence.decision_maker_title_preferences.slice(0, 3)).toEqual(["managing partner", "owner", "principal"]);
+    expect(evidence.decision_maker_title_preferences.slice(0, 4)).toEqual(["managing partner", "owner", "founder", "president"]);
+    for (const t of ["ceo", "shareholder", "principal", "managing member", "partner"]) expect(evidence.decision_maker_title_preferences).toContain(t);
+    expect(chooseDecisionMaker([person("Jim Bates", "President/Shareholder")], evidence.decision_maker_title_preferences)).toMatchObject({ value: { role_confirmed: true } });
     const dm = chooseDecisionMaker([person("Ann Lee", "Partner"), person("Bob Ray", "Office Manager"), person("Cy Oak", "Managing Partner")], evidence.decision_maker_title_preferences);
     expect(dm).toMatchObject({ value: { name: "Cy Oak", title: "Managing Partner" } });
   });
