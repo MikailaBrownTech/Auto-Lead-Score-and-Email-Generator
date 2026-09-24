@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { FIRM_TYPES, FirmTypeSchema } from "./dossier";
 
+/** Neutral greetings the founder can choose from (docs/01 neutral_greeting_style). */
+export const NEUTRAL_GREETING_STYLES = ["Hi there,", "Hi,", "Hi {{firm_name}} team,"] as const;
+export type NeutralGreetingStyle = (typeof NEUTRAL_GREETING_STYLES)[number];
+
 /** docs/01 `clearpath:offer` block. Placeholder values are normalized to empty by the loader. */
 export const OfferConfigSchema = z
   .object({
@@ -25,11 +29,10 @@ export const OfferConfigSchema = z
     /** Email 3 offers the checklist by reply. While false, a sequence with email 3 is blocked from export. */
     checklist_ready: z.boolean().default(false),
     /**
-     * Global override: allow approval and export for leads without a person-tied public address
-     * (generic inbox, unattributed address, or none). Default false: such leads are
-     * needs_direct_contact unless overridden per lead with a logged reason.
+     * Greeting used whenever the public address is not tied to a named person (generic inbox,
+     * unattributed address, no address, or a contact override). {{firm_name}} is filled in by code.
      */
-    allow_without_direct_contact: z.boolean().default(false),
+    neutral_greeting_style: z.enum(NEUTRAL_GREETING_STYLES).default("Hi there,"),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;

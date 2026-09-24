@@ -1,6 +1,6 @@
 # Email style guide
 
-STRUCTURE: greeting by first name if known (otherwise "Hi,"), 1 observation or question, 1 point of value, 1 CTA, sign-off with sender name, then {{opt_out_line}} and {{physical_address}}.
+STRUCTURE: greeting by first name only when the public address is tied to that person (otherwise the neutral greeting from docs/01 neutral_greeting_style, default "Hi there,"), 1 observation or question, 1 point of value, 1 CTA, sign-off with sender name, then {{opt_out_line}} and {{physical_address}}.
 
 TONE: plain, peer-to-peer, specific. Sounds like a person typed it in two minutes.
 

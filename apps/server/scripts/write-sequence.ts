@@ -31,7 +31,7 @@ import { userAgentFor } from "../src/fetch/site";
 import { systemResolver, undiciTransport } from "../src/fetch/transport";
 import { lastRunId } from "../src/llm/client";
 import { researchWebLead, type ResearchDeps } from "../src/pipeline/research";
-import { contactPlan } from "../src/scoring/contact";
+import { contactPlan, leadGreeting, neutralGreeting } from "../src/scoring/contact";
 import { renderEmail } from "../src/validators/email";
 import { generateSequence, type GenerateResult } from "../src/write/generate";
 import { loadJudgeSystemPrompt, loadPersonaHeadings, loadWriterSystemPrompt } from "../src/write/prompt";
@@ -73,7 +73,6 @@ const research: ResearchDeps = {
   evidence,
   now: () => new Date(),
   refresh,
-  allowWithoutDirectContact: offer.allow_without_direct_contact,
 };
 const writeDeps = {
   db: ctx.db,
@@ -112,7 +111,7 @@ for (const url of urls) {
   const out: string[] = [];
   const log = (s = "") => out.push(s);
   const d = r.dossier;
-  const plan = contactPlan(d);
+  const plan = contactPlan(d, neutralGreeting(offer.neutral_greeting_style, d));
   log(RULE);
   log(`LEAD ${leadId}   ${d.url}`);
   log(`firm: ${isFound(d.firm_name) ? d.firm_name.value : "NOT_FOUND"}   type: ${isFound(d.firm_type) ? `${d.firm_type.value.primary}${d.firm_type.value.secondary.length ? ` (+${d.firm_type.value.secondary.join(", ")})` : ""}` : "NOT_FOUND"}`);
@@ -120,7 +119,7 @@ for (const url of urls) {
   log(`score: ${r.score.total}   tier: ${r.score.tier}${r.score.tierCapped ? " (capped at C by fit)" : ""}   lead status: ${r.status}`);
   if (d.declined_automated_access) log("ACCESS: the site declined automated access (HTTP 403/429). PASTE-TEXT PROMPT: paste the About/Team/Contact page text to research this lead fully.");
   for (const line of leadNotes(d, r.score, offer, override)) log(line);
-  log(`greeting: ${override ? '"Hi," (direct-contact override)' : JSON.stringify(plan.greeting)}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
+  log(`greeting: ${JSON.stringify(leadGreeting(d, offer, override !== null))}${override ? " (contact override)" : ""}   contact_mismatch: ${plan.contactMismatch}   generic_inbox: ${plan.genericInbox}   (${plan.reason})`);
   if (approved.excluded.length) log(`docs/02 approved sentences excluded: ${approved.excluded.map((x) => `${x.id} (${x.reason})`).join("; ")}`);
 
   if (g.plan && g.plan.emails.length > 0) {
@@ -169,7 +168,7 @@ for (const url of urls) {
   if (!g.judge) log(`  not run (${g.writerCalls === 0 ? "no custom emails" : "writer output unusable"})`);
   else if (g.judge.unsupported_claims.length === 0) log("  PASS: no unsupported claims");
   else for (const c of g.judge.unsupported_claims) log(`  email ${c.email} ${c.reason}: ${JSON.stringify(c.claim)}`);
-  log(`APPROVAL: ${g.status !== "passed" ? "BLOCKED (content)" : g.approvalBlockers.length ? `BLOCKED: ${g.approvalBlockers.join("; ")}` : `allowed (sequence id ${g.sequenceId})`}`);
+  log(`APPROVAL: ${g.status !== "passed" ? "BLOCKED (content)" : `allowed (sequence id ${g.sequenceId})`}${g.contactWarning ? `   contact warning: ${g.contactWarning}` : ""}`);
   log(`EXPORT: ${g.exportBlockers.length ? `BLOCKED: ${g.exportBlockers.join("; ")}` : "allowed"}`);
 
   log(RULE);
@@ -193,7 +192,7 @@ for (const url of urls) {
 
 function summaryLine(leadId: string, tier: string, g: GenerateResult, cost: number): string {
   const first = g.firstPassValid === null ? "first pass n/a (no writer call)" : g.firstPassValid ? "first pass VALID" : "first pass invalid";
-  const approval = g.status !== "passed" ? "blocked" : g.approvalBlockers.length ? "content passed, approval blocked (needs_direct_contact)" : "approvable";
+  const approval = g.status !== "passed" ? "blocked" : g.contactWarning ? `approvable; warning: ${g.contactWarning}` : "approvable";
   return `${leadId}: tier ${tier}, ${first}, rewrites used ${g.rewritesUsed}, final ${g.status} (${approval}), cost ${usd(cost)}`;
 }
 

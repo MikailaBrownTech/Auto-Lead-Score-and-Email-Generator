@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { JobView } from "@clearpath/shared";
 import { api } from "../api";
 import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
+import { Badge, type Tone } from "../components/ui";
 import { href } from "../router";
 
 const MAX_URLS = 5;
@@ -9,13 +10,13 @@ const POLL_MS = 1500;
 /** After this long, a running job shows a "still working" notice. */
 export const STALE_MINUTES = 3;
 
-const STATE_TEXT: Record<string, string> = {
-  queued: "Waiting",
-  researching: "Researching",
-  writing: "Writing emails",
-  done: "Done",
-  failed: "Failed",
-  cancelled: "Cancelled",
+const STATE_TEXT: Record<string, [string, Tone]> = {
+  queued: ["Waiting", "neutral"],
+  researching: ["Researching", "info"],
+  writing: ["Writing emails", "info"],
+  done: ["Done", "success"],
+  failed: ["Failed", "danger"],
+  cancelled: ["Cancelled", "neutral"],
 };
 
 /** Polls a job until every item is finished. */
@@ -49,7 +50,7 @@ export function JobStatus(props: { job: JobView; onCancel?: () => void }) {
   const running = props.job.items.some((i) => ["queued", "researching", "writing"].includes(i.state));
   const minutes = Math.floor((Date.now() - Date.parse(props.job.createdAt)) / 60_000);
   return (
-    <div className="card">
+    <div className="card stack-sm">
       {/* A job that never completes is never silent: say how long it has been and where to look. */}
       {running && minutes >= STALE_MINUTES && (
         <NoticeBanner>
@@ -57,14 +58,15 @@ export function JobStatus(props: { job: JobView; onCancel?: () => void }) {
         </NoticeBanner>
       )}
       <div className="row between">
-        <strong>{running ? "Working…" : "Finished"}</strong>
+        <h2>{running ? "Working…" : "Finished"}</h2>
         {running && props.onCancel && (
-          <button type="button" className="secondary" onClick={props.onCancel} disabled={props.job.cancelRequested}>
+          <button type="button" className="btn danger sm" onClick={props.onCancel} disabled={props.job.cancelRequested}>
             {props.job.cancelRequested ? "Cancelling…" : "Cancel"}
           </button>
         )}
       </div>
-      <table>
+      <div className="table-wrap">
+      <table className="data">
         <thead>
           <tr>
             <th>Lead</th>
@@ -75,9 +77,9 @@ export function JobStatus(props: { job: JobView; onCancel?: () => void }) {
         <tbody>
           {props.job.items.map((i) => (
             <tr key={i.leadId}>
-              <td>{i.state === "done" ? <a href={href("leads", i.leadId)}>{i.label}</a> : i.label}</td>
+              <td className="primary-cell">{i.state === "done" ? <a href={href("leads", i.leadId)}>{i.label}</a> : i.label}</td>
               <td>
-                <span className={`badge state-${i.state}`}>{STATE_TEXT[i.state]}</span>
+                <Badge tone={STATE_TEXT[i.state]![1]}>{STATE_TEXT[i.state]![0]}</Badge>
               </td>
               <td>
                 {i.message}
@@ -87,6 +89,7 @@ export function JobStatus(props: { job: JobView; onCancel?: () => void }) {
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -114,41 +117,48 @@ export function ImportPage() {
   }
 
   return (
-    <section>
-      <h2>Import leads</h2>
-      <div className="tabs">
-        <button type="button" className={mode === "web" ? "tab active" : "tab"} onClick={() => setMode("web")}>
-          Websites
-        </button>
-        <button type="button" className={mode === "paste" ? "tab active" : "tab"} onClick={() => setMode("paste")}>
-          Paste text
-        </button>
+    <section className="stack">
+      <div className="page-head">
+        <div>
+          <h1>Import leads</h1>
+          <p className="sub">Research runs one site at a time, politely (robots.txt, 1 request per second). Each lead's cost shows on the Leads page.</p>
+        </div>
       </div>
-      {mode === "web" ? (
-        <label>
-          Website addresses, one per line (up to {MAX_URLS})
-          <textarea value={urls} onChange={(e) => setUrls(e.target.value)} rows={6} placeholder={"smithtax.com\nexamplecpa.com"} />
-          <span className={list.length > MAX_URLS ? "error" : "muted"}>
-            {list.length} of {MAX_URLS}
-          </span>
-        </label>
-      ) : (
-        <>
-          <label>
-            Lead label (for example the firm's name)
-            <input value={label} onChange={(e) => setLabel(e.target.value)} />
+      <div className="card stack">
+        <div className="segmented" role="tablist" aria-label="Import from">
+          <button type="button" role="tab" aria-selected={mode === "web"} onClick={() => setMode("web")}>
+            Websites
+          </button>
+          <button type="button" role="tab" aria-selected={mode === "paste"} onClick={() => setMode("paste")}>
+            Paste text
+          </button>
+        </div>
+        {mode === "web" ? (
+          <label className="field">
+            <span className="field-label">Website addresses, one per line (up to {MAX_URLS})</span>
+            <textarea value={urls} onChange={(e) => setUrls(e.target.value)} rows={6} placeholder={"smithtax.com\nexamplecpa.com"} />
+            <span className={list.length > MAX_URLS ? "field-hint error" : "field-hint"}>
+              {list.length} of {MAX_URLS}
+            </span>
           </label>
-          <label>
-            Pasted text (a LinkedIn bio or About page). This text is the only source of facts; nothing is fetched.
-            <textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} />
-          </label>
-        </>
-      )}
-      <div className="row">
-        <button type="button" onClick={start} disabled={running || (mode === "web" ? list.length === 0 || list.length > MAX_URLS : !label.trim() || !text.trim())}>
-          Start
-        </button>
-        <span className="muted">Research runs one site at a time, politely (robots.txt, 1 request per second). Each lead's cost shows on the Leads page.</span>
+        ) : (
+          <>
+            <label className="field">
+              <span className="field-label">Lead label (for example the firm's name)</span>
+              <input value={label} onChange={(e) => setLabel(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field-label">Pasted text (a LinkedIn bio or About page)</span>
+              <textarea value={text} onChange={(e) => setText(e.target.value)} rows={10} />
+              <span className="field-hint">This text is the only source of facts; nothing is fetched.</span>
+            </label>
+          </>
+        )}
+        <div className="row">
+          <button type="button" className="btn primary" onClick={start} disabled={running || (mode === "web" ? list.length === 0 || list.length > MAX_URLS : !label.trim() || !text.trim())}>
+            Start
+          </button>
+        </div>
       </div>
       <ErrorBanner message={error ?? pollError} />
       {job && (

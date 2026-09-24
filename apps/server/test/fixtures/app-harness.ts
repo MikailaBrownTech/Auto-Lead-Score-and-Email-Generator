@@ -51,7 +51,7 @@ export function doeAnswer(): Record<string, unknown> {
   };
 }
 
-/** A writer answer that passes the validators for any lead and any set of emails. */
+/** A writer answer that passes the validators for any lead and any set of emails (email 1 names "your firm"). */
 export const WRITER_ANSWER = {
   emails: [
     { n: 1, subject_a: "security plan question", subject_b: "client data question", opening: "I noticed your firm works with local clients.", closing: "Is a written security plan something you keep on file?" },
@@ -61,6 +61,16 @@ export const WRITER_ANSWER = {
     { n: 5, subject_a: null, subject_b: null, opening: "I will assume the timing is not right and stop here. If a written plan comes up later, just reply.", closing: "" },
   ],
 };
+
+/**
+ * WRITER_ANSWER with email 1 naming the firm from the writer message (as the real writer does), so a
+ * neutral greeting still passes the "never a generic email 1" rule.
+ */
+export function writerAnswerFor(writerMessage: string): typeof WRITER_ANSWER {
+  const firm = /"firm_name":\s*"([^"]+)"/.exec(writerMessage)?.[1];
+  if (!firm) return WRITER_ANSWER;
+  return { emails: WRITER_ANSWER.emails.map((e) => (e.n === 1 ? { ...e, opening: `I noticed ${firm} works with local clients.` } : e)) };
+}
 
 function message(name: string, input: unknown, i: number): Anthropic.Message {
   return {
@@ -101,7 +111,7 @@ export function makeHarness(opts: { judge?: unknown; writer?: unknown | ((call: 
     if (tool === EXTRACTION_TOOL_NAME) return message(tool, userText(p).includes("doetax") ? doeAnswer() : smithAnswer(), i);
     if (tool === WRITER_TOOL_NAME) {
       const w = opts.writer;
-      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(writerCall++) : (w ?? WRITER_ANSWER), i);
+      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(writerCall++) : (w ?? writerAnswerFor(userText(p))), i);
     }
     if (tool === JUDGE_TOOL_NAME) return message(tool, opts.judge ?? { unsupported_claims: [] }, i);
     throw new Error(`unexpected tool ${tool}`);

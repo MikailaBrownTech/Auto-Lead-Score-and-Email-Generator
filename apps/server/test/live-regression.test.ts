@@ -73,8 +73,8 @@ function allQuotes(d: Dossier): string[] {
 }
 
 function commonChecks(r: ResearchReport) {
-  // Without a person-tied public address (generic, unattributed, or none), a lead waits for a direct contact.
-  expect(r.status).toBe(r.dossier.public_email_kind === "named_person" ? "extracted" : "needs_direct_contact");
+  // Without a person-tied public address (generic, unattributed, or none), a lead is labeled no_named_contact (a warning).
+  expect(r.status).toBe(r.dossier.public_email_kind === "named_person" ? "extracted" : "no_named_contact");
   expect(DossierSchema.safeParse(r.dossier).success).toBe(true);
   const search = r.dossier.security_mention_search;
   if (search !== "NOT_CHECKED") expect(search.matches.map((m) => m.keyword)).not.toContain("secure portal");
@@ -120,7 +120,7 @@ describe("live regression: sites recorded from the real web (replayed offline)",
     // marketing@ is a generic inbox: partial points and a neutral greeting.
     expect(r.dossier.public_email_kind).toBe("generic_inbox");
     expect(r.score.breakdown.find((b) => b.key === "public_business_email")!.points).toBe(5);
-    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi,", genericInbox: true });
+    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi there,", genericInbox: true });
   });
 
   it("RBV Financial: qualifies only through tax preparation; no DMARC points; no family details; no secure-portal WISP hit", async () => {
@@ -134,15 +134,15 @@ describe("live regression: sites recorded from the real web (replayed offline)",
     // The owner is named with a professional quote, never the family sentence.
     if (isFound(r.dossier.decision_maker)) expect(r.dossier.decision_maker.evidence_quote).not.toMatch(FAMILY);
     // The public address is a shared gmail box, not tied to a named person: neutral greeting, partial points.
-    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi," });
+    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi there," });
     expect(r.dossier.public_email_kind).not.toBe("named_person");
     expect(r.score.breakdown.find((b) => b.key === "public_business_email")!.points).toBe(5);
   });
 
-  it("essentialacctg: a client count is not a staff size; generic inbox needs a direct contact", async () => {
+  it("essentialacctg: a client count is not a staff size; generic inbox is labeled no_named_contact", async () => {
     const r = await replay("essentialacctg-com");
     commonChecks(r);
-    expect(r.status).toBe("needs_direct_contact");
+    expect(r.status).toBe("no_named_contact");
     expect(r.dossier.public_email_kind).toBe("generic_inbox");
     expect(r.dossier.size_signal).toBe("NOT_FOUND");
     expect(r.dossier.client_count_signal).toMatchObject({ value: { text: expect.stringMatching(/Companies/) } });
@@ -162,14 +162,14 @@ describe("live regression: sites recorded from the real web (replayed offline)",
     expect(r.dossier.target_industry_fit.value).toBe(true);
     expect(isFound(r.dossier.services) && r.dossier.services.value.length).toBeGreaterThan(15);
     expect(r.dossier.privacy_policy_present).not.toMatchObject({ value: false });
-    expect(r.status).toBe("needs_direct_contact");
+    expect(r.status).toBe("no_named_contact");
   });
 
-  it("mapaccountinggroup: no public email means needs_direct_contact; DMARC reports hint at an existing IT provider (internal)", async () => {
+  it("mapaccountinggroup: no public email is labeled no_named_contact; DMARC reports hint at an existing IT provider (internal)", async () => {
     const r = await replay("mapaccountinggroup-com");
     commonChecks(r);
     expect(r.dossier.public_contact_email).toBe("NOT_FOUND");
-    expect(r.status).toBe("needs_direct_contact");
+    expect(r.status).toBe("no_named_contact");
     expect(r.dossier.email_security_hint).toMatchObject({ outside_domains: ["mynetworkplace.net"] });
     expect(r.score.incompleteData.flag).toBe(true);
   });

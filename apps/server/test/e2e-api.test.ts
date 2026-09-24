@@ -29,28 +29,27 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(webJob.items[0]).toMatchObject({ leadId: "lead-smithtax-example", state: "done" });
       expect(pasteJob.items[0]).toMatchObject({ leadId: "paste-doe-tax", state: "done" });
 
-      // Leads table: Smith's only address is office@ (a generic inbox), so it needs a direct contact.
+      // Leads table: Smith's only address is office@ (a generic inbox): labeled no_named_contact, a warning only.
       const rows = (await h.call("GET", "/api/leads")).json as { id: string; status: string; flags: Record<string, boolean> }[];
       const smith = rows.find((r) => r.id === "lead-smithtax-example")!;
-      expect(smith).toMatchObject({ status: "needs_direct_contact", flags: { generic_inbox: true, needs_direct_contact: true } });
+      expect(smith).toMatchObject({ status: "no_named_contact", flags: { generic_inbox: true, no_public_email: false } });
       expect(rows.find((r) => r.id === "paste-doe-tax")!.status).toBe("extracted");
 
-      // Approval is refused until the contact is resolved; the override needs a typed reason and is logged.
+      // No override needed: the checklist is optional, the sequence uses the neutral greeting and can be approved.
       let detail = (await h.call("GET", "/api/leads/lead-smithtax-example")).json;
-      expect(detail.directContact.checklist.join(" ")).toMatch(/Secretary of State/);
-      const refused = await h.call("POST", `/api/sequences/${detail.sequenceId}/approve`);
-      expect(refused.status).toBe(409);
-      expect(refused.json.error).toMatch(/needs_direct_contact/);
-      expect((await h.call("POST", "/api/leads/lead-smithtax-example/override-contact", { reason: "short" })).status).toBe(400);
-      detail = (await h.call("POST", "/api/leads/lead-smithtax-example/override-contact", { reason: "Solo office; office@ is read by the owner" })).json;
-      expect(detail.directContact.override.reason).toBe("Solo office; office@ is read by the owner");
-      expect(detail.events.map((e: { kind: string }) => e.kind)).toContain("direct_contact_override");
-
+      expect(detail.contact).toMatchObject({ named: false, greeting: "Hi there,", warning: "generic inbox: lower reply odds", override: null });
+      expect(detail.contact.checklist.join(" ")).toMatch(/Secretary of State/);
       const seq = (await h.call("GET", `/api/sequences/${detail.sequenceId}`)).json;
       expect(seq.validationPass).toBe(true);
+      expect(seq.contactWarning).toBe("generic inbox: lower reply odds");
       const approved = await h.call("POST", `/api/sequences/${detail.sequenceId}/approve`);
       expect(approved.status).toBe(200);
       expect(approved.json.status).toBe("approved");
+      // The override stays available (typed reason, logged) and clears the label, but was not required.
+      expect((await h.call("POST", "/api/leads/lead-smithtax-example/override-contact", { reason: "short" })).status).toBe(400);
+      detail = (await h.call("POST", "/api/leads/lead-smithtax-example/override-contact", { reason: "Solo office; office@ is read by the owner" })).json;
+      expect(detail).toMatchObject({ status: "extracted", contact: { override: { reason: "Solo office; office@ is read by the owner" } } });
+      expect(detail.events.map((e: { kind: string }) => e.kind)).toContain("direct_contact_override");
 
       const doe = (await h.call("GET", "/api/leads/paste-doe-tax")).json;
       expect((await h.call("POST", `/api/sequences/${doe.sequenceId}/approve`)).status).toBe(200);
@@ -66,12 +65,13 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(exp.csv).not.toMatch(/doetax/i);
       expect(exp.csv).toContain("Reply no and I will not email again.");
       expect(exp.csv).toContain("ClearPath IT");
-      // Overridden lead: neutral greeting.
-      expect(exp.csv).toContain("Hi,\n");
+      // Generic inbox: neutral greeting, sendable, with the contact note.
+      expect(exp.csv).toContain("Hi there,\n");
+      expect(exp.csv).toContain("office@smithtax.example,Y,generic inbox: lower reply odds,");
 
       const file = await h.call("GET", "/api/export.csv");
       expect(file.status).toBe(200);
-      expect(file.headers.get("content-disposition")).toMatch(/attachment; filename="clearpath-export-/);
+      expect(file.headers.get("content-disposition")).toMatch(/attachment; filename="clearpath-ready-to-send-/);
       expect(file.text).toBe(exp.csv);
 
       // No evidence quote ever reached a writer or judge message.

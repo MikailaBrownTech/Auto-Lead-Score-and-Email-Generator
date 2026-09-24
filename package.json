@@ -20,10 +20,12 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "extract-live": "npm run extract-live -w @clearpath/server --",
     "write-sequence": "npm run write-sequence -w @clearpath/server --",
-    "build:web": "npm run build -w @clearpath/web"
+    "build:web": "npm run build -w @clearpath/web",
+    "screenshots": "npm run screenshots -w @clearpath/server"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",
+    "playwright": "^1.63.0",
     "typescript": "~5.9.3",
     "vitest": "^4.1.11"
   }

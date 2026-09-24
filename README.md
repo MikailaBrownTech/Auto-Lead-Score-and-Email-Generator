@@ -16,24 +16,37 @@ npm run app          # starts the API (127.0.0.1:8787) and the UI (127.0.0.1:517
 Open http://127.0.0.1:5173. Ctrl+C stops both. (Or run `npm run dev:server` and `npm run dev:web` in two
 terminals.) If the API says the port is in use, the app is already running in another terminal.
 
+Layout: left sidebar navigation, a top bar with the spend meter (month to date vs cap, average per
+lead), content in a centered column. Light and dark themes follow the system setting. Works down to
+about 900px wide (the sidebar becomes an icon rail).
+
 Screens:
 - **Import**: up to 5 website addresses, or paste text (a lead label + pasted text as the only source).
   Live status while it runs; Cancel stops before the next step.
-- **Leads**: firm, type, place, score, tier, gate/status, flags, sequence, cost. Sort and filter.
-- **Lead detail**: every fact with its evidence link and quote (or a gray NOT_FOUND), DNS findings, score
-  breakdown, pages fetched vs failed, the direct-contact checklist and paste form, overrides that need a
-  typed reason (logged), and "Internal notes: never used in emails".
-- **Sequence**: five editable emails, word counts, validators re-run as you type, code-inserted approved
-  sentences highlighted, Run judge, Rewrite one email, Approve (only when validators and judge pass).
-- **Export**: approved leads only; blocked until the signature/footer settings are complete (and
-  checklist_ready is on if email 3 offers the checklist). The suppression list is checked before every row.
-- **Settings**: signature/footer fields (saved into docs/01 with a backup in data/backups) and the
-  suppression list.
-- The spend meter (month to date vs cap, average per lead) is on every page.
+- **Leads**: firm, type, place, score, tier, status, flags, sequence, cost. Sort and filter.
+- **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
+  NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
+  DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
+- **Contact without a named person** is a warning, never a block. A generic or unattributed inbox shows
+  "lower reply odds"; a lead with no public email shows "no public email; add before sending". Emails use
+  the neutral greeting from Settings ("Hi there," by default) and still name the firm or one verified
+  detail. The lead page lists optional public sources to find an owner name or email.
+- **Sequence**: five email cards, word counts, validators re-run as you type with problems shown on the
+  email they belong to, code-inserted approved sentences highlighted (with a legend), Run judge, Rewrite
+  one email, Approve (only when validators and judge pass; the reason shows when it is disabled).
+- **Export**: approved leads only, in two modes: "Ready to send" (rows with an address) and "Drafts"
+  (every approved row). The CSV has send_ready (Y/N) and contact_note columns. Blocked until the
+  signature/footer settings are complete (and checklist_ready is on if email 3 offers the checklist).
+  The suppression list is checked before every row.
+- **Settings**: signature/footer fields, the neutral greeting, email 3 offer (saved into docs/01 with a
+  backup in data/backups), and the suppression list.
 
 Other commands (from the repo root):
 - `npm test` runs every test offline (fixtures and recorded model answers; no network, no API spend).
 - `npm run typecheck`
+- `npm run screenshots` builds the UI and captures every screen on seed data (offline, no API spend)
+  with Playwright into data/screenshots/ (1280px), plus data/screenshots/900/ and data/screenshots/dark/.
+  First time only: `npx playwright install chromium`.
 - `npm run extract-live -- <url> [...]` and `npm run write-sequence -- <url> [...]` run live research
   from the command line; full reports go to data/reports/.
 

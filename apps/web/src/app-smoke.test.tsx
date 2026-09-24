@@ -47,26 +47,31 @@ describe("every screen renders against the real API", { timeout: 30_000 }, () =>
   it("Import", () => at("#/import", /Website addresses, one per line/));
   it("Leads table with flags and the spend meter", async () => {
     await at("#/leads", /Smith Tax Services/);
-    expect(screen.getAllByText("needs direct contact").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("generic inbox: lower reply odds").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("no named contact").length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText(/this month/)).toBeTruthy());
   });
-  it("Lead detail: facts, NOT_FOUND badges, checklist, internal notes", async () => {
-    await at(`#/leads/${leadId}`, /Needs a direct contact/);
+  it("Lead detail: scorecard, facts, NOT_FOUND badges, optional contact checklist, internal notes", async () => {
+    await at(`#/leads/${leadId}`, /Optional: find an owner name or email to improve reply odds/);
+    expect(screen.getAllByText("generic inbox: lower reply odds").length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("Scorecard")).toBeTruthy();
     expect(screen.getAllByText("NOT_FOUND").length).toBeGreaterThan(0);
     expect(screen.getByText("Internal notes: never used in emails")).toBeTruthy();
     expect(screen.getByText(/Secretary of State business search/)).toBeTruthy();
-    expect(screen.getByText("Score breakdown")).toBeTruthy();
+    for (const group of ["Fit", "Signals", "Reachability"]) expect(screen.getByText(group)).toBeTruthy();
   });
-  it("Sequence: five cards, approved sentences marked, Approve disabled while blocked", async () => {
+  it("Sequence: five cards, approved sentences marked, contact warning shown but not blocking", async () => {
     await at(`#/sequences/${sequenceId}`, /Email 5/);
     expect(document.querySelectorAll("article.email-card").length).toBe(5);
     expect(document.querySelectorAll("mark.approved").length).toBeGreaterThan(0);
-    expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/needs_direct_contact/)).toBeTruthy();
+    expect(screen.getByText(/Contact: generic inbox: lower reply odds\. This is a warning only/)).toBeTruthy();
+    // Validators and judge passed in the harness: nothing else stands in the way of approval.
+    expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(false);
   });
   it("Export: blocked with a clear message until settings are filled in", () => at("#/export", /Export is blocked/));
   it("Settings: footer fields and the suppression list", async () => {
     await at("#/settings", /Suppression list/);
     expect(screen.getByDisplayValue("ClearPath IT")).toBeTruthy();
+    expect(screen.getByDisplayValue("Hi there,")).toBeTruthy();
   });
 });

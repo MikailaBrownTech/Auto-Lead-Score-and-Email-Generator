@@ -1,7 +1,7 @@
 import { FIRM_TYPES, NOT_FOUND, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
 import { describe, expect, it } from "vitest";
 import { loadOffer, loadStyle } from "../src/docs/loader";
-import { greetingFor, loadTemplates, templateEmail } from "../src/docs/templates";
+import { loadTemplates, templateEmail } from "../src/docs/templates";
 import {
   bodySentences,
   containsPhrase,
@@ -227,7 +227,7 @@ ${sentence}` }))).toContain("dollar_amount");
     const c = { ...ctx, dossier: mismatch };
     const errs = validateSequence(sequence(), c).issues.filter((i) => i.code === "greeting_contact_mismatch");
     expect(errs).toHaveLength(5);
-    expect(errs[0]!.message).toMatch(/john\.phillips@smithtax\.example is not tied to Jane Smith; use "Hi,"/);
+    expect(errs[0]!.message).toMatch(/john\.phillips@smithtax\.example is not tied to Jane Smith; use "Hi there,"/);
     const neutral = sequence({}, [1, 2, 3, 4, 5].map((n) => email(n, { body: email(n).body.replace("Hi Jane,", "Hi,") })));
     expect(codes(neutral, c)).not.toContain("greeting_contact_mismatch");
     // Wrong name entirely.
@@ -271,10 +271,10 @@ ${sentence}` }))).toContain("dollar_amount");
 describe("docs/09 templates pass the same validators", () => {
   const templates = loadTemplates();
 
-  const cases = FIRM_TYPES.flatMap((firmType) => [
-    { firmType, greeting: greetingFor("Jane Smith"), firmRef: "Smith Tax Services" },
-    { firmType, greeting: greetingFor(null), firmRef: "your firm" },
-  ]);
+  // Every greeting the code can produce: the tied first name, and each docs/01 neutral style.
+  const cases = FIRM_TYPES.flatMap((firmType) =>
+    ["Hi Jane,", "Hi there,", "Hi,", "Hi Smith Tax Services team,"].map((greeting) => ({ firmType, greeting, firmRef: "Smith Tax Services" })),
+  );
 
   const withCta = cases.flatMap((c) => [
     { ...c, ctaType: "checklist" as const },
@@ -315,8 +315,11 @@ describe("docs/09 templates pass the same validators", () => {
     expect(templateEmail(templates, 3, "cpa", vars, style, "scorecard").body).toMatch(/scorecard/);
   });
 
-  it("uses the greeting fallback 'Hi,' when no name is known", () => {
-    expect(greetingFor(null)).toBe("Hi,");
-    expect(greetingFor("  Jane   Smith ")).toBe("Hi Jane,");
+  it("without a firm name, template email 1 ('your firm' + neutral greeting) is generic and blocked", () => {
+    const vars = { greeting: "Hi there,", firm_ref: "your firm", cta_url: offer.cta_url };
+    const emails = [1, 2, 3, 4, 5].map((n) => templateEmail(templates, n, "tax_preparer", vars, style, "checklist"));
+    const seq: Sequence = { lead_id: "LT", tier: "C", persona: "template", angle: style.firm_type_angles.tax_preparer[0]!, emails };
+    const r = validateSequence(seq, { style, offer, dossier: strongDossier({ firm_name: NOT_FOUND }) });
+    expect(r.issues.filter((i) => i.severity === "error")).toEqual([expect.objectContaining({ email: 1, code: "generic_email_1" })]);
   });
 });

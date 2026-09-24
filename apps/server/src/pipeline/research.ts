@@ -27,7 +27,7 @@ import type { PageDate } from "../fetch/clean";
 import { fetchSite, type FetchedPage, type LinkReport, type SiteFetchDeps, type SitemapResult } from "../fetch/site";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { chooseDecisionMaker, computeGate, firmTypeFromKeywords, supportedSecondaryTypes, targetIndustryFit, usLocation } from "../scoring/derive";
-import { lacksDirectContact, leadOverride } from "../scoring/direct-contact";
+import { lacksNamedContact, leadOverride } from "../scoring/direct-contact";
 import { classifyPublicEmail } from "../scoring/contact";
 import { computeFreshness } from "../scoring/freshness";
 import { scoreDossier, type ScoreResult } from "../scoring/score";
@@ -49,11 +49,6 @@ export interface ResearchDeps {
   now: () => Date;
   /** Ignore the page, robots, and extraction caches (fresh fetch and fresh model call). */
   refresh?: boolean;
-  /**
-   * docs/01 allow_without_direct_contact. When false, leads without a person-tied public address become
-   * needs_direct_contact (unless overridden per lead).
-   */
-  allowWithoutDirectContact?: boolean;
   /** config/dmarc-vendors.json (loaded when omitted). */
   dmarcVendors?: string[];
 }
@@ -284,10 +279,10 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
   const proposed = FirmTypeSchema.safeParse((extraction?.fields.firm_type.answer as { value?: { primary?: unknown } } | undefined)?.value?.primary);
   const dossier = assembleDossier(p, facts, { failures, findings, proposedFirmType: proposed.success ? proposed.data : null }, deps);
   const score = scoreDossier(dossier, deps.scoring, deps.now());
-  // Without a person-tied public address (generic inbox, unattributed, or none), the lead waits for a
-  // direct contact unless the global setting or a per-lead override (with a logged reason) allows it.
-  if (status === "extracted" && lacksDirectContact(dossier) && !deps.allowWithoutDirectContact && !leadOverride(deps.db, p.leadId)) {
-    status = "needs_direct_contact";
+  // Without a person-tied public address (generic inbox, unattributed, or none) the lead is labeled
+  // no_named_contact: a warning only (tier and score unchanged; drafting, approval, export proceed).
+  if (status === "extracted" && lacksNamedContact(dossier) && !leadOverride(deps.db, p.leadId)) {
+    status = "no_named_contact";
   }
   saveLead(deps.db, p.leadId, {
     status,

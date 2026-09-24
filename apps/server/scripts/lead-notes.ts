@@ -1,19 +1,20 @@
 /**
- * Report lines shared by the live scripts: direct-contact status and checklist, incomplete data,
+ * Report lines shared by the live scripts: contact warning and optional checklist, incomplete data,
  * firm_type source, client count, and the internal email-security hint.
  */
 import { isFound, type Dossier, type OfferConfig } from "@clearpath/shared";
-import { directContactChecklist, directContactReason, lacksDirectContact, type DirectContactOverride } from "../src/scoring/direct-contact";
+import { leadGreeting } from "../src/scoring/contact";
+import { contactWarning, lacksNamedContact, namedContactChecklist, type DirectContactOverride } from "../src/scoring/direct-contact";
 import type { ScoreResult } from "../src/scoring/score";
 
 export function leadNotes(d: Dossier, score: ScoreResult, offer: OfferConfig, override: DirectContactOverride | null): string[] {
   const out: string[] = [];
-  if (lacksDirectContact(d)) {
-    if (override) out.push(`DIRECT CONTACT: overridden for this lead (${override.at}): "${override.reason}". Emails use the neutral greeting.`);
-    else if (offer.allow_without_direct_contact) out.push(`DIRECT CONTACT: ${directContactReason(d)}; allowed by allow_without_direct_contact in docs/01.`);
+  if (lacksNamedContact(d)) {
+    const greeting = JSON.stringify(leadGreeting(d, offer, override !== null));
+    if (override) out.push(`CONTACT: overridden for this lead (${override.at}): "${override.reason}". Greeting ${greeting}.`);
     else {
-      out.push(`NEEDS_DIRECT_CONTACT: ${directContactReason(d)}. Approval and export are blocked. Checklist:`);
-      for (const line of directContactChecklist(d)) out.push(`  ${line}`);
+      out.push(`NO_NAMED_CONTACT (warning, nothing blocked): ${contactWarning(d)}. Greeting ${greeting}. Optional, to improve reply odds:`);
+      for (const line of namedContactChecklist(d)) out.push(`  ${line}`);
     }
   }
   if (score.incompleteData.flag) {

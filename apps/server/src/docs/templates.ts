@@ -72,12 +72,6 @@ export function renderTemplate(text: string, vars: TemplateVars): string {
   });
 }
 
-/** Greeting per docs/03: first name if known, otherwise "Hi,". */
-export function greetingFor(decisionMakerName: string | null): string {
-  const first = decisionMakerName?.trim().split(/\s+/)[0];
-  return first ? `Hi ${first},` : "Hi,";
-}
-
 /**
  * Renders template email n (1-5). Email 2 is picked by firm type (falling back to "other");
  * email 3 by the offer's cta_type (checklist or scorecard).

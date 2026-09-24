@@ -1,8 +1,8 @@
-import { isFound, NOT_FOUND, type Dossier, type ExtractedFacts, type PublicEmailKind } from "@clearpath/shared";
+import { isFound, NOT_FOUND, type Dossier, type ExtractedFacts, type NeutralGreetingStyle, type OfferConfig, type PublicEmailKind } from "@clearpath/shared";
 import { wordsOf } from "../extract/verify";
 
 export interface ContactPlan {
-  /** "Hi Jane," when the public address belongs to the decision maker, otherwise "Hi,". */
+  /** "Hi Jane," when the public address belongs to the decision maker, otherwise the neutral greeting. */
   greeting: string;
   greetFirstName: string | null;
   /** True when a decision maker is known but the public address is not tied to them (export flag). */
@@ -59,15 +59,21 @@ function localPartMatches(address: string, first: string, last: string): boolean
   return options.filter((o) => o.length >= 3).includes(local);
 }
 
+/** The neutral greeting (docs/01 neutral_greeting_style) for this lead. Without a firm name, "Hi there,". */
+export function neutralGreeting(style: NeutralGreetingStyle, d: Dossier): string {
+  if (!style.includes("{{firm_name}}")) return style;
+  return isFound(d.firm_name) ? style.replace("{{firm_name}}", d.firm_name.value.trim()) : "Hi there,";
+}
+
 /**
  * Greeting rule for the writer: greet the decision maker by first name only when the public
  * contact address is tied to that person, either by the owner_name in the same quote or by an
  * address built from their name, and is not a generic inbox. Otherwise use a neutral greeting and
  * flag contact_mismatch (or generic_inbox).
  */
-export function contactPlan(d: Dossier): ContactPlan {
+export function contactPlan(d: Dossier, neutralText = "Hi there,"): ContactPlan {
   const genericInbox = d.public_email_kind === "generic_inbox";
-  const neutral = (contactMismatch: boolean, reason: string): ContactPlan => ({ greeting: "Hi,", greetFirstName: null, contactMismatch, genericInbox, reason });
+  const neutral = (contactMismatch: boolean, reason: string): ContactPlan => ({ greeting: neutralText, greetFirstName: null, contactMismatch, genericInbox, reason });
   if (genericInbox && isFound(d.public_contact_email)) {
     return neutral(isFound(d.decision_maker), `${d.public_contact_email.value.address} is a generic inbox`);
   }
@@ -83,4 +89,13 @@ export function contactPlan(d: Dossier): ContactPlan {
     return { greeting: `Hi ${firstDisplay},`, greetFirstName: firstDisplay, contactMismatch: false, genericInbox: false, reason: `${address} belongs to ${name}` };
   }
   return neutral(true, `${address} is not tied to ${name}${owner_name ? ` (the page ties it to ${owner_name})` : ""}`);
+}
+
+/**
+ * The greeting every email of this lead uses: the decision maker's first name only when the public
+ * address is tied to them; otherwise, or when the founder overrode the contact, the neutral greeting.
+ */
+export function leadGreeting(d: Dossier, offer: Pick<OfferConfig, "neutral_greeting_style">, overridden: boolean): string {
+  const neutral = neutralGreeting(offer.neutral_greeting_style, d);
+  return overridden ? neutral : contactPlan(d, neutral).greeting;
 }

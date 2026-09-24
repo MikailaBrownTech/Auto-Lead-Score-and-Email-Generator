@@ -11,7 +11,7 @@ import type { SpendGate } from "../llm/spend-gate";
 import { leadOverride, MIN_OVERRIDE_REASON, overrideDirectContact } from "../scoring/direct-contact";
 import { ApprovalBlockedError, approveSequence, generateSequence, logWriteAttempt } from "../write/generate";
 import { checkEdits, loadSequenceContext, rewriteOne, runJudge, saveEdits, SequenceError, sequenceState } from "../write/edit";
-import { addSuppression, buildExport, listSuppressions, removeSuppression } from "./export";
+import { addSuppression, buildExport, listSuppressions, removeSuppression, type ExportMode } from "./export";
 import { JobInputError, plainError, type JobRunner } from "./jobs";
 import { localGuard, type LocalGuardOptions } from "./local-guard";
 import { writeDeps, type Services } from "./services";
@@ -36,7 +36,7 @@ export class UserError extends Error {
   }
 }
 
-const OFFER_FIELDS = ["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address", "cta_type", "checklist_ready", "include_dns_observation"] as const;
+const OFFER_FIELDS = ["sender_name", "sender_title", "company_name", "company_website", "opt_out_line", "physical_address", "cta_type", "checklist_ready", "include_dns_observation", "neutral_greeting_style"] as const;
 
 async function body<T>(c: Context): Promise<T> {
   try {
@@ -227,7 +227,7 @@ export function createApp(deps: AppDeps) {
     return c.json(sequenceView(db, id, wd));
   });
 
-  /** Approval re-checks the current content: validators and judge must both pass, and a direct contact must exist. */
+  /** Approval re-checks the current content: validators and judge must both pass. A missing named contact never blocks. */
   app.post("/api/sequences/:id/approve", (c) => {
     const id = idParam(c);
     const wd = writeDeps(s);
@@ -236,21 +236,22 @@ export function createApp(deps: AppDeps) {
     if (!state.validation.pass) throw new UserError("Fix the validator errors before approving.", 409);
     if (state.judgeRequired && !state.judge) throw new UserError("Run the judge on the current text before approving.", 409);
     if (state.status !== "passed") throw new UserError("The judge listed unsupported claims. Fix them and run the judge again.", 409);
-    if (state.approvalBlockers.length > 0) throw new UserError(state.approvalBlockers.join("; "), 409);
-    approveSequence(db, id, wd.offer);
+    approveSequence(db, id);
     return c.json(sequenceView(db, id, wd));
   });
 
   // ---- export ----
+  const exportMode = (c: Context): ExportMode => (c.req.query("mode") === "drafts" ? "drafts" : "ready");
   app.get("/api/export", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir) });
-    const view: ExportView = { blocked: r.blocked, rowCount: r.rows.length, excluded: r.excluded, csv: r.csv };
+    const r = buildExport(db, { offer: loadOffer(docsDir) }, exportMode(c));
+    const view: ExportView = { mode: r.mode, blocked: r.blocked, rowCount: r.rows.length, readyCount: r.readyCount, draftCount: r.draftCount, excluded: r.excluded, csv: r.csv };
     return c.json(view);
   });
   app.get("/api/export.csv", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir) });
+    const r = buildExport(db, { offer: loadOffer(docsDir) }, exportMode(c));
     if (r.blocked.length > 0) throw new UserError(r.blocked.join(" "), 409);
-    return c.body(r.csv, 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="clearpath-export-${new Date().toISOString().slice(0, 10)}.csv"` });
+    const name = `clearpath-${r.mode === "drafts" ? "drafts" : "ready-to-send"}-${new Date().toISOString().slice(0, 10)}.csv`;
+    return c.body(r.csv, 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}"` });
   });
 
   // ---- settings ----

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { countWords, type SequenceListItem, type SequenceView } from "@clearpath/shared";
 import { api, useApi } from "../api";
 import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
+import { BackLink, Badge, EmptyState, Icon, PageSkeleton, Skeleton, StatusBadge, TierChip } from "../components/ui";
 import { href } from "../router";
 
 export interface EditableEmail {
@@ -13,7 +14,7 @@ export interface EditableEmail {
 
 const LIVE_CHECK_MS = 400;
 
-/** Whether Approve is allowed, and the plain reasons it is not. */
+/** Whether Approve is allowed, and the plain reasons it is not. A missing named contact is never one. */
 export function approvalState(view: SequenceView, dirty: boolean): { enabled: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (view.status === "approved") return { enabled: false, reasons: ["Already approved."] };
@@ -21,7 +22,6 @@ export function approvalState(view: SequenceView, dirty: boolean): { enabled: bo
   if (!view.validationPass) reasons.push("Fix the validator errors.");
   if (view.judgeRequired && !view.judge) reasons.push("Run the judge on the current text.");
   if (view.judge && view.judge.unsupported_claims.length > 0) reasons.push("The judge listed unsupported claims.");
-  reasons.push(...view.approvalBlockers);
   return { enabled: reasons.length === 0, reasons };
 }
 
@@ -49,9 +49,9 @@ export function markApproved(body: string, approved: { id: string; text: string 
   return parts;
 }
 
-function origin(e: SequenceView["sequence"]["emails"][number]): string {
-  if (e.edited) return "Edited by you";
-  return e.template ? "Template (no model call)" : "Written by the model";
+function origin(e: SequenceView["sequence"]["emails"][number]): { text: string; tone: "neutral" | "info" | "warning" } {
+  if (e.edited) return { text: "Edited by you", tone: "warning" };
+  return e.template ? { text: "Template (no model call)", tone: "neutral" } : { text: "Written by the model", tone: "info" };
 }
 
 export function EmailCard(props: {
@@ -66,53 +66,85 @@ export function EmailCard(props: {
   const words = countWords(email.body);
   const limit = view.wordLimits[String(email.n)];
   const issues = view.issues.filter((i) => i.email === email.n);
+  const errors = issues.filter((i) => i.severity === "error").length;
+  const warnings = issues.length - errors;
+  const o = origin(props.meta);
   return (
-    <article className="email-card" data-testid={`email-${email.n}`}>
-      <header className="row between">
-        <strong>
-          Email {email.n} · day {props.meta.send_day}
-        </strong>
-        <span className={props.meta.template && !props.meta.edited ? "badge template" : "badge"}>{origin(props.meta)}</span>
-      </header>
-      {email.n === 1 && (
-        <div className="row">
-          <label>
-            Subject A
-            <input value={email.subject_a ?? ""} onChange={(e) => props.onChange({ ...email, subject_a: e.target.value })} />
-          </label>
-          <label>
-            Subject B
-            <input value={email.subject_b ?? ""} onChange={(e) => props.onChange({ ...email, subject_b: e.target.value })} />
-          </label>
-        </div>
-      )}
-      <label>
-        Body
-        <textarea aria-label={`Email ${email.n} body`} value={email.body} onChange={(e) => props.onChange({ ...email, body: e.target.value })} rows={7} />
-      </label>
-      <div className="row between small">
-        <span className={limit && words > limit ? "error" : "muted"}>
-          {words} words{limit ? ` (limit ${limit})` : ` (break-up: ${view.breakupSentences.min}-${view.breakupSentences.max} sentences)`}
+    <article className={`email-card${errors ? " has-error" : warnings ? " has-warning" : ""}`} data-testid={`email-${email.n}`} aria-label={`Email ${email.n}`}>
+      <header className="email-head">
+        <span className="n" aria-hidden="true">
+          {email.n}
         </span>
+        <span className="title">Email {email.n}</span>
+        <span className="muted small">day {props.meta.send_day}</span>
+        <Badge tone={o.tone}>{o.text}</Badge>
+        <span className="spacer" />
+        {errors > 0 && (
+          <Badge tone="danger" icon="error">
+            {errors} error{errors > 1 ? "s" : ""}
+          </Badge>
+        )}
+        {warnings > 0 && (
+          <Badge tone="warning" icon="alert">
+            {warnings} warning{warnings > 1 ? "s" : ""}
+          </Badge>
+        )}
+        {issues.length === 0 && (
+          <Badge tone="success" icon="check">
+            checks pass
+          </Badge>
+        )}
         {props.onRewrite && (
-          <button type="button" className="secondary" onClick={props.onRewrite} disabled={props.busy}>
+          <button type="button" className="btn ghost sm" onClick={props.onRewrite} disabled={props.busy}>
             Rewrite this email
           </button>
         )}
-      </div>
-      <div className="preview">
-        {markApproved(email.body, view.approvedSentences)}
-        <div className="signature">{view.signature.join("\n")}</div>
-      </div>
+      </header>
       {issues.length > 0 && (
-        <ul className="issues">
+        <ul className="issues" aria-label={`Problems in email ${email.n}`}>
           {issues.map((i, k) => (
-            <li key={k} className={i.severity}>
-              {i.message}
+            <li key={k} className={`issue ${i.severity}`}>
+              <Icon name={i.severity === "error" ? "error" : "alert"} />
+              <span className="issue-text">
+                <span className="issue-kind">{i.severity === "error" ? "Must fix:" : "Check:"}</span> <span>{i.message}</span>
+              </span>
             </li>
           ))}
         </ul>
       )}
+      <div className="email-body">
+        <div className="email-edit">
+          {email.n === 1 && (
+            <div className="subjects">
+              <label className="field">
+                <span className="field-label">Subject A</span>
+                <input value={email.subject_a ?? ""} onChange={(e) => props.onChange({ ...email, subject_a: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field-label">Subject B</span>
+                <input value={email.subject_b ?? ""} onChange={(e) => props.onChange({ ...email, subject_b: e.target.value })} />
+              </label>
+            </div>
+          )}
+          <label className="field">
+            <span className="field-label">Body</span>
+            <textarea aria-label={`Email ${email.n} body`} value={email.body} onChange={(e) => props.onChange({ ...email, body: e.target.value })} rows={8} />
+          </label>
+          <div className="email-foot">
+            <span className={limit && words > limit ? "status-text error" : "muted"}>
+              {words} words{limit ? ` (limit ${limit})` : ` (break-up: ${view.breakupSentences.min}-${view.breakupSentences.max} sentences)`}
+            </span>
+          </div>
+        </div>
+        <div className="preview">
+          <span className="eyebrow">Preview as sent</span>
+          <div className="preview-box">
+            {email.n === 1 && email.subject_a && <span className="subject">Subject: {email.subject_a}</span>}
+            {markApproved(email.body, view.approvedSentences)}
+            <div className="signature">{view.signature.join("\n")}</div>
+          </div>
+        </div>
+      </div>
     </article>
   );
 }
@@ -172,15 +204,24 @@ export function SequenceEditor(props: { initial: SequenceView }) {
   const save = () => api<SequenceView>(`/sequences/${view.id}`, { method: "PUT", body: { emails } });
   const approval = approvalState(view, dirty);
   const errors = view.issues.filter((i) => i.severity === "error").length;
+  const judgeText = !view.judgeRequired
+    ? "Judge: not needed (templates only)"
+    : view.judge
+      ? view.judge.unsupported_claims.length
+        ? `Judge: ${view.judge.unsupported_claims.length} unsupported claim(s)`
+        : "Judge: passed"
+      : "Judge: not run on this text";
+  const judgeTone = !view.judgeRequired ? "muted" : view.judge ? (view.judge.unsupported_claims.length ? "error" : "ok") : "warning";
 
   return (
-    <div>
-      <div className="toolbar row">
-        <button type="button" onClick={() => act("save", save, "Saved.")} disabled={!dirty || !!busy}>
+    <div className="stack">
+      <div className="seq-toolbar">
+        <button type="button" className="btn secondary" onClick={() => act("save", save, "Saved.")} disabled={!dirty || !!busy}>
           {busy === "save" ? "Saving…" : "Save"}
         </button>
         <button
           type="button"
+          className="btn secondary"
           onClick={() =>
             act(
               "judge",
@@ -196,98 +237,139 @@ export function SequenceEditor(props: { initial: SequenceView }) {
         >
           {busy === "judge" ? "Judging…" : "Run judge"}
         </button>
-        <button type="button" className="approve" onClick={() => act("approve", () => api<SequenceView>(`/sequences/${view.id}/approve`, { method: "POST" }), "Approved.")} disabled={!approval.enabled || !!busy}>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => act("approve", () => api<SequenceView>(`/sequences/${view.id}/approve`, { method: "POST" }), "Approved.")}
+          disabled={!approval.enabled || !!busy}
+          aria-describedby={!approval.enabled ? "approve-reasons" : undefined}
+        >
           Approve
         </button>
-        <span className={errors ? "error" : "ok"}>{errors ? `${errors} validator error${errors > 1 ? "s" : ""}` : "Validators pass"}</span>
-        <span className="muted">
-          Judge: {!view.judgeRequired ? "not needed (templates only)" : view.judge ? (view.judge.unsupported_claims.length ? `${view.judge.unsupported_claims.length} unsupported claim(s)` : "passed") : "not run on this text"}
-        </span>
+        <div className="statuses">
+          <span className={`status-text ${errors ? "error" : "ok"}`}>
+            <Icon name={errors ? "error" : "check"} />
+            {errors ? `${errors} validator error${errors > 1 ? "s" : ""}` : "Validators pass"}
+          </span>
+          <span className={`status-text ${judgeTone}`}>
+            <Icon name={judgeTone === "ok" ? "check" : judgeTone === "error" ? "error" : judgeTone === "warning" ? "alert" : "info"} />
+            {judgeText}
+          </span>
+        </div>
+        {!approval.enabled && (
+          <div className="approve-reasons" id="approve-reasons">
+            <Icon name={view.status === "approved" ? "check" : "info"} />
+            <span>{view.status === "approved" ? "" : "Approve is disabled:"}</span>
+            <ul aria-label="Why Approve is disabled">
+              {approval.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-      {!approval.enabled && (
-        <ul className="reasons small" aria-label="Why Approve is disabled">
-          {approval.reasons.map((r) => (
-            <li key={r}>{r}</li>
-          ))}
-        </ul>
-      )}
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
-      {message && <p className="ok">{message}</p>}
+      {message && <NoticeBanner tone="success">{message}</NoticeBanner>}
+      {view.contactWarning && (
+        <NoticeBanner>
+          Contact: {view.contactWarning}. This is a warning only; it does not block approval or export.
+        </NoticeBanner>
+      )}
       {view.kind === "template" && (
         <NoticeBanner tone="info">Template (no model call): every email is fixed docs/09 text with the greeting and firm name filled in. No model was used, so no judge is needed.</NoticeBanner>
       )}
       {!view.validationPass && <NoticeBanner>This draft is blocked by the validators. It is shown in full below with its errors: edit it and save, or rewrite an email.</NoticeBanner>}
-      {view.issues.filter((i) => i.email === null).map((i, k) => (
-        <p key={k} className={i.severity}>
-          {i.message}
-        </p>
-      ))}
+      {view.issues
+        .filter((i) => i.email === null)
+        .map((i, k) => (
+          <div key={k} className={`issue ${i.severity}`}>
+            <Icon name={i.severity === "error" ? "error" : "alert"} />
+            <span className="issue-text">
+              <span className="issue-kind">{i.severity === "error" ? "Must fix:" : "Check:"}</span> <span>{i.message}</span>
+            </span>
+          </div>
+        ))}
       {view.judge && view.judge.unsupported_claims.length > 0 && (
-        <div className="card attention">
-          <h4>Judge: unsupported claims</h4>
-          <ul>
+        <section className="card tone-danger">
+          <h2 style={{ marginBottom: 8 }}>Judge: unsupported claims</h2>
+          <ul className="small">
             {view.judge.unsupported_claims.map((c, k) => (
               <li key={k}>
                 Email {c.email}: “{c.claim}” ({c.reason.replace(/_/g, " ")})
               </li>
             ))}
           </ul>
-        </div>
+        </section>
       )}
       {view.drafts.length > 0 && (
         <details className="card">
           <summary>Model drafts for this sequence ({view.drafts.length})</summary>
-          {view.drafts.map((d) => (
-            <div key={d.attempt}>
-              <strong>{d.attempt === 1 ? "First draft" : "Rewrite"}</strong>:{" "}
-              {d.formatProblem ? `could not be used (${d.formatProblem})` : d.errors.length === 0 ? "passed the validators" : `${d.errors.length} validator error(s)`}
-              {d.errors.length > 0 && (
-                <ul className="issues">
-                  {d.errors.map((i, k) => (
-                    <li key={k} className="error">
-                      {i.email ? `Email ${i.email}: ` : ""}
-                      {i.message}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
+          <div className="stack-sm small">
+            {view.drafts.map((d) => (
+              <div key={d.attempt}>
+                <strong>{d.attempt === 1 ? "First draft" : "Rewrite"}</strong>:{" "}
+                {d.formatProblem ? `could not be used (${d.formatProblem})` : d.errors.length === 0 ? "passed the validators" : `${d.errors.length} validator error(s)`}
+                {d.errors.length > 0 && (
+                  <ul>
+                    {d.errors.map((i, k) => (
+                      <li key={k}>
+                        {i.email ? `Email ${i.email}: ` : ""}
+                        {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
         </details>
       )}
-      <p className="legend small">
-        <mark className="approved">Highlighted</mark> sentences were inserted by code from docs/02. Everything else is model-written or template text.
+      <p className="legend">
+        <mark className="approved">Highlighted</mark>
+        <span>sentences were inserted by code from docs/02 (approved wording). Everything else is model-written or template text.</span>
       </p>
-      {emails.map((e) => (
-        <EmailCard
-          key={e.n}
-          email={e}
-          meta={view.sequence.emails.find((m) => m.n === e.n)!}
-          view={view}
-          busy={!!busy}
-          onChange={edit}
-          {...(view.rewritable.includes(e.n)
-            ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), `Email ${e.n} rewritten. Run the judge again.`) }
-            : {})}
-        />
-      ))}
+      <div className="email-stack">
+        {emails.map((e) => (
+          <EmailCard
+            key={e.n}
+            email={e}
+            meta={view.sequence.emails.find((m) => m.n === e.n)!}
+            view={view}
+            busy={!!busy}
+            onChange={edit}
+            {...(view.rewritable.includes(e.n)
+              ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), `Email ${e.n} rewritten. Run the judge again.`) }
+              : {})}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 export function SequencePage(props: { id: string }) {
   const { data, error } = useApi<SequenceView>(`/sequences/${encodeURIComponent(props.id)}`);
-  if (error) return <ErrorBanner message={error} />;
-  if (!data) return <p className="muted">Loading…</p>;
+  if (error)
+    return (
+      <section className="stack">
+        <BackLink href={href("sequences")}>Sequences</BackLink>
+        <ErrorBanner message={error} />
+      </section>
+    );
+  if (!data) return <PageSkeleton />;
   return (
-    <section>
-      <p>
-        <a href={href("leads", data.leadId)}>← {data.firm ?? data.leadId}</a>
-      </p>
-      <h2>
-        Sequence for {data.firm ?? data.leadId} <span className="muted">(tier {data.tier})</span>{" "}
-        {data.kind === "template" && <span className="badge template">Template (no model call)</span>}
-      </h2>
+    <section className="stack">
+      <BackLink href={href("leads", data.leadId)}>{data.firm ?? data.leadId}</BackLink>
+      <div className="page-head">
+        <div>
+          <h1>Sequence for {data.firm ?? data.leadId}</h1>
+          <div className="lead-meta">
+            <TierChip tier={data.tier} />
+            <StatusBadge status={data.status} />
+            {data.kind === "template" ? <Badge>Template (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}
+          </div>
+        </div>
+      </div>
       <SequenceEditor key={data.id} initial={data} />
     </section>
   );
@@ -297,40 +379,67 @@ export function SequencePage(props: { id: string }) {
 export function SequencesPage() {
   const { data, error, reload } = useApi<SequenceListItem[]>("/sequences");
   return (
-    <section>
-      <div className="row between">
-        <h2>Sequences</h2>
-        <button type="button" className="secondary" onClick={reload}>
+    <section className="stack">
+      <div className="page-head">
+        <div>
+          <h1>Sequences</h1>
+          <p className="sub">Each lead's newest five-email sequence. Open one to edit, judge, and approve it.</p>
+        </div>
+        <button type="button" className="btn secondary" onClick={reload}>
+          <Icon name="refresh" />
           Refresh
         </button>
       </div>
       <ErrorBanner message={error} />
-      {data && data.length === 0 && <p className="muted">No sequences yet. Open a lead and choose Write sequence.</p>}
+      {!data && !error && (
+        <div className="card">
+          <Skeleton lines={4} title={false} />
+        </div>
+      )}
+      {data && data.length === 0 && (
+        <EmptyState
+          icon="mail"
+          title="No sequences yet"
+          action={
+            <a className="btn secondary" href={href("leads")}>
+              Go to Leads
+            </a>
+          }
+        >
+          Open a lead and choose Write sequence. Tier C leads get template emails with no model call.
+        </EmptyState>
+      )}
       {data && data.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Firm</th>
-              <th>Tier</th>
-              <th>Kind</th>
-              <th>Status</th>
-              <th>Written</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((s) => (
-              <tr key={s.id}>
-                <td>
-                  <a href={href("sequences", s.id)}>{s.firm ?? s.leadId}</a>
-                </td>
-                <td>{s.tier}</td>
-                <td>{s.kind === "template" ? <span className="badge template">Template (no model call)</span> : <span className="badge">Written by the model</span>}</td>
-                <td>{s.status}</td>
-                <td>{s.createdAt.slice(0, 16).replace("T", " ")}</td>
+        <div className="table-wrap scroll">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Firm</th>
+                <th>Tier</th>
+                <th>Kind</th>
+                <th>Status</th>
+                <th>Written</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((s) => (
+                <tr key={s.id}>
+                  <td className="primary-cell">
+                    <a href={href("sequences", s.id)}>{s.firm ?? s.leadId}</a>
+                  </td>
+                  <td>
+                    <TierChip tier={s.tier} />
+                  </td>
+                  <td>{s.kind === "template" ? <Badge>Template (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}</td>
+                  <td>
+                    <StatusBadge status={s.status} />
+                  </td>
+                  <td className="nowrap muted">{s.createdAt.slice(0, 16).replace("T", " ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

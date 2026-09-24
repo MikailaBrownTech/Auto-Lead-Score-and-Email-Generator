@@ -23,7 +23,7 @@ The app reads and writes only the block below (Settings screen). Leave a value e
 - cta_type: what email 3 offers by reply: "checklist" (a one-page Safeguards Rule checklist) or "scorecard" (the 2-minute scorecard). Use "scorecard" only once the scorecard exists.
 - sender_title, company_name, company_website: signature lines added by the app under sender_name on every email. The company name comes only from here; the writer never writes one. Export is blocked while any is empty.
 - checklist_ready: true once the one-page checklist exists and can be sent by reply. While false, a sequence that includes email 3 is blocked from export.
-- allow_without_direct_contact: global override for leads without a person-tied public address (a generic inbox such as info@, an address not tied to a named person, or no address at all). While false, those leads are needs_direct_contact: approval and export are blocked until a person-tied address is provided (paste mode) or the lead is overridden individually with a logged reason.
+- neutral_greeting_style: the greeting used when the public address is not tied to a named person (a generic inbox such as info@, an unattributed address, or no address at all). One of "Hi there," (default), "Hi," or "Hi {{firm_name}} team," (the app fills in the firm name). A lead without a named contact is never blocked: it gets this greeting, a warning badge, and (without any address) a "Drafts" export row marked not ready to send.
 - include_dns_observation: true lets an email mention one DNS observation (for example a DMARC record set to monitoring only), hedged, and only when the domain has email (MX records). Default false: no DNS remarks in emails.
 
 ```json clearpath:offer
@@ -40,6 +40,6 @@ The app reads and writes only the block below (Settings screen). Leave a value e
   "cta_type": "checklist",
   "include_dns_observation": false,
   "checklist_ready": false,
-  "allow_without_direct_contact": false
+  "neutral_greeting_style": "Hi there,"
 }
 ```

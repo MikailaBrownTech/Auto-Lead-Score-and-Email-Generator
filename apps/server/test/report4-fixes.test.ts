@@ -10,7 +10,7 @@ import { loadTemplates } from "../src/docs/templates";
 import { dropFalseBooleans, isClientCount, verifyExtraction } from "../src/extract/verify";
 import { classifyPage } from "../src/fetch/select";
 import { firmTypeFromKeywords, keywordQuote } from "../src/scoring/derive";
-import { directContactBlockers, directContactChecklist, leadOverride, overrideDirectContact } from "../src/scoring/direct-contact";
+import { contactWarning, leadOverride, namedContactChecklist, overrideDirectContact } from "../src/scoring/direct-contact";
 import { computeFreshness, urlPathDate } from "../src/scoring/freshness";
 import { scoreDossier } from "../src/scoring/score";
 import { approveSequence, generateSequence, type WriteDeps } from "../src/write/generate";
@@ -26,7 +26,7 @@ const pagesOf = (text: string, title = "") => ({ pages: new Map([[HOME, { text, 
 
 describe("exit codes", () => {
   it("exit 0 for every expected outcome; non-zero only for real errors, with the reason", () => {
-    const expected = (["extracted", "needs_direct_contact", "budget_exceeded"] as const).map((status) => ({ leadId: `L-${status}`, status, error: null }));
+    const expected = (["extracted", "no_named_contact", "budget_exceeded"] as const).map((status) => ({ leadId: `L-${status}`, status, error: null }));
     expect(exitDecision(expected)).toEqual({ code: 0, because: null });
     expect(exitDecision([...expected, { leadId: "L9", status: "failed", error: "TypeError: boom" }])).toEqual({ code: 1, because: "L9 failed: TypeError: boom" });
   });
@@ -167,26 +167,25 @@ describe("incomplete_data", () => {
   });
 });
 
-describe("needs_direct_contact and per-lead override", () => {
+describe("no_named_contact (a warning) and the optional per-lead override", () => {
   let db: Db;
   beforeEach(() => {
     db = openDb(":memory:");
   });
 
-  it("any lead without a person-tied public email needs a direct contact, including no email at all", () => {
+  it("any lead without a person-tied public email gets a warning (never a blocker), including no email at all", () => {
     const none = strongDossier({ public_contact_email: NOT_FOUND, public_email_kind: NOT_FOUND });
     const unattributed = strongDossier({ public_email_kind: "unattributed" });
-    expect(directContactBlockers(none, offer, null).join()).toMatch(/^needs_direct_contact: no public email address was found/);
-    expect(directContactBlockers(unattributed, offer, null).join()).toMatch(/is not tied to a named person/);
-    expect(directContactBlockers(strongDossier(), offer, null)).toEqual([]);
-    expect(directContactBlockers(none, { ...offer, allow_without_direct_contact: true }, null)).toEqual([]);
-    const checklist = directContactChecklist(none).join("\n");
+    expect(contactWarning(none)).toBe("no public email; add before sending");
+    expect(contactWarning(unattributed)).toBe("address not tied to a named person: lower reply odds");
+    expect(contactWarning(strongDossier())).toBeNull();
+    const checklist = namedContactChecklist(none).join("\n");
     for (const s of ["paste mode", "accountancy board license lookup", "Secretary of State business search", "Google Business Profile"]) expect(checklist).toContain(s);
   });
 
-  it("an override needs a reason, is logged, clears the status, allows approval, and forces the neutral greeting", async () => {
+  it("an override needs a reason, is logged, clears the status, and forces the neutral greeting", async () => {
     const d = strongDossier({ public_contact_email: ev({ address: "info@smithtax.example", owner_name: null }, "info@smithtax.example"), public_email_kind: "generic_inbox" });
-    db.insert(leads).values({ id: "L1", source: "web", status: "needs_direct_contact", dossierJson: JSON.stringify(d) }).run();
+    db.insert(leads).values({ id: "L1", source: "web", status: "no_named_contact", dossierJson: JSON.stringify(d) }).run();
     expect(() => overrideDirectContact(db, "L1", "ok")).toThrow(/reason/);
     const o = overrideDirectContact(db, "L1", "Solo practice; info@ is the owner's only inbox", () => NOW);
     expect(leadOverride(db, "L1")).toEqual(o);
@@ -209,10 +208,10 @@ describe("needs_direct_contact and per-lead override", () => {
     };
     const named = strongDossier(); // would normally greet "Hi Jane,"
     const r = await generateSequence("L1", named, "C", deps, { directContactOverride: o });
-    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi,\n")).toBe(true);
+    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi there,\n")).toBe(true);
     const g = await generateSequence("L1", d, "C", deps, { directContactOverride: o });
-    expect(g.approvalBlockers).toEqual([]);
-    approveSequence(db, g.sequenceId!, offer);
+    expect(g.contactWarning).toBe("generic inbox: lower reply odds");
+    approveSequence(db, g.sequenceId!);
   });
 });
 

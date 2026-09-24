@@ -3,8 +3,9 @@ import { readStoredDossier, tryReadStoredDossier } from "../pipeline/stored-doss
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads, runs, sequences } from "../db/schema";
-import { DOCS_DIR, loadScoring } from "../docs/loader";
-import { directContactChecklist, directContactReason, lacksDirectContact, leadOverride } from "../scoring/direct-contact";
+import { DOCS_DIR, loadOffer, loadScoring } from "../docs/loader";
+import { leadGreeting } from "../scoring/contact";
+import { contactWarning, lacksNamedContact, leadOverride, namedContactChecklist, publicAddress } from "../scoring/direct-contact";
 import { scoreDossier } from "../scoring/score";
 import { signatureLines } from "../validators/email";
 import { customEmailsFor, notWrittenReason, type WriteDeps } from "../write/generate";
@@ -56,10 +57,11 @@ export function listSequences(db: Db): SequenceListItem[] {
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-function flagsFor(d: Dossier | null, status: string, incompleteData: boolean): LeadFlags {
+function flagsFor(d: Dossier | null, incompleteData: boolean): LeadFlags {
   return {
     generic_inbox: d?.public_email_kind === "generic_inbox",
-    needs_direct_contact: status === "needs_direct_contact",
+    unattributed_inbox: d?.public_email_kind === "unattributed",
+    no_public_email: d !== null && publicAddress(d) === null,
     incomplete_data: incompleteData,
     declined_automated_access: d?.declined_automated_access === true,
   };
@@ -86,7 +88,7 @@ export function listLeads(db: Db): LeadRow[] {
         tier: l.tier,
         gate: l.gateStatus,
         status: l.dossierJson && !d ? "outdated_research" : l.status,
-        flags: flagsFor(d, l.status, l.incompleteData),
+        flags: flagsFor(d, l.incompleteData),
         costUsd: costs.get(l.id) ?? 0,
         sequenceStatus: seqs.get(l.id)?.status ?? null,
         updatedAt: l.updatedAt,
@@ -98,9 +100,9 @@ export function leadDetail(s: Services, id: string): LeadDetail {
   const l = s.db.select().from(leads).where(eq(leads.id, id)).get();
   if (!l?.dossierJson) throw new NotFoundError(`Lead ${id} was not found, or its research has not finished.`);
   const dossier = readStoredDossier(l.dossierJson);
-  const score = scoreDossier(dossier, loadScoring(s.docsDir ?? DOCS_DIR), (s.now ?? (() => new Date()))());
+  const docsDir = s.docsDir ?? DOCS_DIR;
+  const score = scoreDossier(dossier, loadScoring(docsDir), (s.now ?? (() => new Date()))());
   const override = leadOverride(s.db, id);
-  const needsContact = lacksDirectContact(dossier) && !override;
   const seq = latestSequences(s.db).get(id);
   const hint = dossier.email_security_hint;
   return {
@@ -115,13 +117,14 @@ export function leadDetail(s: Services, id: string): LeadDetail {
     tierCapped: score.tierCapped,
     gateApproved: l.gateApproved,
     dossier,
-    breakdown: score.breakdown.map((b) => ({ key: b.key, label: b.label, group: b.group, points: b.points, max: b.max, reason: b.reason })),
+    breakdown: score.breakdown.map((b) => ({ key: b.key, label: b.label, group: b.group, points: b.points, max: b.max, reason: b.reason, dataMissing: b.dataMissing })),
     costUsd: costByLead(s.db).get(id) ?? 0,
-    flags: flagsFor(dossier, l.status, score.incompleteData.flag),
-    directContact: {
-      needed: needsContact,
-      reason: lacksDirectContact(dossier) ? directContactReason(dossier) : null,
-      checklist: lacksDirectContact(dossier) ? directContactChecklist(dossier) : [],
+    flags: flagsFor(dossier, score.incompleteData.flag),
+    contact: {
+      named: !lacksNamedContact(dossier),
+      greeting: leadGreeting(dossier, loadOffer(docsDir), override !== null),
+      warning: contactWarning(dossier),
+      checklist: lacksNamedContact(dossier) ? namedContactChecklist(dossier) : [],
       override,
     },
     internalNotes: {
@@ -186,7 +189,7 @@ export function sequenceViewFrom(
     validationPass: state.validation.pass,
     judgeRequired: state.judgeRequired,
     judge: state.judge,
-    approvalBlockers: state.approvalBlockers,
+    contactWarning: state.contactWarning,
     exportBlockers: state.exportBlockers,
     approvedSentences: deps.approved.map((a) => ({ id: a.id, text: a.text })),
     rewritable: customEmailsFor(tier),

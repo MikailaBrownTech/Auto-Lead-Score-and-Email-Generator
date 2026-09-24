@@ -10,7 +10,7 @@ Rules these follow:
 - Every template must pass the same validators as custom emails (a test enforces this).
 
 Variables:
-- {{greeting}}: "Hi Jane," when a decision maker's first name is known, otherwise "Hi,".
+- {{greeting}}: "Hi Jane," when the public address is tied to the decision maker, otherwise the docs/01 neutral_greeting_style (default "Hi there,").
 - {{firm_ref}}: the firm's name when known, otherwise "your firm".
 - {{cta_url}}: the CTA link from docs/01.
 

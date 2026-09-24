@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 
 export const MIN_REASON = 10;
 
@@ -6,10 +6,11 @@ export const MIN_REASON = 10;
  * A manual decision that needs a typed reason (kept in the lead's log). The button stays disabled
  * until the reason is long enough.
  */
-export function ReasonForm(props: { label: string; button: string; onSubmit: (reason: string) => Promise<void> }) {
+export function ReasonForm(props: { label: string; button: string; onSubmit: (reason: string) => Promise<void>; tone?: "primary" | "secondary" }) {
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const id = useId();
   const ok = reason.trim().length >= MIN_REASON;
   return (
     <form
@@ -29,17 +30,21 @@ export function ReasonForm(props: { label: string; button: string; onSubmit: (re
         }
       }}
     >
-      <label>
-        {props.label}
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why? This is saved in the lead's log." />
+      <label className="field" htmlFor={id}>
+        <span className="field-label">{props.label}</span>
+        <textarea id={id} value={reason} onChange={(e) => setReason(e.target.value)} rows={2} placeholder="Why? This is saved in the lead's log." />
       </label>
       <div className="row">
-        <button type="submit" disabled={!ok || busy}>
+        <button type="submit" className={`btn ${props.tone ?? "secondary"}`} disabled={!ok || busy}>
           {busy ? "Saving…" : props.button}
         </button>
-        {!ok && <span className="muted">Type a reason of at least {MIN_REASON} characters.</span>}
+        {!ok && <span className="field-hint">Type a reason of at least {MIN_REASON} characters.</span>}
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="field-hint error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
   );
 }

@@ -173,7 +173,7 @@ describe("fix 5: generic inboxes", () => {
 
   it("never greets a generic inbox by name", () => {
     const d = strongDossier({ public_contact_email: email("jane@smithtax.example", "Jane Smith"), public_email_kind: "generic_inbox" });
-    expect(contactPlan(d)).toMatchObject({ greeting: "Hi,", greetFirstName: null, genericInbox: true });
+    expect(contactPlan(d)).toMatchObject({ greeting: "Hi there,", greetFirstName: null, genericInbox: true });
     expect(contactPlan(strongDossier())).toMatchObject({ greeting: "Hi Jane,", genericInbox: false });
   });
 });

@@ -4,10 +4,14 @@
  */
 import type { Dossier } from "./dossier";
 import type { JudgeOutput, Sequence, Tier } from "./sequence";
+import type { NeutralGreetingStyle } from "./settings";
 
+/** Contact flags are warnings only: they never block drafting, approval, or export. */
 export interface LeadFlags {
   generic_inbox: boolean;
-  needs_direct_contact: boolean;
+  /** An address was found, but it is neither tied to a named person nor a role inbox. */
+  unattributed_inbox: boolean;
+  no_public_email: boolean;
   incomplete_data: boolean;
   declined_automated_access: boolean;
 }
@@ -36,6 +40,8 @@ export interface CriterionView {
   points: number;
   max: number;
   reason: string;
+  /** Scored 0 only because a fact was NOT_FOUND (unknown, not a negative finding). */
+  dataMissing: boolean;
 }
 
 export interface LeadEventView {
@@ -59,7 +65,11 @@ export interface LeadDetail {
   breakdown: CriterionView[];
   costUsd: number;
   flags: LeadFlags;
-  directContact: { needed: boolean; reason: string | null; checklist: string[]; override: { reason: string; at: string } | null };
+  /**
+   * Named when the public address is tied to a named person. Otherwise a warning (never a blocker),
+   * optional public sources to improve reply odds, and the optional override.
+   */
+  contact: { named: boolean; greeting: string; warning: string | null; checklist: string[]; override: { reason: string; at: string } | null };
   /** Never used in emails or writer input. */
   internalNotes: { incompleteData: string | null; emailSecurityHint: string | null; clientCount: string | null };
   events: LeadEventView[];
@@ -90,7 +100,8 @@ export interface SequenceView {
   judgeRequired: boolean;
   /** The judge result for the current content, or null if it has not been run on it. */
   judge: JudgeOutput | null;
-  approvalBlockers: string[];
+  /** A lead without a named contact (plain words); a warning, never an approval blocker. */
+  contactWarning: string | null;
   exportBlockers: string[];
   /** Code-inserted approved sentences (docs/02), to show apart from model-written text. */
   approvedSentences: { id: string; text: string }[];
@@ -135,8 +146,12 @@ export interface JobView {
 }
 
 export interface ExportView {
+  /** "ready": rows with an address. "drafts": every approved row (send_ready N without an address). */
+  mode: "ready" | "drafts";
   blocked: string[];
   rowCount: number;
+  readyCount: number;
+  draftCount: number;
   excluded: { lead_id: string; firm_name: string; reason: string }[];
   csv: string;
 }
@@ -152,6 +167,7 @@ export interface OfferSettingsView {
   cta_type: "checklist" | "scorecard";
   checklist_ready: boolean;
   include_dns_observation: boolean;
+  neutral_greeting_style: NeutralGreetingStyle;
 }
 
 export interface SuppressionView {

@@ -2,27 +2,31 @@ import { useMemo, useState } from "react";
 import type { LeadRow } from "@clearpath/shared";
 import { useApi, usd } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
+import { Badge, EmptyState, Icon, Skeleton, StatusBadge, TierChip, type Tone } from "../components/ui";
 import { href } from "../router";
 
-const FLAG_TEXT: Record<keyof LeadRow["flags"], string> = {
-  generic_inbox: "generic inbox",
-  needs_direct_contact: "needs direct contact",
-  incomplete_data: "incomplete data",
-  declined_automated_access: "site declined access",
+/** Contact flags are warnings, never blockers; the words say what they mean. */
+const FLAG_TEXT: Record<keyof LeadRow["flags"], [string, Tone]> = {
+  generic_inbox: ["generic inbox: lower reply odds", "warning"],
+  unattributed_inbox: ["unattributed inbox: lower reply odds", "warning"],
+  no_public_email: ["no public email", "warning"],
+  incomplete_data: ["incomplete data", "info"],
+  declined_automated_access: ["site declined access", "neutral"],
 };
 
 type SortKey = "firm" | "score" | "tier" | "status" | "costUsd";
 
 export function Flags(props: { flags: LeadRow["flags"] }) {
-  const on = (Object.keys(props.flags) as (keyof LeadRow["flags"])[]).filter((k) => props.flags[k]);
+  const on = (Object.keys(FLAG_TEXT) as (keyof LeadRow["flags"])[]).filter((k) => props.flags[k]);
+  if (on.length === 0) return null;
   return (
-    <>
+    <span className="badges">
       {on.map((k) => (
-        <span key={k} className={`badge flag-${k}`}>
-          {FLAG_TEXT[k]}
-        </span>
+        <Badge key={k} tone={FLAG_TEXT[k][1]} icon={FLAG_TEXT[k][1] === "warning" ? "alert" : undefined}>
+          {FLAG_TEXT[k][0]}
+        </Badge>
       ))}
-    </>
+    </span>
   );
 }
 
@@ -44,37 +48,47 @@ export function LeadsPage() {
     });
   }, [data, tier, status, sort]);
 
-  const header = (key: SortKey, label: string) => (
-    <th>
-      <button type="button" className="link" onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key === "score" || key === "costUsd" }))}>
+  const header = (key: SortKey, label: string, num = false) => (
+    <th className={num ? "num" : undefined} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
+      <button type="button" className="link-button" onClick={() => setSort((s) => ({ key, desc: s.key === key ? !s.desc : key === "score" || key === "costUsd" }))}>
         {label}
-        {sort.key === key ? (sort.desc ? " ▼" : " ▲") : ""}
+        {sort.key === key ? (sort.desc ? " ↓" : " ↑") : ""}
       </button>
     </th>
   );
 
   return (
-    <section>
-      <div className="row between">
-        <h2>Leads</h2>
-        <button type="button" className="secondary" onClick={reload}>
-          Refresh
-        </button>
+    <section className="stack">
+      <div className="page-head">
+        <div>
+          <h1>Leads</h1>
+          <p className="sub">Researched firms, their score and tier, and anything that needs your attention.</p>
+        </div>
+        <div className="row">
+          <button type="button" className="btn secondary" onClick={reload}>
+            <Icon name="refresh" />
+            Refresh
+          </button>
+          <a className="btn primary" href={href("import")}>
+            <Icon name="import" />
+            Import leads
+          </a>
+        </div>
       </div>
-      <div className="row">
-        <label className="inline">
-          Tier{" "}
+      <div className="filters">
+        <label className="inline-field">
+          Tier
           <select value={tier} onChange={(e) => setTier(e.target.value)}>
-            <option value="all">All</option>
+            <option value="all">All tiers</option>
             <option value="A">A</option>
             <option value="B">B</option>
             <option value="C">C</option>
           </select>
         </label>
-        <label className="inline">
-          Status{" "}
+        <label className="inline-field">
+          Status
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="all">All</option>
+            <option value="all">All statuses</option>
             {statuses.map((s) => (
               <option key={s} value={s}>
                 {s.replace(/_/g, " ")}
@@ -82,47 +96,88 @@ export function LeadsPage() {
             ))}
           </select>
         </label>
+        {data && (
+          <span className="count">
+            {rows.length} of {data.length} lead{data.length === 1 ? "" : "s"}
+          </span>
+        )}
       </div>
       <ErrorBanner message={error} />
-      {data && data.length === 0 && <p className="muted">No leads yet. Start on the Import page.</p>}
+      {!data && !error && (
+        <div className="card">
+          <Skeleton lines={6} title={false} />
+        </div>
+      )}
+      {data && data.length === 0 && (
+        <EmptyState
+          icon="leads"
+          title="No leads yet"
+          action={
+            <a className="btn primary" href={href("import")}>
+              Import leads
+            </a>
+          }
+        >
+          Paste up to 5 website addresses on the Import page. Each site is researched politely and scored here.
+        </EmptyState>
+      )}
+      {data && data.length > 0 && rows.length === 0 && (
+        <EmptyState icon="info" title="No leads match these filters">
+          Choose "All tiers" and "All statuses" to see every lead.
+        </EmptyState>
+      )}
       {rows.length > 0 && (
-        <table className="leads">
-          <thead>
-            <tr>
-              {header("firm", "Firm")}
-              <th>Type</th>
-              <th>City / state</th>
-              {header("score", "Score")}
-              {header("tier", "Tier")}
-              {header("status", "Gate / status")}
-              <th>Flags</th>
-              <th>Sequence</th>
-              {header("costUsd", "Cost")}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((l) => (
-              <tr key={l.id}>
-                <td>
-                  <a href={href("leads", l.id)}>{l.firm ?? l.id}</a>
-                  {l.source === "pasted" && <span className="badge">pasted</span>}
-                </td>
-                <td>{l.type?.replace(/_/g, " ") ?? "—"}</td>
-                <td>{[l.city, l.state].filter(Boolean).join(", ") || "—"}</td>
-                <td>{l.score ?? "—"}</td>
-                <td>{l.tier ?? "—"}</td>
-                <td>
-                  {l.gate?.replace(/_/g, " ") ?? "—"} / {l.status.replace(/_/g, " ")}
-                </td>
-                <td>
-                  <Flags flags={l.flags} />
-                </td>
-                <td>{l.sequenceStatus ?? "—"}</td>
-                <td>{usd(l.costUsd)}</td>
+        <div className="table-wrap scroll">
+          <table className="data leads">
+            <thead>
+              <tr>
+                {header("firm", "Firm")}
+                <th>Type</th>
+                <th>Location</th>
+                {header("score", "Score", true)}
+                {header("tier", "Tier")}
+                {header("status", "Status")}
+                <th>Flags</th>
+                <th>Sequence</th>
+                {header("costUsd", "Cost", true)}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((l) => (
+                <tr key={l.id}>
+                  <td className="primary-cell">
+                    <a href={href("leads", l.id)}>{l.firm ?? l.id}</a>
+                    {l.source === "pasted" && (
+                      <>
+                        {" "}
+                        <Badge>pasted</Badge>
+                      </>
+                    )}
+                  </td>
+                  <td className="nowrap">{l.type?.replace(/_/g, " ") ?? "—"}</td>
+                  <td className="nowrap">{[l.city, l.state].filter(Boolean).join(", ") || "—"}</td>
+                  <td className="num">{l.score ?? "—"}</td>
+                  <td>
+                    <TierChip tier={l.tier} />
+                  </td>
+                  <td>
+                    <div className="badges">
+                      {l.gate && l.gate !== "qualified" && <StatusBadge status={l.gate} />}
+                      <StatusBadge status={l.status} />
+                    </div>
+                  </td>
+                  <td>
+                    <Flags flags={l.flags} />
+                  </td>
+                  <td>
+                    <StatusBadge status={l.sequenceStatus} />
+                  </td>
+                  <td className="num">{usd(l.costUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

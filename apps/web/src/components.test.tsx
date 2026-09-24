@@ -29,7 +29,7 @@ function view(over: Partial<SequenceView> = {}): SequenceView {
     validationPass: true,
     judgeRequired: true,
     judge: null,
-    approvalBlockers: [],
+    contactWarning: null,
     exportBlockers: [],
     approvedSentences: [{ id: "applies_non_bank", text: APPROVED }],
     rewritable: [1, 2],
@@ -87,7 +87,8 @@ describe("approve gating", () => {
     const claim = { unsupported_claims: [{ email: 1, claim: "x", reason: "other" as const }] };
     expect(approvalState(view({ judge: claim }), false).reasons).toContain("The judge listed unsupported claims.");
     expect(approvalState(view({ judge: { unsupported_claims: [] } }), true).reasons).toEqual(["Save your changes first."]);
-    expect(approvalState(view({ judge: { unsupported_claims: [] }, approvalBlockers: ["needs_direct_contact: no public email address was found"] }), false).enabled).toBe(false);
+    // A missing named contact is a warning only: it never disables Approve.
+    expect(approvalState(view({ judge: { unsupported_claims: [] }, contactWarning: "no public email; add before sending" }), false)).toEqual({ enabled: true, reasons: [] });
     expect(approvalState(view({ judge: { unsupported_claims: [] } }), false)).toEqual({ enabled: true, reasons: [] });
     expect(approvalState(view({ judgeRequired: false }), false).enabled).toBe(true);
 
@@ -107,18 +108,37 @@ describe("approve gating", () => {
 
 describe("export blocking", () => {
   it("shows a clear block message and no download while blocked", () => {
-    const blocked: ExportView = { blocked: ["Fill in these settings first: opt_out_line, physical_address."], rowCount: 0, excluded: [], csv: "" };
+    const blocked: ExportView = { mode: "ready", blocked: ["Fill in these settings first: opt_out_line, physical_address."], rowCount: 0, readyCount: 0, draftCount: 0, excluded: [], csv: "" };
     render(<ExportPanel data={blocked} />);
     expect(screen.getByRole("alert").textContent).toMatch(/Export is blocked.*opt_out_line, physical_address/);
     expect(screen.queryByRole("button", { name: "Download CSV" })).toBeNull();
   });
 
   it("lists suppressed leads that were left out, and offers the CSV", () => {
-    const ok: ExportView = { blocked: [], rowCount: 1, excluded: [{ lead_id: "paste-doe", firm_name: "Doe Tax", reason: "on the suppression list (doetax.example)" }], csv: "lead_id,firm_name\r\nlead-smith,Smith Tax\r\n" };
+    const ok: ExportView = { mode: "ready", blocked: [], rowCount: 1, readyCount: 1, draftCount: 1, excluded: [{ lead_id: "paste-doe", firm_name: "Doe Tax", reason: "on the suppression list (doetax.example)" }], csv: "lead_id,firm_name\r\nlead-smith,Smith Tax\r\n" };
     render(<ExportPanel data={ok} />);
     expect(screen.getByText("Doe Tax: on the suppression list (doetax.example)")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download CSV" })).toBeTruthy();
     expect((screen.getByLabelText("CSV") as HTMLTextAreaElement).value).toContain("lead-smith");
+  });
+
+  it("offers two modes, 'Ready to send' and 'Drafts', with their row counts", () => {
+    const onMode = vi.fn();
+    const drafts: ExportView = {
+      mode: "ready",
+      blocked: [],
+      rowCount: 1,
+      readyCount: 1,
+      draftCount: 2,
+      excluded: [{ lead_id: "lead-none", firm_name: "No Email CPA", reason: "no public email; add before sending (included in the Drafts export)" }],
+      csv: "lead_id,firm_name,to_email,send_ready,contact_note\r\n",
+    };
+    render(<ExportPanel data={drafts} onMode={onMode} />);
+    const ready = screen.getByRole("button", { name: "Ready to send (1)" });
+    expect(ready.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Drafts (2)" }));
+    expect(onMode).toHaveBeenCalledWith("drafts");
+    expect(screen.getByText(/No Email CPA: no public email; add before sending/)).toBeTruthy();
   });
 });
 

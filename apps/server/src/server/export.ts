@@ -3,9 +3,9 @@ import { tryReadStoredDossier } from "../pipeline/stored-dossier";
 import { asc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leads, sequences, suppressions } from "../db/schema";
-import { leadOverride } from "../scoring/direct-contact";
+import { contactWarning, publicAddress } from "../scoring/direct-contact";
 import { renderEmail } from "../validators/email";
-import { approvalBlockers, type WriteDeps } from "../write/generate";
+import type { WriteDeps } from "../write/generate";
 
 // ---- suppression list ----
 
@@ -55,10 +55,18 @@ export function suppressedBy(list: Suppression[], address: string, extraDomains:
 
 // ---- export ----
 
+/** "ready": rows with an email address only. "drafts": every approved row, addressed or not. */
+export type ExportMode = "ready" | "drafts";
+
 export interface ExportRow {
   lead_id: string;
   firm_name: string;
+  /** Empty when no public address was found (drafts mode only). Never guessed or constructed. */
   to_email: string;
+  /** "Y" when the row has an address to send to, else "N". */
+  send_ready: "Y" | "N";
+  /** Why reply odds are lower or the row cannot be sent yet; empty for a named contact. */
+  contact_note: string;
   subject_a: string;
   subject_b: string;
   emails: { n: number; send_day: number; text: string }[];
@@ -68,9 +76,13 @@ export interface ExportResult {
   /** Reasons the whole export is refused. Empty when allowed. */
   blocked: string[];
   rows: ExportRow[];
-  /** Approved leads left out, with the reason (suppressed, no address). */
+  /** Approved leads left out, with the reason (suppressed; no address in ready mode). */
   excluded: { lead_id: string; firm_name: string; reason: string }[];
   csv: string;
+  mode: ExportMode;
+  /** Rows each mode would export (suppressed leads never count). */
+  readyCount: number;
+  draftCount: number;
 }
 
 function csvCell(v: string | number): string {
@@ -82,6 +94,8 @@ export const EXPORT_COLUMNS = [
   "lead_id",
   "firm_name",
   "to_email",
+  "send_ready",
+  "contact_note",
   "subject_a",
   "subject_b",
   ...[1, 2, 3, 4, 5].flatMap((n) => [`email_${n}_send_day`, `email_${n}_text`]),
@@ -90,7 +104,7 @@ export const EXPORT_COLUMNS = [
 export function toCsv(rows: ExportRow[]): string {
   const lines = [EXPORT_COLUMNS.join(",")];
   for (const r of rows) {
-    const cells: (string | number)[] = [r.lead_id, r.firm_name, r.to_email, r.subject_a, r.subject_b];
+    const cells: (string | number)[] = [r.lead_id, r.firm_name, r.to_email, r.send_ready, r.contact_note, r.subject_a, r.subject_b];
     for (let n = 1; n <= 5; n++) {
       const e = r.emails.find((x) => x.n === n);
       cells.push(e?.send_day ?? "", e?.text ?? "");
@@ -104,9 +118,10 @@ export function toCsv(rows: ExportRow[]): string {
  * The export: approved sequences only. Refused as a whole while the signature/footer settings are
  * incomplete, or while checklist_ready is false and an approved sequence offers the checklist. The
  * suppression list is checked before each row; a suppressed lead is left out and reported. Rows hold
- * only the rendered emails and the address, never dossier notes.
+ * only the rendered emails, the address, and the contact note, never dossier notes. "ready" exports
+ * rows with an address; "drafts" exports every approved row (send_ready N without an address).
  */
-export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">): ExportResult {
+export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">, mode: ExportMode = "ready"): ExportResult {
   const offer = deps.offer;
   const latest = new Map<string, { status: string; sequence: Sequence | null }>();
   for (const row of db.select().from(sequences).orderBy(asc(sequences.id)).all()) {
@@ -121,10 +136,10 @@ export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">): ExportResul
     blocked.push("Email 3 offers the checklist, but checklist_ready is off in Settings. Turn it on once the checklist can be sent.");
   }
   if (approved.length === 0) blocked.push("No approved sequences yet. Approve a sequence first.");
-  if (blocked.length > 0) return { blocked, rows: [], excluded: [], csv: "" };
+  if (blocked.length > 0) return { blocked, rows: [], excluded: [], csv: "", mode, readyCount: 0, draftCount: 0 };
 
   const list = listSuppressions(db);
-  const rows: ExportRow[] = [];
+  const all: ExportRow[] = [];
   const excluded: ExportResult["excluded"] = [];
   for (const [leadId, v] of approved) {
     const lead = db.select().from(leads).where(eq(leads.id, leadId)).get();
@@ -134,32 +149,30 @@ export function buildExport(db: Db, deps: Pick<WriteDeps, "offer">): ExportResul
       excluded.push({ lead_id: leadId, firm_name: firm, reason: "no current research on file (import it again)" });
       continue;
     }
-    const address = isFound(d.public_contact_email) ? d.public_contact_email.value.address : null;
+    const address = publicAddress(d);
     // Suppression is checked before anything else about the row.
     const hit = address ? suppressedBy(list, address, [d.domain]) : suppressedBy(list, "", [d.domain]);
     if (hit) {
       excluded.push({ lead_id: leadId, firm_name: firm, reason: `on the suppression list (${hit.value})` });
       continue;
     }
-    if (!address) {
-      excluded.push({ lead_id: leadId, firm_name: firm, reason: "no email address on file" });
-      continue;
-    }
-    const blockers = approvalBlockers(d, offer, leadOverride(db, leadId));
-    if (blockers.length > 0) {
-      excluded.push({ lead_id: leadId, firm_name: firm, reason: blockers.join("; ") });
-      continue;
-    }
     const seq = v.sequence!;
     const e1 = seq.emails.find((e) => e.n === 1);
-    rows.push({
+    all.push({
       lead_id: leadId,
       firm_name: firm,
-      to_email: address,
+      to_email: address ?? "",
+      send_ready: address ? "Y" : "N",
+      contact_note: contactWarning(d) ?? "",
       subject_a: e1?.subject_a ?? "",
       subject_b: e1?.subject_b ?? "",
       emails: seq.emails.map((e) => ({ n: e.n, send_day: e.send_day, text: renderEmail(e.body, offer) })),
     });
   }
-  return { blocked: [], rows, excluded, csv: toCsv(rows) };
+  const ready = all.filter((r) => r.send_ready === "Y");
+  if (mode === "ready") {
+    for (const r of all) if (r.send_ready === "N") excluded.push({ lead_id: r.lead_id, firm_name: r.firm_name, reason: `${r.contact_note} (included in the Drafts export)` });
+  }
+  const rows = mode === "ready" ? ready : all;
+  return { blocked: [], rows, excluded, csv: toCsv(rows), mode, readyCount: ready.length, draftCount: all.length };
 }

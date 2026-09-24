@@ -1,48 +1,50 @@
-import { isFound, type Dossier, type OfferConfig } from "@clearpath/shared";
+import { isFound, type Dossier } from "@clearpath/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads } from "../db/schema";
 
-/** A per-lead override of needs_direct_contact, with the reason the founder gave. */
+/**
+ * A lead without a named contact is a warning, never a block: drafting, approval, and export all
+ * proceed with the neutral greeting. The status no_named_contact and the badges only say that reply
+ * odds are lower (or, with no address at all, that one must be added before sending).
+ */
+
+/** A per-lead contact override, with the reason the founder gave. Optional; it only clears the label. */
 export interface DirectContactOverride {
   reason: string;
   at: string;
 }
 
 /** A lead without a person-tied public address: a generic inbox, an unattributed address, or none. */
-export function lacksDirectContact(d: Dossier): boolean {
+export function lacksNamedContact(d: Dossier): boolean {
   return d.public_email_kind !== "named_person";
 }
 
-/** Why the lead lacks a direct contact, in words for the report and blockers. */
-export function directContactReason(d: Dossier): string {
-  const address = isFound(d.public_contact_email) ? d.public_contact_email.value.address : null;
-  if (!address) return "no public email address was found";
-  if (d.public_email_kind === "generic_inbox") return `${address} is a generic inbox`;
-  return `${address} is not tied to a named person`;
+/** The public address, or null when none was found. */
+export function publicAddress(d: Dossier): string | null {
+  return isFound(d.public_contact_email) ? d.public_contact_email.value.address : null;
 }
 
 /**
- * needs_direct_contact blocks approval and export unless the global setting
- * (allow_without_direct_contact) or a per-lead override with a logged reason allows it.
+ * The contact warning in plain words (badge, lead page, CSV contact_note); null for a named contact.
+ * Never a guessed or constructed address or name.
  */
-export function directContactBlockers(d: Dossier, offer: OfferConfig, override: DirectContactOverride | null): string[] {
-  if (!lacksDirectContact(d) || offer.allow_without_direct_contact || override) return [];
-  return [
-    `needs_direct_contact: ${directContactReason(d)}; paste the owner's name and email (paste mode), override this lead with a reason, or set allow_without_direct_contact in docs/01`,
-  ];
+export function contactWarning(d: Dossier): string | null {
+  if (!lacksNamedContact(d)) return null;
+  if (!publicAddress(d)) return "no public email; add before sending";
+  if (d.public_email_kind === "generic_inbox") return "generic inbox: lower reply odds";
+  return "address not tied to a named person: lower reply odds";
 }
 
-/** What to do for a needs_direct_contact lead (shown in reports and the UI). */
-export function directContactChecklist(d: Dossier): string[] {
+/** Optional public sources for an owner name or email (shown on the lead page and in reports). */
+export function namedContactChecklist(d: Dossier): string[] {
   const state = isFound(d.location) ? d.location.value.state : null;
   const firm = isFound(d.firm_name) ? d.firm_name.value : "the firm";
   return [
-    `[ ] Paste the owner's name and email via paste mode (${directContactReason(d)}).`,
+    "[ ] Paste the owner's name and email via paste mode, if you find them.",
     `[ ] State accountancy board license lookup${state ? ` (${state})` : ""}: search ${firm} or its owner for the licensee name.`,
     `[ ] Secretary of State business search${state ? ` (${state})` : ""}: registered agent and officers for ${firm}.`,
     `[ ] Google Business Profile for ${firm}: owner name, and whether a direct email is listed.`,
-    "[ ] Solo practice whose only address is the owner's inbox: override this lead with a reason (emails then use the neutral greeting).",
   ];
 }
 
@@ -59,9 +61,9 @@ export function leadOverride(db: Db, leadId: string): DirectContactOverride | nu
 export const MIN_OVERRIDE_REASON = 10;
 
 /**
- * Overrides needs_direct_contact for one lead (e.g. a solo practice whose only address is the
- * owner's inbox). The reason is required and logged in lead_events. Sequences for the lead then use
- * the neutral greeting.
+ * Marks one lead's contact as accepted (e.g. a solo practice whose only address is the owner's
+ * inbox): clears the no_named_contact label. Not required to proceed. The reason is required and
+ * logged in lead_events. Sequences for the lead keep the neutral greeting.
  */
 export function overrideDirectContact(db: Db, leadId: string, reason: string, now: () => Date = () => new Date()): DirectContactOverride {
   const why = reason.trim();
@@ -73,7 +75,7 @@ export function overrideDirectContact(db: Db, leadId: string, reason: string, no
     .set({
       directContactOverrideReason: why,
       directContactOverrideAt: at,
-      ...(lead.status === "needs_direct_contact" ? { status: "extracted" as const } : {}),
+      ...(lead.status === "no_named_contact" ? { status: "extracted" as const } : {}),
       updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
     })
     .where(eq(leads.id, leadId))

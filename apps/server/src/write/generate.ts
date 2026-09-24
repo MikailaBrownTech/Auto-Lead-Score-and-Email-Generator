@@ -18,16 +18,15 @@ import {
   type StyleConfig,
   type Tier,
 } from "@clearpath/shared";
-import { readStoredDossier } from "../pipeline/stored-dossier";
 import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "../db/client";
-import { leadEvents, leads, sequences, type SequenceStatus } from "../db/schema";
+import { leadEvents, sequences, type SequenceStatus } from "../db/schema";
 import { templateEmail, type TemplateSet } from "../docs/templates";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
-import { contactPlan } from "../scoring/contact";
-import { directContactBlockers, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
+import { leadGreeting } from "../scoring/contact";
+import { contactWarning, type DirectContactOverride } from "../scoring/direct-contact";
 import { validateSequence, type Issue, type ValidationResult } from "../validators/email";
 import { judgeMessage, judgeTool, rewriteMessage, writerMessage, writerTool } from "./prompt";
 import { detectGrounding, planSequence, type EmailPlan, type WritePlan } from "./writer-input";
@@ -93,9 +92,9 @@ export interface GenerateResult {
   writerCalls: number;
   judgeCalls: number;
   sequenceId: number | null;
-  /** Reasons approval is refused even when the content passed (e.g. needs_direct_contact). */
-  approvalBlockers: string[];
-  /** Reasons export is refused (approval blockers plus footer, signature, checklist_ready). */
+  /** A lead without a named contact: a warning in plain words (never a blocker); null for a named contact. */
+  contactWarning: string | null;
+  /** Reasons export is refused (footer, signature, checklist_ready). */
   exportBlockers: string[];
 }
 
@@ -170,13 +169,9 @@ export function customEmailsFor(tier: Tier): number[] {
   return tier === "A" ? [1, 2, 3, 4, 5] : tier === "B" ? [1, 2] : [];
 }
 
-/** A lead without a person-tied address needs one first (or a global or per-lead override). */
-export function approvalBlockers(d: Dossier, offer: OfferConfig, override: DirectContactOverride | null = null): string[] {
-  return directContactBlockers(d, offer, override);
-}
-
-export function exportBlockers(d: Dossier, offer: OfferConfig, seq: Sequence | null, override: DirectContactOverride | null = null): string[] {
-  const out = [...approvalBlockers(d, offer, override)];
+/** Settings that refuse the whole export. A missing named contact is never one of them. */
+export function exportBlockers(offer: OfferConfig, seq: Sequence | null): string[] {
+  const out: string[] = [];
   const empty = (["sender_title", "company_name", "company_website", "opt_out_line", "physical_address"] as const).filter((k) => offer[k].trim() === "");
   if (empty.length > 0) out.push(`docs/01 settings empty: ${empty.join(", ")}`);
   if (seq?.emails.some((e) => e.n === 3) && offer.cta_type === "checklist" && !offer.checklist_ready) {
@@ -234,7 +229,8 @@ function params(deps: WriteDeps, system: string, tool: Anthropic.Tool, text: str
  * The writer gets only code-chosen inputs (one detail per email, the persona, the angle) and writes
  * only the words around a slot; approved docs/02 sentences are inserted verbatim by code. Validators
  * run on every email; on errors the writer gets one rewrite. The judge (A/B) checks custom emails.
- * "passed" means both are clean; approval can still be blocked (needs_direct_contact).
+ * "passed" means both are clean. A lead without a named contact gets the neutral greeting and a
+ * warning, never a block.
  */
 export async function generateSequence(
   leadId: string,
@@ -259,7 +255,7 @@ export async function generateSequence(
     writerCalls: 0,
     judgeCalls: 0,
     sequenceId: null,
-    approvalBlockers: approvalBlockers(dossier, deps.offer, override),
+    contactWarning: contactWarning(dossier),
     exportBlockers: [],
   };
   if (dossier.gate.status !== "qualified" && !opts.gateApproved) {
@@ -268,8 +264,8 @@ export async function generateSequence(
     return { ...base, reason };
   }
 
-  // An overridden lead (no person-tied address) is always greeted neutrally.
-  const greeting = override ? "Hi," : contactPlan(dossier).greeting;
+  // Named only when the address is tied to that person; otherwise (or overridden) the neutral greeting.
+  const greeting = leadGreeting(dossier, deps.offer, override !== null);
   const customNs = customEmailsFor(tier);
   const plan = planSequence(dossier, customNs, { ...deps, greeting });
   const type = plan.context.firm_type;
@@ -401,24 +397,19 @@ export async function generateSequence(
       })
       .returning({ id: sequences.id })
       .get();
-    return { ...r, sequenceId: row.id, exportBlockers: exportBlockers(dossier, deps.offer, r.sequence, override) };
+    return { ...r, sequenceId: row.id, exportBlockers: exportBlockers(deps.offer, r.sequence) };
   }
 }
 
 /**
- * Approval is refused unless the sequence is the lead's newest, passed the code validators and the
- * judge, and the lead has a usable contact (not needs_direct_contact).
+ * Approval is refused unless the sequence is the lead's newest and passed the code validators and
+ * the judge. A missing named contact never blocks approval.
  */
-export function approveSequence(db: Db, sequenceId: number, offer: OfferConfig, now: () => Date = () => new Date()): void {
+export function approveSequence(db: Db, sequenceId: number, now: () => Date = () => new Date()): void {
   const row = db.select().from(sequences).where(eq(sequences.id, sequenceId)).get();
   if (!row) throw new ApprovalBlockedError(`sequence ${sequenceId} not found`);
   const newest = db.select({ id: sequences.id }).from(sequences).where(eq(sequences.leadId, row.leadId)).orderBy(desc(sequences.id)).limit(1).get();
   if (newest?.id !== row.id) throw new ApprovalBlockedError(`sequence ${sequenceId} is not the lead's newest sequence`);
   if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs code validators and judge to pass`);
-  const lead = db.select({ dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, row.leadId)).get();
-  if (lead?.dossierJson) {
-    const blockers = approvalBlockers(readStoredDossier(lead.dossierJson), offer, leadOverride(db, row.leadId));
-    if (blockers.length > 0) throw new ApprovalBlockedError(blockers.join("; "));
-  }
   db.update(sequences).set({ status: "approved", approvedAt: now().toISOString() }).where(eq(sequences.id, sequenceId)).run();
 }

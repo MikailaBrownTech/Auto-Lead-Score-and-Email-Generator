@@ -1,5 +1,5 @@
 /**
- * Exit codes for the live scripts. Expected lead outcomes (needs_direct_contact, needs_review,
+ * Exit codes for the live scripts. Expected lead outcomes (no_named_contact, needs_review,
  * out_of_icp, declined_automated_access, incomplete_data, a blocked sequence) exit 0; only real
  * errors exit non-zero, always with a printed "exit N because: ..." line.
  */

@@ -2,6 +2,7 @@ import {
   containsPhrase,
   countWords,
   isFound,
+  NEUTRAL_GREETING_STYLES,
   normalizeText,
   type Dossier,
   type FactField,
@@ -11,7 +12,7 @@ import {
   type SequenceEmail,
   type StyleConfig,
 } from "@clearpath/shared";
-import { contactPlan } from "../scoring/contact";
+import { contactPlan, neutralGreeting } from "../scoring/contact";
 import { dnsObservation } from "../write/writer-input";
 
 export { containsPhrase };
@@ -86,10 +87,13 @@ export function findLinks(text: string): string[] {
   return [...urls, ...bare].map((l) => l.replace(/[.,;:!?)"']+$/, ""));
 }
 
-/** Sentences in the body, excluding a greeting line like "Hi Jane," or "Hi,". */
+/** A greeting line: "Hi Jane,", "Hi there,", "Hi,", "Hi Smith & Co. team," (a firm name may hold periods). */
+const GREETING_LINE_RE = /^(hi|hello|dear)\b.*,$/i;
+
+/** Sentences in the body, excluding a greeting line like "Hi Jane," or "Hi there,". */
 export function bodySentences(body: string): string[] {
   const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length > 0 && /^(hi|hello|dear)\b[^.?!]*,$/i.test(lines[0]!)) lines.shift();
+  if (lines.length > 0 && GREETING_LINE_RE.test(lines[0]!)) lines.shift();
   return lines
     .join(" ")
     .split(/(?<=[.?!])\s+/)
@@ -353,11 +357,24 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
       }
     }
     // Greet by name only when the public address belongs to the decision maker (docs/03 + contact rule).
-    const greeted = /^(?:hi|hello|dear)\s+([^\s,]+)\s*,/i.exec(e.body.trim())?.[1] ?? null;
-    if (greeted) {
-      const plan = contactPlan(ctx.dossier);
-      if (plan.greetFirstName === null || greeted.toLowerCase() !== plan.greetFirstName.toLowerCase()) {
-        err("greeting_contact_mismatch", `greets "${greeted}" but ${plan.reason}; use "${plan.greeting}"`);
+    // Any of the docs/01 neutral greetings ("Hi there,", "Hi,", "Hi <firm> team,") is never a name.
+    const d = ctx.dossier;
+    const plan = contactPlan(d, neutralGreeting(ctx.offer.neutral_greeting_style, d));
+    const lines = e.body.trim().split(/\r?\n/);
+    const firstLine = lines[0]!.trim();
+    const neutral = NEUTRAL_GREETING_STYLES.some((s) => neutralGreeting(s, d).toLowerCase() === firstLine.toLowerCase());
+    const greeted = neutral ? null : (/^(?:hi|hello|dear)\s+([^\s,]+)\s*,/i.exec(firstLine)?.[1] ?? null);
+    if (greeted && (plan.greetFirstName === null || greeted.toLowerCase() !== plan.greetFirstName.toLowerCase())) {
+      err("greeting_contact_mismatch", `greets "${greeted}" but ${plan.reason}; use "${plan.greeting}"`);
+    }
+    // With a neutral greeting, email 1 must still be about this firm: its name or one verified detail
+    // outside the greeting line, so it is never a generic template.
+    if (n === 1 && !greeted) {
+      const rest = [(GREETING_LINE_RE.test(firstLine) ? lines.slice(1) : lines).join(" "), e.subject_a ?? "", e.subject_b ?? ""].join(" ");
+      const namesFirm = isFound(d.firm_name) && containsPhrase(rest, d.firm_name.value);
+      const hasDetail = e.grounding.some((f) => !ADDRESSING_FIELDS.has(f));
+      if (!namesFirm && !hasDetail) {
+        err("generic_email_1", "email 1 has a neutral greeting, so it must name the firm or use one verified detail (it reads as a generic template otherwise)");
       }
     }
   }

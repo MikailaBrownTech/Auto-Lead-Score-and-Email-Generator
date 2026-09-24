@@ -33,8 +33,8 @@ export const runs = sqliteTable(
   (t) => [index("runs_created_at_idx").on(t.createdAt), index("runs_lead_id_idx").on(t.leadId), index("runs_prefix_key_idx").on(t.prefixKey)],
 );
 
-/** needs_direct_contact: extracted, but the only public address is a generic inbox (approval and export blocked). */
-export const LEAD_STATUSES = ["new", "researching", "extracted", "needs_direct_contact", "budget_exceeded", "failed"] as const;
+/** no_named_contact: extracted, but no public address is tied to a named person (a warning only; nothing is blocked). */
+export const LEAD_STATUSES = ["new", "researching", "extracted", "no_named_contact", "budget_exceeded", "failed"] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
 export const leads = sqliteTable("leads", {
@@ -50,7 +50,7 @@ export const leads = sqliteTable("leads", {
   gateReasonsJson: text("gate_reasons_json"),
   /** Set when the founder approves a gated lead (UI in Milestone 5). */
   gateApproved: integer("gate_approved", { mode: "boolean" }).notNull().default(false),
-  /** Per-lead override of needs_direct_contact (solo practice whose only address is the owner's inbox). Logged in lead_events. */
+  /** Per-lead override of no_named_contact (optional; e.g. a solo practice whose only address is the owner's inbox). Logged in lead_events. */
   directContactOverrideReason: text("direct_contact_override_reason"),
   directContactOverrideAt: text("direct_contact_override_at"),
   /** Tier is low mainly because of NOT_FOUND fields; paste mode is recommended. The score is not raised. */

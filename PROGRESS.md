@@ -25,20 +25,27 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       (blocked messages, suppression check, CSV copy/download), minimal Settings + suppression list,
       spend meter on every page.
 - [x] Bug fix "Write sequence produces nothing" (commit 524e9bf; see Known issues 1).
-- [ ] UI polish: CSS problems reported by the founder (Known issues 2). NEXT.
-- [ ] M6 Results + settings, M7 Hardening
+- [x] UI feedback round (2026-09-24): contact handling is a warning, not a block (needs_direct_contact
+      renamed no_named_contact; neutral_greeting_style; export modes Ready to send / Drafts with
+      send_ready + contact_note; "never a generic email 1" validator), and a full CSS redesign (tokens,
+      sidebar + top bar layout, scorecard card, email cards, responsive to ~900px, dark theme),
+      `npm run screenshots` (Playwright) checked visually at 1280px, 900px, and dark.
+- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder reviews the screenshots).
 
-## Current state (2026-09-24)
-- Last commit before this update: 524e9bf. Working tree clean. Tests: 491 passing in 30 files (vitest:
-  unit, component, offline end-to-end API, UI end-to-end import -> Write -> sequence or visible reason).
-  Typecheck clean (strict). Web build clean. Month to date about $0.71 of the $5 cap.
-- The app runs locally with `npm run app` (API 127.0.0.1:8787 + UI 127.0.0.1:5173). All five M5
-  screens plus a Sequences list work against the real API; verified in jsdom and by API calls through
-  the Vite proxy, not yet by the founder in a real browser after the bug fix.
-- Leads in data/clearpath.db: 7 live leads (4 qualified tier B needing a direct contact, rbvfinancial
-  qualified tier B, peasebell and cehcpas out_of_icp) plus 1 outdated lead (clearpathsecure; import again).
-  Sequences: innercircle (id 6, passed content, approval blocked by needs_direct_contact) and
-  rbvfinancial (id 7, blocked: subject_case validator error, editable in the UI).
+## Current state (2026-09-24, after the UI feedback round)
+- Tests: 538 passing in 31 files (vitest: unit, component, offline end-to-end API, UI end-to-end).
+  Typecheck clean (strict). Web build clean. Month to date about $0.71 of the $5 cap (no API calls
+  were made in this round; screenshots use recorded answers).
+- The app runs locally with `npm run app` (API 127.0.0.1:8787 + UI 127.0.0.1:5173). Every screen was
+  captured in a real browser (Playwright/Chromium) on seed data: data/screenshots/ (1280px),
+  data/screenshots/900/, data/screenshots/dark/. No screen scrolls sideways at 1280 or 900.
+- Leads in data/clearpath.db: 7 live leads (4 qualified tier B without a named contact, now labeled
+  no_named_contact by migration 0007 and no longer blocked; rbvfinancial qualified tier B; peasebell and
+  cehcpas out_of_icp) plus 1 outdated lead (clearpathsecure; import again). Sequences: innercircle (id 6,
+  passed content; no longer blocked by the contact, but not re-checked against the new generic_email_1
+  rule: open it in the UI) and rbvfinancial (id 7, blocked:
+  subject_case validator error). Sequences written before this round greet "Hi," (the old neutral
+  greeting); "Hi," is still an allowed neutral style, so they stay valid. Write again for "Hi there,".
 - Nothing exports yet: opt_out_line and physical_address are empty, checklist_ready is false, and no
   sequence is approved.
 
@@ -89,12 +96,27 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - Every email: at most one question; banned evaluative phrases (docs/03); company name only from docs/01.
 - Signature from docs/01: sender_name, sender_title, company_name, company_website, then opt_out_line
   and physical_address (founder fills the last two).
-- needs_direct_contact: any lead whose public email is not tied to a named person (generic inbox,
-  unattributed, or no email at all). Approval and export blocked until a person-tied address is pasted
-  (paste mode, M5), the lead is overridden with a logged reason (overrideDirectContact: reason >= 10
-  chars, leads.direct_contact_override_*, lead_events), or docs/01 allow_without_direct_contact is true.
-  Overridden leads always get the neutral greeting. Reports print a checklist (paste mode, state
-  accountancy board license lookup, Secretary of State business search, Google Business Profile).
+- no_named_contact (was needs_direct_contact; renamed 2026-09-24, migration 0007 renames stored rows):
+  any lead whose public email is not tied to a named person (generic inbox, unattributed, or none). A
+  WARNING only: tier and score unchanged; drafting, approval, and export all proceed. Badges: "generic
+  inbox: lower reply odds", "unattributed inbox: lower reply odds", "no public email" (contactWarning in
+  scoring/direct-contact.ts gives the plain text, also used as the CSV contact_note). The lead page keeps
+  the public-source checklist as "optional: find an owner name or email to improve reply odds". The
+  per-lead override (typed reason >= 10 chars, logged) stays; it only clears the label. The docs/01
+  allow_without_direct_contact setting was removed (nothing left to allow).
+- Greeting: a first name only when the public address is tied to that person (contactPlan); otherwise,
+  or after an override, docs/01 neutral_greeting_style: "Hi there," (default), "Hi,", or
+  "Hi {{firm_name}} team," (firm name filled by code; "Hi there," when the firm name is NOT_FOUND).
+  leadGreeting() in scoring/contact.ts is the single source. The validator never reads a neutral greeting
+  as a name ("Hi there," is not "there").
+- "Never a generic email 1" (validator generic_email_1): with any greeting that is not a tied first name,
+  email 1 must name the firm or carry one verified detail (grounding outside the addressing fields)
+  outside the greeting line (subjects count). Template email 1 with "your firm" (no firm name) fails it.
+- Export modes: "Ready to send" = approved rows with a public address; rows without one are listed as
+  left out with the note. "Drafts" = every approved row; to_email empty and send_ready N without an
+  address. CSV columns lead_id, firm_name, to_email, send_ready, contact_note, subjects, emails. The
+  suppression list is checked first in both modes (by domain when there is no address). Addresses and
+  names are never guessed or constructed.
 - Model booleans (privacy_policy_present, doc_exchange, secure_portal, contact_form) are true (with a
   quote) or NOT_FOUND/null; a model "false" is dropped with a note. Absence is code-only: "no portal"
   comes from the portal keyword search (docs/06 portal_keywords, same page minimum as WISP).
@@ -143,27 +165,14 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - Page cache and robots.txt answers reused for PAGE_CACHE_DAYS (7). Crawl-delay > 10s skips a site.
 
 ## Known open issues
-1. Sequence not generating from the UI ("Write sequence" did nothing). FIXED in 524e9bf, pending the
-   founder's check in a real browser. Cause and fix: see the Bug section above. What to watch for: any
-   click that ends without a sequence must now show a reason next to the button (gate, spend cap,
-   budget, settings, API error, job failure) or a red banner for a failed request. If a click still
-   shows nothing, check the lead's Log section (write_attempt events) and the runs table.
-2. CSS problems in the UI, reported by the founder. Specifics not yet captured (need a screenshot or a
-   description of which screen, window width, and what looks wrong). Suspects from a code review, NOT
-   yet confirmed visually:
-   a. .app-header has no flex-wrap: title + five nav links + spend meter (min-width 240px) crowd or
-      overflow on narrow windows.
-   b. Wide tables (Leads: 9 columns; facts, score breakdown) have no overflow-x wrapper, so the page can
-      scroll sideways; long URLs and failure lines do not wrap.
-   c. Classes used in the JSX with no CSS rule: app, checklist, gate, leads, legend, reason-form, reasons
-      (e.g. the reason form and "why Approve is disabled" list are unstyled).
-   d. styles.css grew in three appended blocks (M0, M5, banners): duplicated selectors (main, label,
-      error colors) and order-dependent overrides; no dark-mode or small-screen rules.
-   e. The sticky Sequence toolbar (z-index 1, white background) may cover the approve reasons or banners
-      when scrolling.
-   Fix plan: reproduce each screen at 1280px and ~900px widths, consolidate styles.css into one ordered
-   sheet, add header wrapping and table scroll containers, style the unstyled classes, then add a quick
-   visual check (screenshots) before calling it done.
+1. Sequence not generating from the UI ("Write sequence" did nothing). FIXED in 524e9bf. The UI
+   end-to-end test and the Playwright screenshots both write sequences through the real UI. Still worth a
+   founder click in the live app. If a click shows nothing, check the lead's Log (write_attempt events).
+2. CSS redesign DONE (2026-09-24). styles.css replaced by src/styles/{tokens,base,layout,components,
+   pages}.css. Tokens: the founder's light/dark values, except success #1b7a44 (the given #1f8a4c was
+   4.38:1 on white, below AA); every text/tint pair measured >= 4.5:1 in both themes. Remaining visual
+   limits: the CSV preview scrolls sideways inside its own box (by design); no manual theme toggle
+   (follows the system setting).
 3. Doc-exchange "portal" detection should read link destination domains against a known portal-vendor
     list (e.g. links to sharefile, smartvault, taxdome hosts), not only page words. Not fixed yet.
 4. firm_type can change between runs for the same site (essentialacctg: cpa, then bookkeeper). Stabilize
@@ -183,9 +192,12 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 14. Playwright fallback not built; JS-only pages are recorded as failures.
 15. Node 22.14 pins undici 7 and jsdom 29 (newer majors need Node 22.19+/22.22+).
 16. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
+17. Screenshot seed data reuses the smithtax fixture DNS evidence for the added leads (their DNS rows show
+    smithtax.example). Seed only; not a product issue.
 
 ## How to run (from repo root)
 - The app: `npm run app` -> open http://127.0.0.1:5173 (API on 127.0.0.1:8787; Ctrl+C stops both).
+- Screenshots: `npm run screenshots` -> data/screenshots/ (first time: `npx playwright install chromium`)
 - Tests: `npm test`  (offline; fixtures + fake network/API)
 - Typecheck: `npm run typecheck`
 - Smoke (1 tiny live API call): `npm run smoke`
@@ -229,20 +241,22 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
   jobs, lead/sequence views, export + suppression list
 - apps/server/src/write/edit.ts - save/check edits, judge on demand, rewrite one email, sequence state
 - apps/server/src/pipeline/stored-dossier.ts - reads saved dossiers (defaults for newer fields)
-- apps/web/src/ - App (hash routes), api.ts, pages/ (Import, Leads, LeadDetail, Sequence + Sequences list, Export,
-  Settings), components/ (SpendMeter, ReasonForm, CacheWarnings, ErrorBanner), styles.css (see Known issues 2)
+- apps/web/src/ - App (hash routes, sidebar + top bar), api.ts, pages/ (Import, Leads, LeadDetail, Sequence +
+  Sequences list, Export, Settings), components/ (ui.tsx: Icon, Badge, TierChip, StatusBadge, EmptyState,
+  Skeleton; Scorecard, SpendMeter, ReasonForm, CacheWarnings, ErrorBanner), styles/ (tokens.css design
+  tokens + dark theme, base, layout, components, pages)
+- apps/server/scripts/screenshots.ts - `npm run screenshots`: build UI, serve it with the in-process API on
+  seed data (test harness), Playwright captures into data/screenshots/ (+ 900/, dark/), sideways-scroll check
+- apps/server/test/contact-warning.test.ts - no_named_contact behavior, greetings, generic_email_1, export modes
 - scripts/dev.mjs - `npm run app` (starts API + UI)
 
 ## Next steps
-1. Founder: refresh the running app and click "Write sequence" on a qualified lead (e.g. rbvfinancial,
-   metaxparma) and on a gated one (peasebell): expect a sequence page or a visible reason. Report
-   anything that still shows nothing.
-2. Founder: send the CSS problems (screen, window width, screenshot); then fix Known issues 2
-   (consolidate styles.css, header wrap, table scroll, unstyled classes) and verify visually.
-3. Founder: fill opt_out_line and physical_address in Settings; confirm sender_title, company_name,
-   company_website; turn on checklist_ready once the checklist exists.
-4. Resolve direct contacts for the 4 needs_direct_contact leads (paste owner name/email, or override
-   with a reason), run the judge, approve, and do a first real export.
+1. Founder: review data/screenshots/ (and the live app after `npm run app`); report anything that
+   still looks wrong with the screen name and window width.
+2. Founder: fill opt_out_line and physical_address in Settings; confirm sender_title, company_name,
+   company_website; pick the neutral greeting; turn on checklist_ready once the checklist exists.
+3. Write the sequences again for the no_named_contact leads (new neutral greeting), run the judge,
+   approve, and do a first export (Ready to send, or Drafts for leads with no address).
 5. Decisions still open: "tax filing" keyword (Known issues 11), portal link-domain detection (Known issues 3),
    firm_type stability across runs (Known issues 4).
 6. M6 Results + settings, then M7 Hardening (persist job status across restarts, a real-browser test,

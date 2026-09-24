@@ -3,6 +3,8 @@ import type { JobView, LeadDetail, SequenceView } from "@clearpath/shared";
 import { api, useApi, usd } from "../api";
 import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { ReasonForm } from "../components/ReasonForm";
+import { Scorecard } from "../components/Scorecard";
+import { BackLink, Badge, Icon, PageSkeleton, StatusBadge } from "../components/ui";
 import { href, navigate } from "../router";
 import { JobStatus, useJob } from "./Import";
 import { Flags } from "./Leads";
@@ -27,20 +29,25 @@ const FIELDS: [string, string][] = [
   ["exclusion_signals", "Exclusion signals"],
 ];
 
-const NotFound = () => <span className="badge notfound">NOT_FOUND</span>;
+const NotFound = () => (
+  <Badge mono title="Not found on the pages that were read. Never treated as a negative finding.">
+    NOT_FOUND
+  </Badge>
+);
 
 function Evidence(props: { url: string; quote?: string }) {
   const link = /^https?:\/\//.test(props.url) ? (
-    <a href={props.url} target="_blank" rel="noreferrer noopener">
-      open page
+    <a className="source" href={props.url} target="_blank" rel="noreferrer noopener" title={props.url}>
+      source
+      <Icon name="external" />
     </a>
   ) : (
-    <span className="muted">{props.url === "pasted" ? "pasted text" : props.url}</span>
+    <span className="source">{props.url === "pasted" ? "pasted text" : props.url}</span>
   );
   return (
     <div className="evidence">
+      {props.quote && <q className="quote">{props.quote}</q>}
       {link}
-      {props.quote && <q>{props.quote}</q>}
     </div>
   );
 }
@@ -52,12 +59,12 @@ function show(v: unknown): string {
   if (typeof v === "number") return String(v);
   if (Array.isArray(v)) return v.map(show).join(", ");
   return Object.entries(v as Record<string, unknown>)
-    .filter(([, x]) => x !== null && x !== undefined)
+    .filter(([, x]) => x !== null && x !== undefined && !(Array.isArray(x) && x.length === 0))
     .map(([k, x]) => `${k.replace(/_/g, " ")}: ${show(x)}`)
     .join("; ");
 }
 
-/** One dossier field: value + evidence link + quote, or a gray NOT_FOUND badge. */
+/** One dossier field: value + evidence quote + source link, or a gray NOT_FOUND badge. */
 export function FieldValue(props: { value: unknown }): ReactNode {
   const v = props.value;
   if (v === "NOT_FOUND" || v === undefined) return <NotFound />;
@@ -82,8 +89,9 @@ export function FieldValue(props: { value: unknown }): ReactNode {
     return (
       <ul className="plain">
         {f.evidence.map((e) => (
-          <li key={e.item}>
-            {e.item} <Evidence url={e.evidence_url} />
+          <li key={e.item} className="row">
+            <span>{e.item}</span>
+            <Evidence url={e.evidence_url} />
           </li>
         ))}
       </ul>
@@ -107,7 +115,7 @@ function PasteForm(props: { leadId: string; onDone: () => void }) {
   const finished = job && job.items.every((i) => !["queued", "researching", "writing"].includes(i.state));
   return (
     <form
-      className="card"
+      className="stack-sm"
       onSubmit={async (e) => {
         e.preventDefault();
         setError(null);
@@ -119,33 +127,108 @@ function PasteForm(props: { leadId: string; onDone: () => void }) {
         }
       }}
     >
-      <h4>Paste the owner's details</h4>
-      <p className="muted">This re-runs the lead in paste mode: only what you paste here is used, so include the About or Services text too.</p>
-      <div className="row">
-        <label>
-          Owner's name
+      <p className="small muted">This re-runs the lead in paste mode: only what you paste here is used, so include the About or Services text too.</p>
+      <div className="form-grid">
+        <label className="field">
+          <span className="field-label">Owner's name</span>
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
-        <label>
-          Owner's email
+        <label className="field">
+          <span className="field-label">Owner's email</span>
           <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
         </label>
+        <label className="field span-2">
+          <span className="field-label">Page text</span>
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} />
+        </label>
       </div>
-      <label>
-        Page text
-        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} />
-      </label>
-      <button type="submit" disabled={!!jobId && !finished}>
-        Re-run with pasted text
-      </button>
+      <div className="row">
+        <button type="submit" className="btn secondary" disabled={!!jobId && !finished}>
+          Re-run with pasted text
+        </button>
+        {finished && (
+          <button type="button" className="btn ghost" onClick={props.onDone}>
+            Show the updated lead
+          </button>
+        )}
+      </div>
       <ErrorBanner message={error} />
       {job && <JobStatus job={job} />}
-      {finished && (
-        <button type="button" className="secondary" onClick={props.onDone}>
-          Show the updated lead
-        </button>
-      )}
     </form>
+  );
+}
+
+/** Contact: a warning only (never a blocker), optional public sources, paste mode, optional override. */
+function ContactCard(props: { lead: LeadDetail; onChange: (l: LeadDetail) => void; reload: () => void }) {
+  const { lead } = props;
+  const c = lead.contact;
+  const declined = lead.dossier.declined_automated_access;
+  if (c.named && !declined) {
+    return (
+      <section className="card">
+        <div className="card-head">
+          <h2>Contact</h2>
+          <Badge tone="success" icon="user">
+            named contact
+          </Badge>
+        </div>
+        <p className="small">
+          Emails greet “{c.greeting}”: the public address is tied to that person.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className={`card${c.warning ? " tone-warning" : ""}`}>
+      <div className="card-head">
+        <h2>Contact</h2>
+        {c.warning && (
+          <Badge tone="warning" icon="alert">
+            {c.warning}
+          </Badge>
+        )}
+      </div>
+      <div className="stack-sm">
+        {c.warning && (
+          <p className="small">
+            Drafting, approval, and export are not blocked. Emails use the neutral greeting “{c.greeting}” and stay specific to this firm.
+            {c.warning.startsWith("no public email") && " Without an address, approved sequences export only in the Drafts CSV (send_ready N)."}
+          </p>
+        )}
+        {declined && (
+          <NoticeBanner>The site answered HTTP 403/429, so no more pages were requested. Paste the About, Team, or Contact text to research it fully.</NoticeBanner>
+        )}
+        {c.override && (
+          <NoticeBanner tone="success">
+            You marked this contact as fine: “{c.override.reason}”. Emails use the neutral greeting.
+          </NoticeBanner>
+        )}
+        {c.checklist.length > 0 && (
+          <>
+            <h3 className="small">Optional: find an owner name or email to improve reply odds</h3>
+            <ul className="checklist">
+              {c.checklist.map((line) => (
+                <li key={line}>{line.replace(/^\[ \] /, "")}</li>
+              ))}
+            </ul>
+          </>
+        )}
+        <details className="card tone-muted" open={declined}>
+          <summary>Paste the owner's details or page text</summary>
+          <PasteForm leadId={lead.id} onDone={props.reload} />
+        </details>
+        {!c.named && !c.override && (
+          <details className="card tone-muted">
+            <summary>Mark this contact as fine (optional)</summary>
+            <ReasonForm
+              label="For example, a solo practice whose only address is the owner's inbox. This only clears the label; nothing is blocked either way."
+              button="Mark as fine"
+              onSubmit={async (reason) => props.onChange(await api<LeadDetail>(`/leads/${lead.id}/override-contact`, { method: "POST", body: { reason } }))}
+            />
+          </details>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -153,8 +236,14 @@ export function LeadDetailPage(props: { id: string }) {
   const { data: lead, error, reload, setData } = useApi<LeadDetail>(`/leads/${encodeURIComponent(props.id)}`);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  if (error) return <ErrorBanner message={error} />;
-  if (!lead) return <p className="muted">Loading…</p>;
+  if (error)
+    return (
+      <section className="stack">
+        <BackLink href={href("leads")}>Leads</BackLink>
+        <ErrorBanner message={error} />
+      </section>
+    );
+  if (!lead) return <PageSkeleton />;
   const d = lead.dossier;
 
   async function writeSequence() {
@@ -173,38 +262,41 @@ export function LeadDetailPage(props: { id: string }) {
 
   const gated = d.gate.status !== "qualified";
   return (
-    <section>
-      <p>
-        <a href={href("leads")}>← Leads</a>
-      </p>
-      <div className="row between">
-        <div>
-          <h2>{d.firm_name !== "NOT_FOUND" ? d.firm_name.value : lead.id}</h2>
-          <p className="muted">
-            {lead.inputUrl ?? "pasted text"} · status {lead.status.replace(/_/g, " ")} · spent {usd(lead.costUsd)}
-          </p>
-          <Flags flags={lead.flags} />
-        </div>
-        <div className="score-box">
-          <div className="score">{lead.score}</div>
-          <div>
-            Tier {lead.tier}
-            {lead.tierCapped && " (capped by fit)"}
+    <section className="stack">
+      <BackLink href={href("leads")}>Leads</BackLink>
+      <div className="page-head">
+        <div className="grow">
+          <h1 className="break">{d.firm_name !== "NOT_FOUND" ? d.firm_name.value : lead.id}</h1>
+          <div className="lead-meta">
+            {lead.inputUrl ? (
+              <a href={/^https?:/.test(lead.inputUrl) ? lead.inputUrl : `https://${lead.inputUrl}`} target="_blank" rel="noreferrer noopener" className="break">
+                {lead.inputUrl}
+              </a>
+            ) : (
+              <span>pasted text</span>
+            )}
+            <StatusBadge status={d.gate.status} />
+            <StatusBadge status={lead.status} />
+            <span>spent {usd(lead.costUsd)}</span>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <Flags flags={lead.flags} />
           </div>
         </div>
+        <div className="lead-actions">
+          {lead.sequenceId && (
+            <a className="btn secondary" href={href("sequences", lead.sequenceId)}>
+              <Icon name="mail" />
+              Open sequence ({lead.sequenceStatus})
+            </a>
+          )}
+          <button type="button" className="btn primary" onClick={writeSequence} disabled={busy || !!lead.notWrittenReason}>
+            <Icon name="pen" />
+            {busy ? "Writing… (about 10-30 seconds)" : lead.sequenceId ? "Write the sequence again" : "Write sequence"}
+          </button>
+        </div>
       </div>
-
-      <div className="row">
-        {lead.sequenceId && (
-          <a className="button" href={href("sequences", lead.sequenceId)}>
-            Open sequence ({lead.sequenceStatus})
-          </a>
-        )}
-        <button type="button" onClick={writeSequence} disabled={busy || !!lead.notWrittenReason}>
-          {busy ? "Writing… (about 10-30 seconds)" : lead.sequenceId ? "Write the sequence again" : "Write sequence"}
-        </button>
-        {lead.tier === "C" && !lead.notWrittenReason && <span className="muted">Tier C: template emails, no model call.</span>}
-      </div>
+      {lead.tier === "C" && !lead.notWrittenReason && <p className="small muted">Tier C: template emails, no model call.</p>}
       {/* Why nothing was (or can be) written, always in words next to the button. */}
       {lead.notWrittenReason && <NoticeBanner>{lead.notWrittenReason} (See the gate box below.)</NoticeBanner>}
       {lead.lastWriteAttempt && (
@@ -214,161 +306,172 @@ export function LeadDetailPage(props: { id: string }) {
       )}
       <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
 
-      <div className={`card gate gate-${d.gate.status}`}>
-        <h3>Gate: {d.gate.status.replace(/_/g, " ")}</h3>
-        {d.gate.reasons.length > 0 && (
-          <ul>
-            {d.gate.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
-        )}
-        {gated && !lead.gateApproved && (
-          <ReasonForm
-            label="Approve this lead anyway (no sequence is written until you do)"
-            button="Approve lead"
-            onSubmit={async (reason) => setData(await api<LeadDetail>(`/leads/${lead.id}/gate-override`, { method: "POST", body: { reason } }))}
-          />
-        )}
-        {gated && lead.gateApproved && <p className="ok">You approved this lead. The reason is in the log below.</p>}
-      </div>
+      <div className="lead-grid">
+        <div className="lead-main">
+          {gated && (
+            <section className="card tone-warning">
+              <div className="card-head">
+                <h2>Gate: {d.gate.status.replace(/_/g, " ")}</h2>
+                {lead.gateApproved && (
+                  <Badge tone="success" icon="check">
+                    approved by you
+                  </Badge>
+                )}
+              </div>
+              {d.gate.reasons.length > 0 && (
+                <ul className="small">
+                  {d.gate.reasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              )}
+              {!lead.gateApproved ? (
+                <div style={{ marginTop: 12 }}>
+                  <ReasonForm
+                    label="Approve this lead anyway (no sequence is written until you do)"
+                    button="Approve lead"
+                    onSubmit={async (reason) => setData(await api<LeadDetail>(`/leads/${lead.id}/gate-override`, { method: "POST", body: { reason } }))}
+                  />
+                </div>
+              ) : (
+                <p className="small muted" style={{ marginTop: 8 }}>
+                  You approved this lead. The reason is in the log below.
+                </p>
+              )}
+            </section>
+          )}
 
-      {(lead.directContact.needed || d.declined_automated_access) && (
-        <div className="card attention">
-          <h3>{lead.directContact.needed ? "Needs a direct contact" : "The website declined automated access"}</h3>
-          {lead.directContact.reason && <p>{lead.directContact.reason}. Approval and export stay blocked until this is resolved.</p>}
-          {d.declined_automated_access && <p>The site answered HTTP 403/429, so no more pages were requested. Paste the About, Team, or Contact text.</p>}
-          <ul className="plain checklist">
-            {lead.directContact.checklist.map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-          <PasteForm leadId={lead.id} onDone={reload} />
-          {lead.directContact.needed && (
-            <ReasonForm
-              label="Or override for this lead (for a solo practice whose only address is the owner's inbox). Emails then use the neutral greeting."
-              button="Override"
-              onSubmit={async (reason) => setData(await api<LeadDetail>(`/leads/${lead.id}/override-contact`, { method: "POST", body: { reason } }))}
-            />
+          <ContactCard lead={lead} onChange={setData} reload={reload} />
+
+          <section className="card">
+            <div className="card-head">
+              <h2>Facts</h2>
+              <span className="sub">Each fact has a source and a quote, or is NOT_FOUND.</span>
+            </div>
+            <table className="kv facts">
+              <tbody>
+                {FIELDS.map(([key, label]) => (
+                  <tr key={key}>
+                    <th scope="row">{label}</th>
+                    <td>
+                      <FieldValue value={(d as unknown as Record<string, unknown>)[key]} />
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <th scope="row">US location (code)</th>
+                  <td>
+                    {show(d.us_location.value)} <span className="muted small">({d.us_location.reason})</span>
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Target industry fit (code)</th>
+                  <td>
+                    {show(d.target_industry_fit.value)} <span className="muted small">({d.target_industry_fit.reason})</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section className="card">
+            <div className="card-head">
+              <h2>DNS</h2>
+              <span className="sub">Passive lookups only. DKIM is never checked.</span>
+            </div>
+            <table className="kv">
+              <tbody>
+                {Object.entries(d.dns).map(([k, v]) => (
+                  <tr key={k}>
+                    <th scope="row">{k.replace(/_/g, " ")}</th>
+                    <td>
+                      {v === "NOT_CHECKED" ? (
+                        <Badge mono title="Never checked or claimed">
+                          NOT_CHECKED
+                        </Badge>
+                      ) : (
+                        <FieldValue value={v} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="card">
+            <h2 style={{ marginBottom: 12 }}>Pages</h2>
+            <div className="two-col">
+              <div className="stack-sm">
+                <h3>Fetched ({d.pages_opened.length})</h3>
+                <ul className="url-list">
+                  {d.pages_opened.map((u) => (
+                    <li key={u}>
+                      <a href={u} target="_blank" rel="noreferrer noopener">
+                        {u}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="stack-sm">
+                <h3>Failed or skipped ({d.failures.length})</h3>
+                {d.failures.length === 0 ? (
+                  <p className="small muted">None.</p>
+                ) : (
+                  <ul className="url-list muted">
+                    {d.failures.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {lead.events.length > 0 && (
+            <section className="card">
+              <h2 style={{ marginBottom: 8 }}>Log</h2>
+              <ul className="log-list">
+                {lead.events.map((e, i) => (
+                  <li key={i}>
+                    <time>{e.createdAt.slice(0, 16).replace("T", " ")}</time>
+                    <span>
+                      <strong>{e.kind.replace(/_/g, " ")}:</strong> {e.detail}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </div>
-      )}
-      {lead.directContact.override && (
-        <p className="ok">
-          Direct contact overridden: “{lead.directContact.override.reason}”. Emails use the neutral greeting.
-        </p>
-      )}
 
-      <h3>Facts</h3>
-      <table className="facts">
-        <tbody>
-          {FIELDS.map(([key, label]) => (
-            <tr key={key}>
-              <th>{label}</th>
-              <td>
-                <FieldValue value={(d as unknown as Record<string, unknown>)[key]} />
-              </td>
-            </tr>
-          ))}
-          <tr>
-            <th>US location (code)</th>
-            <td>
-              {show(d.us_location.value)} <span className="muted">({d.us_location.reason})</span>
-            </td>
-          </tr>
-          <tr>
-            <th>Target industry fit (code)</th>
-            <td>
-              {show(d.target_industry_fit.value)} <span className="muted">({d.target_industry_fit.reason})</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h3>DNS (passive lookups)</h3>
-      <table className="facts">
-        <tbody>
-          {Object.entries(d.dns).map(([k, v]) => (
-            <tr key={k}>
-              <th>{k.replace(/_/g, " ")}</th>
-              <td>{v === "NOT_CHECKED" ? <span className="badge notfound">NOT_CHECKED</span> : <FieldValue value={v} />}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h3>Score breakdown</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Criterion</th>
-            <th>Points</th>
-            <th>Why</th>
-          </tr>
-        </thead>
-        <tbody>
-          {lead.breakdown.map((b) => (
-            <tr key={b.key}>
-              <td>
-                {b.label} <span className="muted">({b.group})</span>
-              </td>
-              <td>
-                {b.points} / {b.max}
-              </td>
-              <td>{b.reason}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h3>Pages</h3>
-      <div className="row top">
-        <div>
-          <h4>Fetched ({d.pages_opened.length})</h4>
-          <ul className="plain">
-            {d.pages_opened.map((u) => (
-              <li key={u}>
-                <a href={u} target="_blank" rel="noreferrer noopener">
-                  {u}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div>
-          <h4>Failed or skipped ({d.failures.length})</h4>
-          <ul className="plain small">
-            {d.failures.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
-        </div>
+        <aside className="lead-side">
+          <Scorecard lead={lead} />
+          <section className="card tone-muted">
+            <div className="card-head">
+              <h2 className="row">
+                <Icon name="lock" />
+                Internal notes: never used in emails
+              </h2>
+            </div>
+            <dl className="notes">
+              <div>
+                <dt>Incomplete data</dt>
+                <dd>{lead.internalNotes.incompleteData ?? "No: the tier reflects findings, not missing data."}</dd>
+              </div>
+              <div>
+                <dt>Email security hint</dt>
+                <dd>{lead.internalNotes.emailSecurityHint ?? "None found."}</dd>
+              </div>
+              <div>
+                <dt>Clients served (not scored)</dt>
+                <dd>{lead.internalNotes.clientCount ?? "Not stated."}</dd>
+              </div>
+            </dl>
+          </section>
+        </aside>
       </div>
-
-      <div className="card internal">
-        <h3>Internal notes: never used in emails</h3>
-        <dl>
-          <dt>Incomplete data</dt>
-          <dd>{lead.internalNotes.incompleteData ?? "No: the tier reflects findings, not missing data."}</dd>
-          <dt>Email security hint</dt>
-          <dd>{lead.internalNotes.emailSecurityHint ?? "None found."}</dd>
-          <dt>Clients served (not scored)</dt>
-          <dd>{lead.internalNotes.clientCount ?? "Not stated."}</dd>
-        </dl>
-      </div>
-
-      {lead.events.length > 0 && (
-        <>
-          <h3>Log</h3>
-          <ul className="plain small">
-            {lead.events.map((e, i) => (
-              <li key={i}>
-                {e.createdAt.slice(0, 16).replace("T", " ")} · {e.kind.replace(/_/g, " ")}: {e.detail}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
     </section>
   );
 }

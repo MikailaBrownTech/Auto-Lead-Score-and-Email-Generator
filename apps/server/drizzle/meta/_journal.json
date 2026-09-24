@@ -50,6 +50,13 @@
       "when": 1790268856389,
       "tag": "0006_suppressions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790274808319,
+      "tag": "0007_no_named_contact",
+      "breakpoints": true
     }
   ]
 }

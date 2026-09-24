@@ -42,7 +42,6 @@ const sharedLimiter = new HostRateLimiter(1000);
  */
 export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): ResearchDeps {
   const docsDir = s.docsDir ?? DOCS_DIR;
-  const offer = loadOffer(docsDir);
   return {
     db: s.db,
     llm: s.llm,
@@ -67,7 +66,6 @@ export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): Res
     evidence: loadEvidence(docsDir),
     now: s.now ?? (() => new Date()),
     refresh: opts.refresh ?? false,
-    allowWithoutDirectContact: offer.allow_without_direct_contact,
   };
 }
 

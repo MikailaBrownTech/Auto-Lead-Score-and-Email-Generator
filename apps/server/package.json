@@ -10,7 +10,8 @@
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json",
     "extract-live": "tsx scripts/extract-live.ts",
-    "write-sequence": "tsx scripts/write-sequence.ts"
+    "write-sequence": "tsx scripts/write-sequence.ts",
+    "screenshots": "tsx scripts/screenshots.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

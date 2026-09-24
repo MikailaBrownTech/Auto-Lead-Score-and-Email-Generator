@@ -240,7 +240,7 @@ describe("Tier B: writer emails 1-2 with code-inserted approved sentences", () =
     const claim = { unsupported_claims: [{ email: 2, claim: "client bank details", reason: "not_in_prospect_facts" }] };
     const blocked = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], claim)).deps);
     expect(blocked).toMatchObject({ status: "blocked", reason: "judge listed unsupported claims" });
-    expect(() => approveSequence(db, blocked.sequenceId!, offer)).toThrow(/blocked/);
+    expect(() => approveSequence(db, blocked.sequenceId!)).toThrow(/blocked/);
     const stringified = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], { unsupported_claims: "[]" })).deps);
     expect(stringified.status).toBe("passed");
     const broken = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT], { verdict: "fine" })).deps);
@@ -251,15 +251,14 @@ describe("Tier B: writer emails 1-2 with code-inserted approved sentences", () =
 describe("approval and export blockers", () => {
   const saveLead = (d: Dossier) => db.insert(leads).values({ id: "L1", source: "web", status: "extracted", dossierJson: JSON.stringify(d) }).run();
 
-  it("generic inbox: needs_direct_contact blocks approval (content can pass) unless overridden", async () => {
+  it("generic inbox: a warning only; neutral greeting, and approval is allowed", async () => {
     const generic = strongDossier({ public_contact_email: ev({ address: "info@smithtax.example", owner_name: null }, "info@smithtax.example"), public_email_kind: "generic_inbox" });
     saveLead(generic);
     const r = await generateSequence("L1", generic, "B", deps(scripted([GOOD_DRAFT])).deps);
     expect(r.status).toBe("passed");
-    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi,\n")).toBe(true);
-    expect(r.approvalBlockers.join()).toMatch(/^needs_direct_contact: info@smithtax\.example is a generic inbox/);
-    expect(() => approveSequence(db, r.sequenceId!, offer)).toThrow(/needs_direct_contact/);
-    approveSequence(db, r.sequenceId!, { ...offer, allow_without_direct_contact: true });
+    for (const e of r.sequence!.emails) expect(e.body.startsWith("Hi there,\n")).toBe(true);
+    expect(r.contactWarning).toBe("generic inbox: lower reply odds");
+    approveSequence(db, r.sequenceId!);
     expect(db.select().from(sequences).all().at(-1)!.status).toBe("approved");
   });
 
@@ -267,16 +266,16 @@ describe("approval and export blockers", () => {
     saveLead(strongDossier());
     const older = await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT])).deps);
     await generateSequence("L1", strongDossier(), "B", deps(scripted([GOOD_DRAFT])).deps);
-    expect(() => approveSequence(db, older.sequenceId!, offer)).toThrow(/newest/);
+    expect(() => approveSequence(db, older.sequenceId!)).toThrow(/newest/);
   });
 
   it("export is blocked while checklist_ready is false, and while signature or footer settings are empty", () => {
     const seq = { lead_id: "L1", tier: "C" as const, persona: "p", angle: "a", emails: [] as never[] };
     const withEmail3 = { ...seq, emails: [{ n: 3 }] as never[] };
-    expect(exportBlockers(strongDossier(), offer, withEmail3).join("\n")).toMatch(/checklist_ready is false/);
-    expect(exportBlockers(strongDossier(), offer, seq).join("\n")).toMatch(/opt_out_line, physical_address/);
+    expect(exportBlockers(offer, withEmail3).join("\n")).toMatch(/checklist_ready is false/);
+    expect(exportBlockers(offer, seq).join("\n")).toMatch(/opt_out_line, physical_address/);
     const ready = { ...offer, checklist_ready: true, opt_out_line: "Reply no to stop.", physical_address: "1 Main St" };
-    expect(exportBlockers(strongDossier(), ready, withEmail3)).toEqual([]);
+    expect(exportBlockers(ready, withEmail3)).toEqual([]);
   });
 });
 

@@ -20,11 +20,10 @@ import { leads, sequences, type SequenceStatus } from "../db/schema";
 import { templateEmail } from "../docs/templates";
 import { lastRunId } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
-import { contactPlan } from "../scoring/contact";
-import { leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
+import { leadGreeting } from "../scoring/contact";
+import { contactWarning, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
 import { bodySentences, validateSequence, type ValidationContext, type ValidationResult } from "../validators/email";
 import {
-  approvalBlockers,
   buildWriterEmail,
   customEmailsFor,
   exportBlockers,
@@ -66,7 +65,7 @@ export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps)
   if (!lead?.dossierJson) throw new SequenceError(`Lead ${row.leadId} has no research yet.`);
   const dossier = readStoredDossier(lead.dossierJson);
   const override = leadOverride(db, row.leadId);
-  const greeting = override ? "Hi," : contactPlan(dossier).greeting;
+  const greeting = leadGreeting(dossier, deps.offer, override !== null);
   const plan = planSequence(dossier, customEmailsFor(row.tier), { ...deps, greeting });
   const vars = { greeting, firm_ref: isFound(dossier.firm_name) ? dossier.firm_name.value : "your firm", cta_url: deps.offer.cta_url };
   // Original template sentences stay allowed when the founder edits a template email.
@@ -114,7 +113,8 @@ export interface SequenceState {
   judgeRequired: boolean;
   /** The stored judge result, only if it was run on this exact content. */
   judge: JudgeOutput | null;
-  approvalBlockers: string[];
+  /** A lead without a named contact: shown as a warning, never a blocker. */
+  contactWarning: string | null;
   exportBlockers: string[];
 }
 
@@ -128,8 +128,8 @@ export function sequenceState(ctx: SequenceContext, seq: Sequence, judge: Stored
     status: validation.pass && judgePass ? "passed" : "blocked",
     judgeRequired,
     judge: current,
-    approvalBlockers: approvalBlockers(ctx.dossier, deps.offer, ctx.override),
-    exportBlockers: exportBlockers(ctx.dossier, deps.offer, seq, ctx.override),
+    contactWarning: contactWarning(ctx.dossier),
+    exportBlockers: exportBlockers(deps.offer, seq),
   };
 }
 
