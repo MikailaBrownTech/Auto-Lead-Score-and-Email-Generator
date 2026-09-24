@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type Anthropic from "@anthropic-ai/sdk";
-import { EXTRACTION_TOOL_NAME, FACT_FIELDS, NOT_FOUND, type EvidenceConfig, type ExtractedFacts, type FactField } from "@clearpath/shared";
+import { EXTRACTION_TOOL_NAME, FACT_FIELDS, NOT_FOUND, type EvidenceConfig, type ExtractedFacts, type FactField, type NameHint } from "@clearpath/shared";
 import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { extractions } from "../db/schema";
@@ -8,7 +8,7 @@ import { BudgetExceededError, type LlmClient } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
 import { extractionTool, firstPassMessage, retryMessage } from "./prompt";
 import type { SentPage } from "./token-caps";
-import { citedUrl, FIXABLE_FAILURES, itemSupported, pagesForRetry, verifyExtraction, type FieldCheck, type VerifyContext } from "./verify";
+import { citedUrl, FIXABLE_FAILURES, pagesForRetry, verifyExtraction, type FieldCheck, type VerifyContext } from "./verify";
 
 export class ExtractionError extends Error {
   override name = "ExtractionError";
@@ -44,10 +44,14 @@ export interface ExtractionDeps {
   budgetSinceRunId?: number;
   /** Skip the extraction cache (still writes the new result). */
   refresh?: boolean;
+  /** Full cleaned text of every fetched page; services/software items are searched here. Defaults to the sent text. */
+  searchPages?: { url: string; text: string }[];
+  /** Firm-name candidates from the homepage markup, shown to the model as hints. */
+  nameHints?: NameHint[];
 }
 
 /** Bump when verification or prompt assembly changes in a way that should invalidate cached results. */
-const EXTRACTION_VERSION = 4;
+const EXTRACTION_VERSION = 6;
 
 function cacheKey(deps: ExtractionDeps, tool: Anthropic.Tool, sent: SentPage[]): string {
   const material = JSON.stringify({
@@ -57,6 +61,8 @@ function cacheKey(deps: ExtractionDeps, tool: Anthropic.Tool, sent: SentPage[]):
     tool,
     evidence: deps.evidence,
     pages: sent.map((p) => [p.url, p.kind, p.title, crypto.createHash("sha256").update(p.text).digest("hex")]),
+    search: (deps.searchPages ?? []).map((p) => [p.url, crypto.createHash("sha256").update(p.text).digest("hex")]),
+    hints: deps.nameHints ?? [],
   });
   return crypto.createHash("sha256").update(material).digest("hex");
 }
@@ -83,28 +89,11 @@ function params(deps: ExtractionDeps, tool: Anthropic.Tool, userText: string, ma
   };
 }
 
-/**
- * Union of a partially verified list field and its retry result. Each side was verified on its own;
- * services/software keep at most 3 quotes, and items are kept only if a kept quote supports them.
- */
-function mergeList(field: FactField, a: unknown, b: unknown): unknown {
-  if (field === "people" || field === "exclusion_signals") {
-    const items = [...(a as Record<string, unknown>[]), ...(b as Record<string, unknown>[])];
-    const key = (x: Record<string, unknown>) => String(x.name ?? x.signal).toLowerCase();
-    return items.filter((x, i) => items.findIndex((y) => key(y) === key(x)) === i).slice(0, 5);
-  }
-  if (a === NOT_FOUND) return b;
-  if (b === NOT_FOUND) return a;
-  const la = a as { value: string[]; evidence: { evidence_url: string; evidence_quote: string }[] };
-  const lb = b as typeof la;
-  const evidence = [...la.evidence, ...lb.evidence]
-    .filter((e, i, all) => all.findIndex((x) => x.evidence_quote === e.evidence_quote) === i)
-    .slice(0, 3);
-  const quotes = evidence.map((e) => e.evidence_quote).join(" \n ");
-  const value = [...la.value, ...lb.value]
-    .filter((v, i, all) => all.findIndex((x) => x.toLowerCase() === v.toLowerCase()) === i)
-    .filter((v) => itemSupported(v, quotes));
-  return value.length > 0 ? { value, evidence } : a;
+/** Union of a partially verified people/exclusion_signals list and its retry result (each item verified on its own). */
+function mergeList(a: unknown, b: unknown): unknown {
+  const items = [...(a as Record<string, unknown>[]), ...(b as Record<string, unknown>[])];
+  const key = (x: Record<string, unknown>) => String(x.name ?? x.signal).toLowerCase();
+  return items.filter((x, i) => items.findIndex((y) => key(y) === key(x)) === i).slice(0, 5);
 }
 
 function emptyValue(field: FactField): unknown {
@@ -126,10 +115,14 @@ export async function extractFacts(sent: SentPage[], deps: ExtractionDeps): Prom
     if (hit) return { ...(JSON.parse(hit.resultJson) as ExtractionResult), fromCache: true };
   }
 
-  const ctx: VerifyContext = { pages: new Map(sent.map((p) => [p.url, { text: p.text, title: p.title }])), evidence: deps.evidence };
+  const ctx: VerifyContext = {
+    pages: new Map(sent.map((p) => [p.url, { text: p.text, title: p.title }])),
+    evidence: deps.evidence,
+    ...(deps.searchPages ? { searchPages: deps.searchPages } : {}),
+  };
   const first = await deps.llm.call(
     { callType: "extract", leadId: deps.leadId, budgetSinceRunId: deps.budgetSinceRunId },
-    params(deps, tool, firstPassMessage(sent), MAX_OUTPUT_TOKENS.extract),
+    params(deps, tool, firstPassMessage(sent, deps.nameHints), MAX_OUTPUT_TOKENS.extract),
   );
   const input1 = toolInput(first.message);
   const v1 = verifyExtraction(input1, ctx);
@@ -162,7 +155,7 @@ export async function extractFacts(sent: SentPage[], deps: ExtractionDeps): Prom
     try {
       const second = await deps.llm.call(
         { callType: "extract_retry", leadId: deps.leadId, budgetSinceRunId: deps.budgetSinceRunId },
-        params(deps, tool, retryMessage(retryPages, reasons), MAX_OUTPUT_TOKENS.extract_retry),
+        params(deps, tool, retryMessage(retryPages, reasons, deps.nameHints), MAX_OUTPUT_TOKENS.extract_retry),
       );
       retriesUsed = 1;
       input2 = toolInput(second.message);
@@ -180,7 +173,7 @@ export async function extractFacts(sent: SentPage[], deps: ExtractionDeps): Prom
       if (partial.includes(field)) {
         // The first pass already produced a usable list; merge in whatever the retry verified.
         if (v2 && check?.status === "verified") {
-          (facts as Record<string, unknown>)[field] = mergeList(field, facts[field], v2.facts[field]);
+          (facts as Record<string, unknown>)[field] = mergeList(facts[field], v2.facts[field]);
           failures.push(...(check.notes ?? []));
         }
         fields[field] = { ...fields[field], retried: !!v2, firstReason };

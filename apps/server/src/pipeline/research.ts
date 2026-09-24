@@ -7,6 +7,7 @@ import {
   type EvidenceConfig,
   type ExtractedFacts,
   type InjectionFinding,
+  type NameHint,
   type ScoringConfig,
   type SecurityMentionSearch,
 } from "@clearpath/shared";
@@ -22,6 +23,7 @@ import type { PageDate } from "../fetch/clean";
 import { fetchSite, type FetchedPage, type LinkReport, type SiteFetchDeps, type SitemapResult } from "../fetch/site";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { chooseDecisionMaker, computeGate, supportedSecondaryTypes, targetIndustryFit, usLocation } from "../scoring/derive";
+import { classifyPublicEmail } from "../scoring/contact";
 import { computeFreshness } from "../scoring/freshness";
 import { scoreDossier, type ScoreResult } from "../scoring/score";
 import { searchSecurityMentions } from "../scoring/security-search";
@@ -72,6 +74,10 @@ export interface PreparedLead {
   dns: DnsFindings;
   securitySearch: SecurityMentionSearch;
   failures: string[];
+  /** Firm-name candidates from the homepage markup (hints for the model). */
+  nameHints: NameHint[];
+  /** The site answered HTTP 403/429 and was not requested again this run. */
+  declined: boolean;
 }
 
 const EMPTY_DNS: DnsFindings = {
@@ -121,9 +127,12 @@ export function assembleDossier(p: PreparedLead, facts: ExtractedFacts, extra: {
     failures: [...new Set(failures)],
     prompt_injection_flag: extra.findings.length > 0,
     injection_findings: extra.findings,
+    declined_automated_access: p.declined,
+    firm_name_candidates: p.nameHints,
     ...facts,
     firm_type: firmType,
     decision_maker: chooseDecisionMaker(facts.people, deps.evidence.decision_maker_title_preferences),
+    public_email_kind: classifyPublicEmail(facts.public_contact_email, facts.people, deps.evidence.generic_inbox_prefixes),
     latest_dated_content: p.source === "web" ? computeFreshness(p.datedPages, p.sitemap, deps.now()) : NOT_FOUND,
     us_location: usLocation(facts.location),
     target_industry_fit: fit,
@@ -184,6 +193,8 @@ export async function prepareWebLead(leadId: string, inputUrl: string, deps: Res
     dns,
     securitySearch,
     failures,
+    nameHints: site.pages.find((pg) => pg.kind === "home")?.nameHints ?? [],
+    declined: site.declined !== null,
   };
 }
 
@@ -213,6 +224,9 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
         leadId: p.leadId,
         budgetSinceRunId,
         refresh: deps.refresh,
+        // services/software items are searched in the full cleaned text, not the token-capped copy.
+        searchPages: p.scanPages.map(({ url, text }) => ({ url, text })),
+        nameHints: p.nameHints,
       });
       facts = extraction.facts;
       failures.push(...extraction.failures);
@@ -276,6 +290,8 @@ export async function researchPastedLead(leadId: string, pastedText: string, dep
       dns: EMPTY_DNS,
       securitySearch: "NOT_CHECKED",
       failures: ["source is pasted text only; no pages fetched and no DNS lookup"],
+      nameHints: [],
+      declined: false,
     },
     deps,
   );

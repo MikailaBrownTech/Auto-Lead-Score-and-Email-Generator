@@ -32,6 +32,8 @@ interface Verdict {
   met: boolean;
   reason: string;
   fields: string[];
+  /** Reduced points (docs/06 partial_points) when met on weaker evidence; otherwise the criterion's points. */
+  points?: number;
 }
 
 const NOT_FOUND_REASON = (field: string) => `${field} is NOT_FOUND (scores 0; never a negative finding)`;
@@ -88,10 +90,20 @@ const RULES: Record<ScoringKey, Rule> = {
     return { met, reason: `${n} staff (${met ? "within" : "outside"} ${min}-${max})`, fields: ["size_signal"] };
   },
 
-  decision_maker_named: (d) =>
-    isFound(d.decision_maker)
-      ? { met: true, reason: `decision maker: ${d.decision_maker.value.name}${d.decision_maker.value.title ? `, ${d.decision_maker.value.title}` : ""}`, fields: ["decision_maker"] }
-      : { met: false, reason: NOT_FOUND_REASON("decision_maker"), fields: [] },
+  // Full points only when the title is on the docs/06 preference list; otherwise role_unconfirmed.
+  decision_maker_named: (d, c) => {
+    if (!isFound(d.decision_maker)) return { met: false, reason: NOT_FOUND_REASON("decision_maker"), fields: [] };
+    const { name, title, role_confirmed } = d.decision_maker.value;
+    const who = `${name}${title ? `, ${title}` : ""}`;
+    return role_confirmed
+      ? { met: true, reason: `decision maker: ${who}`, fields: ["decision_maker"] }
+      : {
+          met: true,
+          points: c.partial_points.decision_maker_role_unconfirmed,
+          reason: `role_unconfirmed: ${who} (${title ? "title" : "no title"} not on the preference list)`,
+          fields: ["decision_maker"],
+        };
+  },
 
   // Evidenced by the code's recorded keyword search of the full page text (docs/06), never by NOT_FOUND.
   no_wisp_mention: (d, c) => {
@@ -189,10 +201,14 @@ const RULES: Record<ScoringKey, Rule> = {
     };
   },
 
-  public_business_email: (d) =>
-    isFound(d.public_contact_email)
-      ? { met: true, reason: `public contact email ${d.public_contact_email.value.address}`, fields: ["public_contact_email"] }
-      : { met: false, reason: NOT_FOUND_REASON("public_contact_email"), fields: [] },
+  // Full points when the address is tied to a named person; partial for a generic or unattributed inbox.
+  public_business_email: (d, c) => {
+    if (!isFound(d.public_contact_email)) return { met: false, reason: NOT_FOUND_REASON("public_contact_email"), fields: [] };
+    const address = d.public_contact_email.value.address;
+    if (d.public_email_kind === "named_person") return { met: true, reason: `public contact email ${address} (tied to a named person)`, fields: ["public_contact_email"] };
+    const kind = d.public_email_kind === "generic_inbox" ? "generic_inbox" : "not tied to a named person";
+    return { met: true, points: c.partial_points.public_business_email_generic, reason: `public contact email ${address} (${kind})`, fields: ["public_contact_email"] };
+  },
 
   // Deterministic: machine-readable dates only (latest_dated_content is filled by code).
   site_maintained: (d, c, asOf) => {
@@ -236,7 +252,7 @@ export function scoreDossier(dossier: Dossier, config: ScoringConfig, asOf: Date
       group: criterion.group,
       label: criterion.label,
       max: criterion.points,
-      points: v.met && !blocked ? criterion.points : 0,
+      points: v.met && !blocked ? Math.min(v.points ?? criterion.points, criterion.points) : 0,
       reason: blocked && v.met ? `${v.reason} (not counted: lead is out_of_icp)` : v.reason,
       fields: v.fields,
     };

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { Readability } from "@mozilla/readability";
+import type { NameHint } from "@clearpath/shared";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 /** Cleaned text shorter than this is "near-empty" (typically a JavaScript-rendered shell). */
@@ -19,6 +20,8 @@ export interface PageDate {
 
 export interface CleanedPage {
   dates: PageDate[];
+  /** Firm-name candidates from the markup (JSON-LD Organization name, og:site_name, title before its separator). */
+  nameHints: NameHint[];
   title: string;
   /** Visible text with paragraph breaks ("\n\n") preserved, for extraction and quote checks. */
   text: string;
@@ -142,6 +145,53 @@ function extractDates(doc: Document): PageDate[] {
   return out;
 }
 
+/** JSON-LD types that are an organization (schema.org Organization and its common business subtypes). */
+const ORG_TYPES = /^(Organization|Corporation|LocalBusiness|ProfessionalService|AccountingService|FinancialService|LegalService|ProfessionalOrganization)$/;
+const TITLE_SEPARATOR = /\s+[|\-–—:·•]+\s+/;
+const GENERIC_TITLE = /^(home|home page|homepage|welcome|index|main)$/i;
+
+/** The title part that names the site: the text before the first separator, or the last part when the first is generic ("Home | Smith CPA"). */
+export function titleName(title: string): string | null {
+  const parts = title.split(TITLE_SEPARATOR).map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const first = parts[0]!;
+  const pick = GENERIC_TITLE.test(first) && parts.length > 1 ? parts[parts.length - 1]! : first;
+  return GENERIC_TITLE.test(pick) ? null : pick.slice(0, 120);
+}
+
+function extractNameHints(doc: Document, title: string): NameHint[] {
+  const out: NameHint[] = [];
+  const push = (source: NameHint["source"], raw: unknown) => {
+    const value = typeof raw === "string" ? raw.replace(/\s+/g, " ").trim().slice(0, 120) : "";
+    if (value && !out.some((h) => h.source === source && h.value === value)) out.push({ source, value });
+  };
+  for (const s of Array.from(doc.querySelectorAll('script[type="application/ld+json"]'))) {
+    let data: unknown;
+    try {
+      data = JSON.parse(s.textContent ?? "");
+    } catch {
+      continue;
+    }
+    const visit = (node: unknown, depth: number) => {
+      if (depth > 6 || node === null || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach((n) => visit(n, depth + 1));
+      const o = node as Record<string, unknown>;
+      const types = ([] as unknown[]).concat(o["@type"] ?? []);
+      if (types.some((t) => typeof t === "string" && ORG_TYPES.test(t))) push("jsonld_organization", o.name);
+      for (const v of Object.values(o)) if (typeof v === "object") visit(v, depth + 1);
+    };
+    visit(data, 0);
+  }
+  push("og_site_name", doc.querySelector('meta[property="og:site_name"]')?.getAttribute("content"));
+  // Prefer the title part another hint confirms ("Slogan | Firm Name"); otherwise the part before the separator.
+  const lower = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const parts = title.split(TITLE_SEPARATOR).map((p) => p.trim()).filter(Boolean);
+  const confirmed = parts.find((p) => out.some((h) => lower(h.value) === lower(p) || lower(h.value).startsWith(`${lower(p)} `)));
+  push("title", confirmed ?? titleName(title));
+  // Some sites repeat an Organization per location; a few candidates are enough.
+  return out.slice(0, 5);
+}
+
 /**
  * HTML -> clean text. jsdom never runs scripts or loads subresources here (no runScripts, no
  * resources option). Hidden elements are removed from the visible text and returned separately.
@@ -151,6 +201,7 @@ export function cleanHtml(html: string, pageUrl: string): CleanedPage {
   const doc = dom.window.document;
   decodeCloudflareEmails(doc);
   const dates = extractDates(doc);
+  const nameHints = extractNameHints(doc, (doc.title ?? "").trim());
 
   const links: PageLink[] = Array.from(doc.querySelectorAll("a[href]")).map((a) => ({
     href: (a as HTMLAnchorElement).href,
@@ -205,6 +256,7 @@ export function cleanHtml(html: string, pageUrl: string): CleanedPage {
   dom.window.close();
   return {
     dates,
+    nameHints,
     title,
     text,
     hiddenText: tidy(hiddenParts.join("\n\n")),

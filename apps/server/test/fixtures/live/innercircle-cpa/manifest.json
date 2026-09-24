@@ -1,0 +1,210 @@
+{
+  "capturedAt": "2026-09-24T14:42:01.977Z",
+  "input": "innercircle.cpa",
+  "routes": {
+    "https://innercircle.cpa/robots.txt": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/plain"
+      },
+      "file": "body-0.txt"
+    },
+    "https://innercircle.cpa/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-1.html"
+    },
+    "https://innercircle.cpa/about-our-cpa-services/": {
+      "status": 200,
+      "headers": {
+        "content-type": "text/html; charset=UTF-8"
+      },
+      "file": "body-2.html"
+    },
+    "https://innercircle.cpa/meet-our-team/": {
+      "status": 403,
+      "headers": {
+        "content-type": "text/html; charset=utf-8"
+      }
+    }
+  },
+  "hosts": {
+    "innercircle.cpa": [
+      "192.0.79.159",
+      "192.0.79.172"
+    ]
+  },
+  "dns": {
+    "MX innercircle.cpa": {
+      "answer": [
+        {
+          "exchange": "mx2-us1.ppe-hosted.com",
+          "priority": 1
+        },
+        {
+          "exchange": "mx1-us1.ppe-hosted.com",
+          "priority": 0
+        }
+      ]
+    },
+    "TXT innercircle.cpa": {
+      "answer": [
+        [
+          "google-site-verification=u0dizv4TolLI8cSHECXGw5Ri7BCDyJJY5IFxHPdR8d0"
+        ],
+        [
+          "knowbe4-site-verification=d8bf093d182e24626b87b675100a60d5"
+        ],
+        [
+          "ppe-283ccd0eeee1f4cd49d91c267d05d3df6649bc16"
+        ],
+        [
+          "v=spf1 include:_spf-us.ppe-hosted.com include:infusionmail.com ~all"
+        ],
+        [
+          " google-site-verification=3VMirEttu07jp7PKJpAFlV01byFf-EGeir8oRyG3hNk"
+        ],
+        [
+          "MS=ms10836831"
+        ],
+        [
+          "brevo-code:5d67ddb6ea5768afe6d85eeda0b8321a"
+        ]
+      ]
+    },
+    "TXT _dmarc.innercircle.cpa": {
+      "answer": [
+        [
+          "v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com"
+        ]
+      ]
+    }
+  },
+  "model": [
+    {
+      "callIndex": 0,
+      "toolInput": {
+        "firm_name": {
+          "value": "Inner Circle Advisors",
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "Inner Circle Advisors is a leading-edge, cloud-based, business advisory services firm"
+        },
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": [
+              "bookkeeper",
+              "tax_preparer"
+            ]
+          },
+          "evidence_url": "https://innercircle.cpa/about-our-cpa-services/",
+          "evidence_quote": "Inner Circle Advisors is a leading-edge, cloud-based, business advisory services firm led by an experienced CPA"
+        },
+        "location": {
+          "value": {
+            "city": "Independence",
+            "state": "OH",
+            "country": "United States"
+          },
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "3 Summit Park Drive, Suite 520 Independence, OH 44131"
+        },
+        "size_signal": "NOT_FOUND",
+        "services": [
+          "Tax Preparation",
+          "Tax Planning",
+          "IRS Representation",
+          "Tax Problem Resolution",
+          "Innocent Spouse Relief",
+          "Unfiled Return Completion",
+          "Accounting Done For You",
+          "Cash Flow Management",
+          "Internal Control Systems",
+          "Non-Profit Startup",
+          "VFO Services",
+          "QuickBooks Services",
+          "Succession Planning",
+          "Starting a Business",
+          "Value Builder"
+        ],
+        "software_mentioned": [
+          "QuickBooks",
+          "Value Builder System™"
+        ],
+        "client_portal_or_doc_exchange": {
+          "value": {
+            "secure_portal": true,
+            "doc_exchange": false
+          },
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "Client Portal"
+        },
+        "people": [
+          {
+            "name": "Gregory D. Hostelley",
+            "title": "CPA, CGMA",
+            "evidence_url": "https://innercircle.cpa/about-our-cpa-services/",
+            "evidence_quote": "Gregory D. Hostelley, CPA, CGMA"
+          }
+        ],
+        "public_contact_email": {
+          "value": {
+            "address": "marketing@innercircle.cpa",
+            "owner_name": null
+          },
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "marketing@innercircle.cpa"
+        },
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": {
+          "value": true,
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "Privacy Policy"
+        },
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": {
+          "value": {
+            "phone": "(833) 836-0330",
+            "contact_form": true
+          },
+          "evidence_url": "https://innercircle.cpa/",
+          "evidence_quote": "(833) 836-0330"
+        },
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    },
+    {
+      "callIndex": 1,
+      "toolInput": {
+        "firm_type": {
+          "value": {
+            "primary": "cpa",
+            "secondary": [
+              "tax_preparer",
+              "bookkeeper"
+            ]
+          },
+          "evidence_url": "https://innercircle.cpa/about-our-cpa-services/",
+          "evidence_quote": "Inner Circle Advisors is a leading-edge, cloud-based, business advisory services firm led by an experienced CPA"
+        },
+        "firm_name": "NOT_FOUND",
+        "location": "NOT_FOUND",
+        "size_signal": "NOT_FOUND",
+        "services": "NOT_FOUND",
+        "software_mentioned": "NOT_FOUND",
+        "client_portal_or_doc_exchange": "NOT_FOUND",
+        "people": [],
+        "public_contact_email": "NOT_FOUND",
+        "personal_email_domain_on_site": "NOT_FOUND",
+        "privacy_policy_present": "NOT_FOUND",
+        "security_or_wisp_mention": "NOT_FOUND",
+        "phone_or_contact_form": "NOT_FOUND",
+        "exclusion_signals": [],
+        "suspected_prompt_injection": false
+      }
+    }
+  ]
+}

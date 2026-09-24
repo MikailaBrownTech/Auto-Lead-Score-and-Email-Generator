@@ -7,7 +7,7 @@ import {
   NOT_FOUND,
 } from "@clearpath/shared";
 import { describe, expect, it } from "vitest";
-import { ABOUT, emptyDossier, ev, strongDossier } from "./fixtures/dossiers";
+import { ABOUT, emptyDossier, ev, HOME, strongDossier } from "./fixtures/dossiers";
 
 function issues(value: unknown): string[] {
   const r = DossierSchema.safeParse(value);
@@ -67,8 +67,8 @@ describe("dossier schema: evidence enforcement", () => {
 
   it("rejects firm types outside the docs/04 list and malformed dates", () => {
     expect(issues(strongDossier({ firm_type: ev("insurance" as never, "insurance") })).length).toBeGreaterThan(0);
-    const bad = ev({ text: "news", date: "Feb 2026" }, "news");
-    expect(issues(strongDossier({ recent_signal: bad })).join()).toMatch(/YYYY-MM/);
+    const bad = { value: { date: "Feb 2026", source: "time_element" as const }, evidence_url: HOME, evidence_quote: "Feb 2026" };
+    expect(issues(strongDossier({ latest_dated_content: bad })).join()).toMatch(/YYYY-MM/);
   });
 
   it("rejects unknown fields (no smuggled extra claims)", () => {
@@ -115,6 +115,9 @@ describe("extraction tool schema (generated from zod)", () => {
       failures,
       prompt_injection_flag,
       injection_findings,
+      declined_automated_access,
+      firm_name_candidates,
+      public_email_kind,
       dns,
       security_mention_search,
       decision_maker,
@@ -125,7 +128,7 @@ describe("extraction tool schema (generated from zod)", () => {
       ...facts
     } = strongDossier();
     void [lead_id, source, url, domain, pages_opened, failures, prompt_injection_flag, injection_findings, dns, security_mention_search];
-    void [decision_maker, latest_dated_content, us_location, target_industry_fit, gate];
+    void [decision_maker, latest_dated_content, us_location, target_industry_fit, gate, declined_automated_access, firm_name_candidates, public_email_kind];
     expect(ExtractedFactsSchema.safeParse(facts).success).toBe(true);
   });
 
@@ -133,7 +136,7 @@ describe("extraction tool schema (generated from zod)", () => {
     const props = Object.keys(extractionInputSchema().properties as object);
     expect(props).not.toContain("dns");
     expect(props).not.toContain("security_mention_search");
-    for (const f of ["decision_maker", "latest_dated_content", "in_scope", "us_location", "target_industry_fit", "gate"]) expect(props).not.toContain(f);
+    for (const f of ["decision_maker", "latest_dated_content", "in_scope", "us_location", "target_industry_fit", "gate", "public_email_kind", "recent_signal"]) expect(props).not.toContain(f);
   });
 
   it("rejects a security search whose pages were not opened", () => {

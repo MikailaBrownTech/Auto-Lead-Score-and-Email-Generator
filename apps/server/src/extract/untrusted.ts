@@ -7,7 +7,9 @@ export const BLOCK_TAG = "untrusted_page";
 
 /** Stops page text from opening or closing our delimiter blocks. */
 export function neutralize(text: string): string {
-  return text.replace(/untrusted[_\s-]*page/gi, "untrusted-page(text)");
+  return text
+    .replace(/untrusted[_\s-]*page/gi, "untrusted-page(text)")
+    .replace(/untrusted[_\s-]*name[_\s-]*candidates/gi, "untrusted-name-candidates(text)");
 }
 
 function attr(value: string): string {

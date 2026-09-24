@@ -6,11 +6,13 @@ import {
   type Dossier,
   type FactField,
   type OfferConfig,
+  type RegulatoryFact,
   type Sequence,
   type SequenceEmail,
   type StyleConfig,
 } from "@clearpath/shared";
 import { contactPlan } from "../scoring/contact";
+import { dnsObservation } from "../write/writer-input";
 
 export { containsPhrase };
 
@@ -35,6 +37,11 @@ export interface ValidationContext {
   offer: OfferConfig;
   /** When given, grounding fields are checked against it. */
   dossier?: Dossier;
+  /**
+   * The VERIFIED docs/02 facts the writer was given. When present, any number in a regulatory
+   * sentence must appear in these facts (no invented deadlines, counts, or section numbers).
+   */
+  verifiedFacts?: RegulatoryFact[];
 }
 
 /** Dossier fields used for addressing (greeting, firm name) that do not count as a personal detail. */
@@ -147,6 +154,49 @@ function checkProof(n: number, body: string, ctx: ValidationContext, issues: Iss
   }
 }
 
+const DNS_TERMS = /\b(dmarc|spf|dkim|mx records?|dns|email authentication|sender policy)\b/i;
+const DNS_ALARM = /\b(vulnerab\w*|at[- ]risk|exposed|spoof\w*|insecure|unprotected)\b/i;
+
+/**
+ * DNS remarks (docs/01 include_dns_observation): only when the setting is on, the email is grounded
+ * on dns_observation, and the lookup shows the domain has email with an evidenced DMARC finding.
+ * Never alarm words, never DKIM (DKIM is caught separately).
+ */
+function checkDns(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): void {
+  const text = [e.body, e.subject_a ?? "", e.subject_b ?? ""].join("\n");
+  if (!DNS_TERMS.test(text)) return;
+  const err = (code: string, message: string) => issues.push({ severity: "error", email: e.n, code, message });
+  if (!ctx.offer.include_dns_observation) {
+    err("dns_not_enabled", "mentions DNS/email settings but include_dns_observation is off in docs/01");
+    return;
+  }
+  if (!e.grounding.includes("dns_observation")) err("dns_not_grounded", "mentions DNS/email settings without grounding on dns_observation");
+  if (ctx.dossier && dnsObservation(ctx.dossier, ctx.offer) === null) {
+    err("dns_not_evidenced", "mentions DNS/email settings, but the domain has no MX records or no evidenced DMARC finding");
+  }
+  for (const sentence of bodySentences(text)) {
+    if (DNS_TERMS.test(sentence) && DNS_ALARM.test(sentence)) err("dns_alarm", `DNS remark must be hedged, never alarming: "${sentence}"`);
+  }
+}
+
+const REGULATORY_TERMS = /\b(ftc|irs|safeguards|publication|pub\.?|rule|regulation|requires?|required|cfr|notify|notification)\b/i;
+
+/**
+ * Numbers in regulatory sentences must come from the VERIFIED docs/02 facts ("30 days", "4557").
+ * List markers ("1. ") are ignored. Catches invented deadlines, counts, and citations.
+ */
+export function unverifiedRegulatoryNumbers(text: string, facts: RegulatoryFact[]): { sentence: string; numbers: string[] }[] {
+  const allowed = new Set(facts.flatMap((f) => f.text.match(/\d[\d,]*/g) ?? []).map((n) => n.replace(/,/g, "")));
+  const out: { sentence: string; numbers: string[] }[] = [];
+  for (const sentence of bodySentences(text)) {
+    if (!REGULATORY_TERMS.test(sentence)) continue;
+    const stripped = sentence.replace(/(^|\s)\d{1,2}\.(?=\s|$)/g, " ");
+    const numbers = (stripped.match(/\d[\d,]*/g) ?? []).map((n) => n.replace(/,/g, "")).filter((n) => !allowed.has(n));
+    if (numbers.length > 0) out.push({ sentence, numbers });
+  }
+  return out;
+}
+
 /**
  * Blocks statements that the firm lacks a WISP or plan ("you don't have a written security plan").
  * We can only observe that a site does not mention one, which is not the same thing. Questions and
@@ -197,6 +247,12 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   }
 
   checkProof(n, e.body, ctx, issues);
+  checkDns(e, ctx, issues);
+  if (ctx.verifiedFacts) {
+    for (const hit of unverifiedRegulatoryNumbers(e.body, ctx.verifiedFacts)) {
+      err("unverified_regulatory_number", `regulatory sentence uses ${hit.numbers.join(", ")}, not in the VERIFIED docs/02 facts: "${hit.sentence}"`);
+    }
+  }
 
   for (const text of [e.body, e.subject_a ?? "", e.subject_b ?? ""]) {
     for (const sentence of findAbsenceClaims(text, style)) {
@@ -216,6 +272,10 @@ function checkEmail(e: SequenceEmail, ctx: ValidationContext, issues: Issue[]): 
   }
   if (ctx.dossier) {
     for (const f of e.grounding) {
+      if (f === "dns_observation") {
+        if (dnsObservation(ctx.dossier, ctx.offer) === null) err("grounding_not_found", "grounded on dns_observation, which is off or not evidenced");
+        continue;
+      }
       const value = (ctx.dossier as Record<string, unknown>)[f];
       if (value === undefined || !isFound(value) || (Array.isArray(value) && value.length === 0)) {
         err("grounding_not_found", `grounded on ${f}, which is NOT_FOUND`);

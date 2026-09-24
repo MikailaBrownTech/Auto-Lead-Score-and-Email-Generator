@@ -21,6 +21,7 @@ The app reads and writes only the block below (Settings screen). Leave a value e
 - approved_proof: only real pilot clients, real credentials, real results. While empty, emails make no proof claims.
 - founding_client_offer: approved wording, or null for none. While null, email 4 uses the checklist.
 - cta_type: what email 3 offers by reply: "checklist" (a one-page Safeguards Rule checklist) or "scorecard" (the 2-minute scorecard). Use "scorecard" only once the scorecard exists.
+- include_dns_observation: true lets an email mention one DNS observation (for example a DMARC record set to monitoring only), hedged, and only when the domain has email (MX records). Default false: no DNS remarks in emails.
 
 ```json clearpath:offer
 {
@@ -30,6 +31,7 @@ The app reads and writes only the block below (Settings screen). Leave a value e
   "physical_address": "",
   "approved_proof": [],
   "founding_client_offer": null,
-  "cta_type": "checklist"
+  "cta_type": "checklist",
+  "include_dns_observation": false
 }
 ```

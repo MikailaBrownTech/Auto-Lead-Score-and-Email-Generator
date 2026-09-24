@@ -13,7 +13,7 @@ const scoring = loadScoring();
 const keywords = evidence.firm_type_keywords;
 
 const person = (name: string, title: string | null): Person => ({ name, title, evidence_url: HOME, evidence_quote: `${name}${title ? `, ${title}` : ""}` });
-const services = (...items: string[]): ExtractedFacts["services"] => ({ value: items, evidence: [{ evidence_url: HOME, evidence_quote: items.join(", ") }] });
+const services = (...items: string[]): ExtractedFacts["services"] => ({ value: items, evidence: items.map((item) => ({ item, evidence_url: HOME })) });
 
 describe("decision maker by title preference (docs/06)", () => {
   it("uses the preference list order", () => {

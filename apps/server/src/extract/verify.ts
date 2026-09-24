@@ -1,7 +1,10 @@
 import {
   containsPhrase,
   ExtractedFactsSchema,
+  countWords,
   FACT_FIELDS,
+  MAX_QUOTE_WORDS,
+  ModelFactsSchema,
   NOT_FOUND,
   normalizeText,
   type EvidenceConfig,
@@ -17,7 +20,8 @@ export type FieldStatus = "verified" | "not_found" | "rejected";
  * Why a field failed. Only the fixable kinds are retried: the model can pick a better quote or
  * page. Format failures (wrong type, bad enum, invalid email) are not retried.
  */
-export type FailureKind = "format" | "missing" | "url_not_sent" | "quote_not_found" | "quote_too_long" | "support_mismatch" | "personal_details";
+/** not_on_page: a services/software item the code could not find in any fetched page (dropped, never retried). */
+export type FailureKind = "format" | "missing" | "url_not_sent" | "quote_not_found" | "quote_too_long" | "support_mismatch" | "personal_details" | "not_on_page";
 export const FIXABLE_FAILURES: ReadonlySet<FailureKind> = new Set(["url_not_sent", "quote_not_found", "quote_too_long", "support_mismatch", "personal_details"]);
 
 /** A schema failure caused only by quote length is fixable (the model can pick a shorter span). */
@@ -51,6 +55,11 @@ export interface SentPageInfo {
 export interface VerifyContext {
   pages: Map<string, SentPageInfo>;
   evidence: EvidenceConfig;
+  /**
+   * Full cleaned text of every fetched page (not the token-capped copy), in search order. services and
+   * software items are looked up here. Defaults to the sent pages.
+   */
+  searchPages?: { url: string; text: string }[];
 }
 
 /** Case-insensitive, whitespace- and quote-normalized containment. */
@@ -89,12 +98,95 @@ const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "sev
 
 const LIST_STOPWORDS = new Set(["and", "the", "for", "with", "our", "your", "services", "service", "solutions", "support", "help"]);
 
+/**
+ * services/software: each item is kept only if its normalized text (case, punctuation, "&" = "and")
+ * appears as a whole phrase in a fetched page's cleaned text. The first page containing it is its evidence.
+ */
+export function findListItems(
+  items: string[],
+  ctx: VerifyContext,
+): { found: { item: string; evidence_url: string }[]; dropped: { item: string; reason: string }[] } {
+  const pages = ctx.searchPages ?? [...ctx.pages].map(([url, p]) => ({ url, text: p.text }));
+  const found: { item: string; evidence_url: string }[] = [];
+  const dropped: { item: string; reason: string }[] = [];
+  for (const raw of items) {
+    const item = raw.trim();
+    if (found.some((f) => wordsOf(f.item) === wordsOf(item))) continue;
+    const term = personalTermIn(item, ctx.evidence.personal_terms);
+    if (term) {
+      dropped.push({ item, reason: `contains a personal detail ("${term}")` });
+      continue;
+    }
+    const page = pages.find((p) => valueInText(p.text, item));
+    if (page) found.push({ item, evidence_url: page.url });
+    else dropped.push({ item, reason: "not found in the text of any fetched page" });
+  }
+  return { found, dropped };
+}
+
 /** A list item is supported when every significant word of it appears in the quotes. */
 export function itemSupported(item: string, quotesText: string): boolean {
   const words = wordsOf(item).split(" ").filter((w) => w.length >= 3 && !LIST_STOPWORDS.has(w));
   const hay = ` ${wordsOf(quotesText)} `;
   if (words.length === 0) return valueInText(quotesText, item);
   return words.every((w) => hay.includes(` ${w} `));
+}
+
+/** A docs/06 keyword match that also accepts a plural ("audit" matches "audits"). */
+export function keywordIn(text: string, keyword: string): boolean {
+  return containsPhrase(text, keyword) || containsPhrase(text, `${keyword}s`) || containsPhrase(text, `${keyword}es`);
+}
+
+/** Does this span still carry the value its field needs? (Used to cut an over-long quote.) */
+function spanHasValue(field: FactField, value: unknown, span: string, ctx: VerifyContext): boolean {
+  switch (field) {
+    case "firm_name":
+      return typeof value === "string" && valueInText(span, value);
+    case "firm_type": {
+      const primary = (value as { primary?: string })?.primary;
+      const keywords = ctx.evidence.firm_type_keywords[primary as keyof EvidenceConfig["firm_type_keywords"]] ?? [];
+      return keywords.some((k) => keywordIn(span, k));
+    }
+    case "location": {
+      const city = (value as { city?: string | null })?.city;
+      return typeof city === "string" && valueInText(span, city);
+    }
+    case "public_contact_email":
+      return typeof (value as { address?: unknown })?.address === "string" && textContains(span, (value as { address: string }).address);
+    case "personal_email_domain_on_site":
+      return typeof value === "string" && textContains(span, value);
+    case "phone_or_contact_form": {
+      const phone = (value as { phone?: string | null })?.phone;
+      return typeof phone === "string" && digits(phone).length >= 7 && digits(span).includes(digits(phone));
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * An over-long quote that is verbatim on its page is cut by the code to the first 15-word window that
+ * still holds the value (a contiguous span of a verbatim span is itself verbatim). Only for fields
+ * whose value can be located in the quote; everything else still fails as quote_too_long.
+ */
+export function shortenQuote(field: FactField, answer: unknown, ctx: VerifyContext): { answer: unknown; note: string } | null {
+  if (typeof answer !== "object" || answer === null || Array.isArray(answer)) return null;
+  const a = answer as { value?: unknown; evidence_url?: unknown; evidence_quote?: unknown };
+  if (typeof a.evidence_quote !== "string" || typeof a.evidence_url !== "string") return null;
+  const n = countWords(a.evidence_quote);
+  if (n <= MAX_QUOTE_WORDS) return null;
+  const page = ctx.pages.get(a.evidence_url);
+  if (!page) return null;
+  const inTitle = field === "firm_name" && quoteInText(page.title, a.evidence_quote);
+  if (!quoteInText(page.text, a.evidence_quote) && !inTitle) return null;
+  const words = a.evidence_quote.trim().split(/\s+/);
+  for (let i = 0; i + MAX_QUOTE_WORDS <= words.length; i++) {
+    const span = words.slice(i, i + MAX_QUOTE_WORDS).join(" ");
+    if (spanHasValue(field, a.value, span, ctx)) {
+      return { answer: { ...a, evidence_quote: span }, note: `${field}: quote cut by code from ${n} to ${MAX_QUOTE_WORDS} words around the value` };
+    }
+  }
+  return null;
 }
 
 /** The first personal term a quote contains (docs/06 personal_terms), if any. */
@@ -116,10 +208,10 @@ function escapeRegex(s: string): string {
  * details. Names in `ignore` (the firm's own name, a person's own name) are not scanned for personal
  * terms, so "Godfrey & Sons CPAs" is fine while "a mother to 2 boys" is not.
  */
-function checkRef(ref: EvidenceRef, ctx: VerifyContext, ignore: string[] = []): Failure | null {
+function checkRef(ref: EvidenceRef, ctx: VerifyContext, ignore: string[] = [], allowTitle = false): Failure | null {
   const page = ctx.pages.get(ref.evidence_url);
   if (!page) return { kind: "url_not_sent", reason: `evidence_url ${ref.evidence_url} is not one of the pages provided` };
-  if (!quoteInText(page.text, ref.evidence_quote)) {
+  if (!quoteInText(page.text, ref.evidence_quote) && !(allowTitle && quoteInText(page.title, ref.evidence_quote))) {
     return { kind: "quote_not_found", reason: "evidence_quote was not found word for word in that page's text (one contiguous span; split, don't stitch)" };
   }
   const scanned = ignore.filter(Boolean).reduce((q, name) => q.replace(new RegExp(escapeRegex(name), "gi"), " "), ref.evidence_quote);
@@ -141,7 +233,7 @@ function supportProblem(field: FactField, value: unknown, ref: EvidenceRef, ctx:
       const primary = (value as { primary: string }).primary;
       if (primary === "other") return null;
       const keywords = ctx.evidence.firm_type_keywords[primary as keyof EvidenceConfig["firm_type_keywords"]] ?? [];
-      return keywords.some((k) => containsPhrase(quote, k)) ? null : `the quote has no ${primary} keyword (docs/06 firm_type_keywords)`;
+      return keywords.some((k) => keywordIn(quote, k)) ? null : `the quote has no ${primary} keyword (docs/06 firm_type_keywords)`;
     }
     case "location": {
       const city = (value as { city: string | null }).city;
@@ -242,7 +334,27 @@ export function verifyExtraction(
       continue;
     }
 
-    const parsed = ExtractedFactsSchema.shape[field].safeParse(answer);
+    // services, software_mentioned: plain lists; each item must be found in a fetched page's text.
+    if (field === "services" || field === "software_mentioned") {
+      const list = ModelFactsSchema.shape[field].safeParse(answer);
+      if (!list.success || list.data === NOT_FOUND) {
+        reject(checks, field, { kind: "format", reason: `invalid format: ${list.success ? "not a list" : list.error.issues.map((i) => i.message).join("; ")}` }, answer);
+        continue;
+      }
+      const { found, dropped } = findListItems(list.data, ctx);
+      const notes = dropped.map((d) => `${field}: dropped "${d.item}" (${d.reason})`);
+      if (found.length === 0) {
+        reject(checks, field, { kind: "not_on_page", reason: "none of the listed items were found in the page text" }, answer, notes);
+        continue;
+      }
+      set(field, { value: found.map((f) => f.item), evidence: found });
+      checks[field] = { status: "verified", answer, ...(notes.length ? { notes } : {}) };
+      continue;
+    }
+
+    const cut = shortenQuote(field, answer, ctx);
+    const cutNotes = cut ? [cut.note] : [];
+    const parsed = ExtractedFactsSchema.shape[field].safeParse(cut ? cut.answer : answer);
     if (!parsed.success || parsed.data === NOT_FOUND) {
       const msg = parsed.success ? "not an evidenced value" : parsed.error.issues.map((i) => i.message).join("; ");
       const kind = parsed.success ? "format" : formatKind(parsed.error.issues);
@@ -250,42 +362,8 @@ export function verifyExtraction(
       continue;
     }
 
-    // services, software_mentioned: 1-3 quotes; every kept item must appear in a kept quote.
-    if (field === "services" || field === "software_mentioned") {
-      const f = parsed.data as { value: string[]; evidence: EvidenceRef[] };
-      const notes: string[] = [];
-      let firstFailure: Failure | null = null;
-      const goodRefs = f.evidence.filter((ref) => {
-        const fail = checkRef(ref, ctx, firmName);
-        if (fail) {
-          firstFailure ??= fail;
-          notes.push(`${field}: dropped quote ${JSON.stringify(ref.evidence_quote)} (${fail.reason})`);
-        }
-        return !fail;
-      });
-      if (goodRefs.length === 0) {
-        reject(checks, field, firstFailure!, answer, notes);
-        continue;
-      }
-      const quotesText = goodRefs.map((r) => r.evidence_quote).join(" \n ");
-      const items = f.value.filter((item) => {
-        const ok = itemSupported(item, quotesText);
-        if (!ok) notes.push(`${field}: dropped "${item}" (not in any of its quotes)`);
-        return ok;
-      });
-      if (items.length === 0) {
-        reject(checks, field, { kind: "support_mismatch", reason: "none of the listed items appear in the quotes (give up to 3 separate quotes; split, don't stitch)" }, answer, notes);
-        continue;
-      }
-      set(field, { value: items, evidence: goodRefs });
-      const partial = items.length < f.value.length || goodRefs.length < f.evidence.length;
-      const partialReason = firstFailure ?? { kind: "support_mismatch" as const, reason: "some listed items are not in any quote (give up to 3 separate quotes; split, don't stitch)" };
-      checks[field] = { status: "verified", answer, ...(notes.length ? { notes } : {}), ...(partial ? { partial, kind: partialReason.kind, reason: partialReason.reason } : {}) };
-      continue;
-    }
-
     const f = parsed.data as { value: unknown } & EvidenceRef;
-    const refFailure = checkRef(f, ctx, firmName);
+    const refFailure = checkRef(f, ctx, firmName, field === "firm_name");
     if (refFailure) {
       reject(checks, field, refFailure, answer);
       continue;
@@ -300,12 +378,12 @@ export function verifyExtraction(
       const v = f.value as { address: string; owner_name: string | null };
       if (v.owner_name && !valueInText(f.evidence_quote, v.owner_name)) {
         set(field, { ...f, value: { ...v, owner_name: null } });
-        checks[field] = { status: "verified", answer, notes: [`public_contact_email: owner_name "${v.owner_name}" dropped (not in the same quote as the address)`] };
+        checks[field] = { status: "verified", answer, notes: [...cutNotes, `public_contact_email: owner_name "${v.owner_name}" dropped (not in the same quote as the address)`] };
         continue;
       }
     }
     set(field, f);
-    checks[field] = { status: "verified", answer };
+    checks[field] = { status: "verified", answer, ...(cutNotes.length ? { notes: cutNotes } : {}) };
   }
   return { facts, checks };
 }
@@ -331,7 +409,6 @@ const FIELD_PAGE_KINDS: Record<FactField, PageKind[]> = {
   personal_email_domain_on_site: ["contact", "home"],
   privacy_policy_present: ["privacy", "home"],
   security_or_wisp_mention: ["security", "privacy", "home"],
-  recent_signal: ["news", "home", "about"],
   phone_or_contact_form: ["contact", "home"],
   exclusion_signals: ["home", "about"],
 };

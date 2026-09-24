@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EvidenceQuoteSchema, EvidenceUrlSchema, evidenced, evidencedList, isFound, NOT_FOUND } from "./evidence";
+import { EvidenceQuoteSchema, EvidenceUrlSchema, evidenced, foundList, isFound, NOT_FOUND } from "./evidence";
 
 export const FIRM_TYPES = [
   "cpa",
@@ -48,14 +48,23 @@ export const ExclusionSignalSchema = z
   .strict();
 export type ExclusionSignal = z.infer<typeof ExclusionSignalSchema>;
 
+/** A plain list the model reads off the pages; the code then finds each item in a page's text. */
+const modelList = (what: string) =>
+  z
+    .union([z.literal(NOT_FOUND), z.array(nonEmpty).min(1).max(15)])
+    .describe(`${what} Copy each item exactly as a page writes it (the code searches the page text for it). No quotes needed.`);
+
 /**
- * Fields the extraction model fills from page text (docs/04). Each is evidenced or NOT_FOUND
- * (people and exclusion_signals are lists; an empty list means none found).
+ * Fields the extraction model fills from page text (docs/04), as the model returns them. Each is
+ * evidenced or NOT_FOUND (people and exclusion_signals are lists; an empty list means none found).
+ * services and software_mentioned are plain lists; the code verifies each item against the page text.
  * Descriptions become part of the tool-use JSON schema the model sees.
  */
-export const ExtractedFactsSchema = z
+export const ModelFactsSchema = z
   .object({
-    firm_name: evidenced(nonEmpty).describe("The firm's name. The quote must contain the name."),
+    firm_name: evidenced(nonEmpty).describe(
+      "The firm's name. The quote must contain the name; it may be copied from a page's title attribute.",
+    ),
     firm_type: evidenced(
       z.object({ primary: FirmTypeSchema, secondary: z.array(FirmTypeSchema).max(3) }).strict(),
     ).describe("Primary business type, plus any secondary types the firm also offers. The quote must name the primary type."),
@@ -67,8 +76,8 @@ export const ExtractedFactsSchema = z
     size_signal: evidenced(
       z.object({ staff_count: z.number().int().positive().nullable(), text: nonEmpty }).strict(),
     ).describe("Staff size, only if stated or countable on a team page. The quote must contain the number."),
-    services: evidencedList(nonEmpty).describe("Services the firm offers, with 1-3 separate quotes that name them."),
-    software_mentioned: evidencedList(nonEmpty).describe("Software or platforms named on the site, with 1-3 separate quotes."),
+    services: modelList("Services the firm offers."),
+    software_mentioned: modelList("Software or platforms named on the site."),
     client_portal_or_doc_exchange: evidenced(
       z.object({ doc_exchange: z.boolean(), secure_portal: z.boolean() }).strict(),
     ).describe("Whether the site mentions exchanging documents, and whether it mentions a secure portal."),
@@ -83,9 +92,8 @@ export const ExtractedFactsSchema = z
       "An address at a personal email provider (gmail, yahoo, aol, etc.) used as a firm address.",
     ),
     privacy_policy_present: evidenced(z.boolean()).describe("Whether the site has a privacy policy."),
-    security_or_wisp_mention: evidenced(nonEmpty).describe("Text mentioning a WISP, security program, or safeguards."),
-    recent_signal: evidenced(z.object({ text: nonEmpty, date: PartialDateSchema }).strict()).describe(
-      "A dated recent event: new hire, new service, or news.",
+    security_or_wisp_mention: evidenced(nonEmpty).describe(
+      "The firm describing its OWN security practices for its clients' information (a WISP, security program, encryption of client files, safeguards). IT, audit, or assurance services the firm sells to clients do not count.",
     ),
     phone_or_contact_form: evidenced(
       z.object({ phone: nonEmpty.nullable(), contact_form: z.boolean() }).strict(),
@@ -96,14 +104,33 @@ export const ExtractedFactsSchema = z
       .describe("Reasons this firm may be outside the target market, each with a quote. Empty list if none."),
   })
   .strict();
+export type ModelFacts = z.infer<typeof ModelFactsSchema>;
+
+/**
+ * Verified facts as stored in the dossier. Same as the model's fields, except services and
+ * software_mentioned keep only items the code found in a fetched page's text, with that page's URL.
+ */
+export const ExtractedFactsSchema = ModelFactsSchema.extend({
+  services: foundList(nonEmpty),
+  software_mentioned: foundList(nonEmpty),
+});
 export type ExtractedFacts = z.infer<typeof ExtractedFactsSchema>;
 
 export const FACT_FIELDS = Object.keys(ExtractedFactsSchema.shape) as (keyof ExtractedFacts)[];
 export type FactField = keyof ExtractedFacts;
 /** Fields whose value is a list of items, each with its own evidence. */
 export const LIST_FIELDS = ["people", "exclusion_signals"] as const satisfies readonly FactField[];
-/** Fields backed by up to 3 quotes. */
-export const MULTI_QUOTE_FIELDS = ["services", "software_mentioned"] as const satisfies readonly FactField[];
+/** Plain lists verified by searching page text (no per-item quote). */
+export const FOUND_LIST_FIELDS = ["services", "software_mentioned"] as const satisfies readonly FactField[];
+
+/** How the public address relates to the people on the site (code-derived). */
+export const PUBLIC_EMAIL_KINDS = ["named_person", "generic_inbox", "unattributed"] as const;
+export type PublicEmailKind = (typeof PUBLIC_EMAIL_KINDS)[number];
+
+/** Where a firm-name candidate came from in the homepage markup. */
+export const NAME_HINT_SOURCES = ["jsonld_organization", "og_site_name", "title"] as const;
+export const NameHintSchema = z.object({ source: z.enum(NAME_HINT_SOURCES), value: nonEmpty }).strict();
+export type NameHint = z.infer<typeof NameHintSchema>;
 
 export const DMARC_POLICIES = ["none", "quarantine", "reject"] as const;
 
@@ -174,6 +201,8 @@ export const FRESHNESS_SOURCES = [
   "jsonld_date_published",
   "jsonld_date_modified",
   "sitemap_lastmod",
+  /** A /YYYY/MM/DD/ date in a page or sitemap URL path. Lower confidence: used only when no markup or sitemap date exists. */
+  "url_date",
 ] as const;
 export const FreshnessSourceSchema = z.enum(FRESHNESS_SOURCES);
 
@@ -203,9 +232,18 @@ export const DossierSchema = z
     failures: z.array(z.string()),
     prompt_injection_flag: z.boolean(),
     injection_findings: z.array(InjectionFindingSchema).default([]),
+    /** The site answered HTTP 403/429; no further requests were made. The UI asks for pasted text. */
+    declined_automated_access: z.boolean().default(false),
+    /** Firm-name candidates from the homepage markup, shown to the model to confirm (code-derived). */
+    firm_name_candidates: z.array(NameHintSchema).default([]),
     ...ExtractedFactsSchema.shape,
-    /** Chosen by code from `people` using the docs/06 title preference list. */
-    decision_maker: evidenced(z.object({ name: nonEmpty, title: nonEmpty.nullable() }).strict()),
+    /**
+     * Chosen by code from `people` using the docs/06 title preference list. role_confirmed is false
+     * when the person's title is not on that list (scored as role_unconfirmed).
+     */
+    decision_maker: evidenced(z.object({ name: nonEmpty, title: nonEmpty.nullable(), role_confirmed: z.boolean() }).strict()),
+    /** Code-derived from public_contact_email, people, and the docs/06 generic_inbox_prefixes list. */
+    public_email_kind: z.union([z.literal(NOT_FOUND), z.enum(PUBLIC_EMAIL_KINDS)]).default(NOT_FOUND),
     latest_dated_content: FreshnessSchema,
     us_location: FitSchema,
     target_industry_fit: FitSchema,

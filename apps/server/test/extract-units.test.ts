@@ -92,47 +92,48 @@ describe("support check: the value must be inside its own quote", () => {
     expect(v.checks.public_contact_email.notes?.[0]).toMatch(/owner_name "Bob Ray" dropped/);
   });
 
-  it("marks a list field that lost quotes or items as partial, so it is retried", () => {
+  it("drops list items not found on any page; never marks them for a retry", () => {
     const listPage = "Credit Repair & Credit Building Services\n\nwhat we do\n\nTax Preparation\n\nIndividual and small business tax return preparation and filing.";
-    const v = verifyExtraction(
-      {
-        services: {
-          value: ["Credit repair", "Tax preparation"],
-          evidence: [
-            { evidence_url: URL_A, evidence_quote: "Credit Repair & Credit Building Services" },
-            { evidence_url: URL_A, evidence_quote: "Accurate, Stress-Free Tax Filing... tax return preparation" },
-          ],
-        },
-      },
-      ctx(listPage),
-    );
-    expect(v.checks.services).toMatchObject({ status: "verified", partial: true, kind: "quote_not_found" });
-    expect(v.facts.services).toMatchObject({ value: ["Credit repair"] });
+    const v = verifyExtraction({ services: ["Credit Repair & Credit Building Services", "Tax Preparation", "Estate planning"] }, ctx(listPage));
+    expect(v.checks.services).toMatchObject({ status: "verified" });
+    expect(v.checks.services.partial).toBeUndefined();
+    expect(v.facts.services).toMatchObject({ value: ["Credit Repair & Credit Building Services", "Tax Preparation"] });
+    expect(v.checks.services.notes).toEqual(['services: dropped "Estate planning" (not found in the text of any fetched page)']);
   });
 });
 
-describe("list fields: up to 3 quotes, split don't stitch", () => {
+describe("list fields: each item found by normalized search in a fetched page's text", () => {
   const page = "Individual tax returns\n\nSmall business returns\n\nPayroll services and quarterly filings\n\nIRS notice response";
-  const list = (value: string[], quotes: string[]) => ({ value, evidence: quotes.map((q) => ({ evidence_url: URL_A, evidence_quote: q })) });
 
-  it("accepts up to 3 separate verbatim quotes and keeps items that appear in them", () => {
-    const v = verifyExtraction(
-      { services: list(["Individual tax returns", "Payroll", "Bookkeeping"], ["Individual tax returns", "Payroll services and quarterly filings"]) },
-      ctx(page),
-    );
+  it("keeps items found in the page text, with that page's URL; drops the rest", () => {
+    const v = verifyExtraction({ services: ["individual TAX returns", "Payroll services", "Bookkeeping"] }, ctx(page));
     expect(v.checks.services.status).toBe("verified");
-    expect(v.facts.services).toMatchObject({ value: ["Individual tax returns", "Payroll"] });
-    expect(v.checks.services.notes).toEqual(['services: dropped "Bookkeeping" (not in any of its quotes)']);
+    expect(v.facts.services).toEqual({
+      value: ["individual TAX returns", "Payroll services"],
+      evidence: [
+        { item: "individual TAX returns", evidence_url: URL_A },
+        { item: "Payroll services", evidence_url: URL_A },
+      ],
+    });
+    expect(v.checks.services.notes).toEqual(['services: dropped "Bookkeeping" (not found in the text of any fetched page)']);
   });
 
-  it("drops a stitched quote but keeps the good ones", () => {
-    const v = verifyExtraction({ services: list(["Payroll"], ["Individual tax returns IRS notice response", "Payroll services and quarterly filings"]) }, ctx(page));
-    expect(v.checks.services.status).toBe("verified");
-    expect((v.facts.services as { evidence: unknown[] }).evidence).toHaveLength(1);
+  it("normalizes '&' and punctuation, but needs the whole phrase (no stitching words from different places)", () => {
+    const text = "Tax Planning and Preparation\n\nWe also do payroll. Individual clients welcome.";
+    const v = verifyExtraction({ services: ["Tax Planning & Preparation", "Individual payroll"] }, ctx(text));
+    expect(v.facts.services).toMatchObject({ value: ["Tax Planning & Preparation"] });
   });
 
-  it("rejects more than 3 quotes as a format failure (not retried)", () => {
-    const v = verifyExtraction({ services: list(["Payroll"], ["Payroll services and quarterly filings", "Individual tax returns", "Small business returns", "IRS notice response"]) }, ctx(page));
+  it("searches the full cleaned text of every fetched page, not only the capped text sent to the model", () => {
+    const c = { ...ctx("Home page text"), searchPages: [{ url: URL_A, text: "Home page text" }, { url: "https://a.example/services", text: "Payroll processing" }] };
+    const v = verifyExtraction({ software_mentioned: ["QuickBooks"], services: ["Payroll processing"] }, c);
+    expect(v.facts.services).toMatchObject({ evidence: [{ item: "Payroll processing", evidence_url: "https://a.example/services" }] });
+    expect(v.checks.software_mentioned).toMatchObject({ status: "rejected", kind: "not_on_page" });
+    expect(FIXABLE_FAILURES.has("not_on_page")).toBe(false);
+  });
+
+  it("rejects a list that is not plain strings as a format failure (not retried)", () => {
+    const v = verifyExtraction({ services: { value: ["Payroll"], evidence: [{ evidence_url: URL_A, evidence_quote: "Payroll services" }] } }, ctx(page));
     expect(v.checks.services).toMatchObject({ status: "rejected", kind: "format" });
     expect(FIXABLE_FAILURES.has("format")).toBe(false);
   });
@@ -170,8 +171,8 @@ describe("personal-detail filter (docs/06 personal_terms)", () => {
     const page = "Godfrey & Sons CPAs has served Toledo since 1980.\n\nMy sons help out in the summer.";
     const ok = verifyExtraction({ firm_name: ev("Godfrey & Sons CPAs", "Godfrey & Sons CPAs has served Toledo since 1980.") }, ctx(page));
     expect(ok.checks.firm_name.status).toBe("verified");
-    const bad = verifyExtraction({ firm_name: ev("Godfrey & Sons CPAs", "Godfrey & Sons CPAs") , recent_signal: ev({ text: "summer help", date: "2026-06" }, "My sons help out in the summer.") }, ctx(page));
-    expect(bad.checks.recent_signal).toMatchObject({ status: "rejected", kind: "personal_details" });
+    const bad = verifyExtraction({ firm_name: ev("Godfrey & Sons CPAs", "Godfrey & Sons CPAs"), security_or_wisp_mention: ev("summer help", "My sons help out in the summer.") }, ctx(page));
+    expect(bad.checks.security_or_wisp_mention).toMatchObject({ status: "rejected", kind: "personal_details" });
   });
 });
 
@@ -260,6 +261,8 @@ describe("untrusted content handling", () => {
     const p = loadExtractionSystemPrompt();
     expect(p).not.toContain("{{DOSSIER_SCHEMA_DOC}}");
     expect(p).toContain("# Dossier schema");
-    expect(p).toContain("Split, don't stitch");
+    expect(p).toContain("ONE contiguous span copied exactly");
+    expect(p).not.toContain("recent_signal");
+    expect(p).toContain("security_or_wisp_mention: only text where the firm describes its OWN practices");
   });
 });

@@ -98,8 +98,10 @@ describe("fetchSite on saved fixtures (no live network)", () => {
     expect(r.failures.join("\n")).toMatch(/services page https:\/\/www\.oakcpa\.example\/services: skipped: content type application\/pdf/);
     expect(r.failures.join("\n")).toMatch(/contact page .*private or reserved.*169\.254\.169\.254/);
     expect(web.requests.map((q) => q.url)).not.toContain("http://169.254.169.254/latest/meta-data/");
-    // The /2025/11/ blog archive link was skipped by pattern, never requested.
-    expect(web.requests.map((q) => q.url).join(" ")).not.toContain("/2025/11/");
+    // The dated post is let through as the news page; the /2025/11/ date archive is skipped by pattern.
+    const requested = web.requests.map((q) => q.url);
+    expect(requested).toContain("https://www.oakcpa.example/2025/11/year-end-planning/");
+    expect(requested.filter((u) => /\/2025\/11\/$/.test(u))).toEqual([]);
   });
 
   it("pages_opened (pages) excludes everything that was not 200 text/html", async () => {

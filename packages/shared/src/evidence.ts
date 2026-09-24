@@ -3,8 +3,6 @@ import { countWords } from "./text";
 
 export const NOT_FOUND = "NOT_FOUND" as const;
 export const MAX_QUOTE_WORDS = 15;
-/** List fields (services, software) may cite up to this many separate quotes. */
-export const MAX_LIST_QUOTES = 3;
 
 export const EvidenceQuoteSchema = z
   .string()
@@ -33,21 +31,26 @@ export function evidenced<T extends z.ZodTypeAny>(value: T) {
   ]);
 }
 
-/** A list fact backed by 1-3 separate quotes (split, never stitched), or "NOT_FOUND". */
-export function evidencedList<T extends z.ZodTypeAny>(item: T) {
+/**
+ * A list fact whose items were each found by the code in the cleaned text of a fetched page
+ * (normalized search), or "NOT_FOUND". The item text itself is the evidence; evidence_url is the page
+ * it was found on. Used for services and software_mentioned.
+ */
+export function foundList<T extends z.ZodString | z.ZodEffects<z.ZodString>>(item: T) {
   return z.union([
     z.literal(NOT_FOUND),
     z
       .object({
         value: z.array(item).min(1),
-        evidence: z.array(EvidenceRefSchema).min(1).max(MAX_LIST_QUOTES),
+        evidence: z.array(z.object({ item: z.string().trim().min(1), evidence_url: EvidenceUrlSchema }).strict()).min(1),
       })
-      .strict(),
+      .strict()
+      .refine((f) => f.value.length === f.evidence.length && f.value.every((v, i) => v === f.evidence[i]!.item), "each list item needs exactly one evidence entry, in order"),
   ]);
 }
 
 export type Evidenced<T> = typeof NOT_FOUND | { value: T; evidence_url: string; evidence_quote: string };
-export type EvidencedList<T> = typeof NOT_FOUND | { value: T[]; evidence: EvidenceRef[] };
+export type FoundList<T> = typeof NOT_FOUND | { value: T[]; evidence: { item: string; evidence_url: string }[] };
 
 export function isFound<F>(field: F): field is Exclude<F, typeof NOT_FOUND> {
   return field !== NOT_FOUND;

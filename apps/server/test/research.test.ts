@@ -121,63 +121,48 @@ describe("researchWebLead on the smithtax fixture", () => {
   });
 
   it("runs one targeted retry: only the failing field, only its page, same cacheable prefix", async () => {
-    const { api, create } = fakeApi((_p, i) =>
-      i === 0
-        ? smithAnswer({ software_mentioned: { value: ["Drake"], evidence: [{ evidence_url: SMITH.SERVICES, evidence_quote: "We file using Drake software" }] } })
-        : onlyFields({ software_mentioned: smithAnswer().software_mentioned }),
-    );
+    const badSize = { value: { staff_count: 6, text: "team of six" }, evidence_url: SMITH.ABOUT, evidence_quote: "Our team of 6 people" };
+    const { api, create } = fakeApi((_p, i) => (i === 0 ? smithAnswer({ size_signal: badSize }) : onlyFields({ size_signal: smithAnswer().size_signal })));
     const deps = makeDeps(sampleWeb(), api);
     const r = await researchWebLead("L2", "smithtax.example", deps);
 
     expect(create).toHaveBeenCalledTimes(2);
     const retry = firstParams(create, 1);
     const text = userText(retry);
-    expect(text).toContain("Re-check only these fields: software_mentioned.");
-    expect(text).toContain("software_mentioned: evidence_quote was not found word for word");
-    expect(text).toContain(`<untrusted_page url="${SMITH.SERVICES}"`);
+    expect(text).toContain("Re-check only these fields: size_signal.");
+    expect(text).toContain("size_signal: evidence_quote was not found word for word");
+    expect(text).toContain(`<untrusted_page url="${SMITH.ABOUT}"`);
     expect(text).not.toContain(`<untrusted_page url="${SMITH.HOME}"`);
-    expect(text).not.toContain("Jane Smith");
     expect(retry.max_tokens).toBe(MAX_OUTPUT_TOKENS.extract_retry);
     // Identical tools + system as the first call, so the cached prefix is reused.
     expect(retry.tools).toEqual(firstParams(create).tools);
     expect(retry.system).toEqual(firstParams(create).system);
 
     expect(r.extraction!.retriesUsed).toBe(1);
-    expect(r.extraction!.fields.software_mentioned).toMatchObject({ status: "verified", retried: true });
-    expect(r.dossier.software_mentioned).toMatchObject({ value: ["Drake Tax"] });
+    expect(r.extraction!.fields.size_signal).toMatchObject({ status: "verified", retried: true });
+    expect(r.dossier.size_signal).toMatchObject({ value: { staff_count: 6 } });
     // Fields verified on the first pass are kept, not overwritten by the retry's NOT_FOUNDs.
     expect(r.dossier.firm_name).toMatchObject({ value: "Smith Tax Services" });
     expect(deps.db.select().from(runs).all().map((x) => x.callType)).toEqual(["extract", "extract_retry"]);
   });
 
-  it("retries a partially verified list and merges the result with the first pass", async () => {
-    const { api, create } = fakeApi((_p, i) =>
-      i === 0
-        ? smithAnswer({
-            services: {
-              value: ["Individual tax returns", "Payroll services"],
-              evidence: [
-                { evidence_url: SMITH.SERVICES, evidence_quote: "Individual tax returns, including multi-state returns" },
-                { evidence_url: SMITH.SERVICES, evidence_quote: "Payroll... quarterly filings" },
-              ],
-            },
-          })
-        : onlyFields({ services: { value: ["Payroll services"], evidence: [{ evidence_url: SMITH.SERVICES, evidence_quote: "Payroll services and quarterly filings" }] } }),
-    );
+  it("services items not found on any page are dropped without a retry", async () => {
+    const { api, create } = fakeApi(() => smithAnswer({ services: ["Individual tax returns", "Estate planning"] }));
     const r = await researchWebLead("L2b", "smithtax.example", makeDeps(sampleWeb(), api));
-    expect(create).toHaveBeenCalledTimes(2);
-    expect(userText(firstParams(create, 1))).toContain("Re-check only these fields: services.");
-    expect(r.dossier.services).toMatchObject({ value: ["Individual tax returns", "Payroll services"] });
-    expect((r.dossier.services as { evidence: unknown[] }).evidence).toHaveLength(2);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(r.dossier.services).toMatchObject({ value: ["Individual tax returns"], evidence: [{ item: "Individual tax returns" }] });
+    const url = (r.dossier.services as { evidence: { evidence_url: string }[] }).evidence[0]!.evidence_url;
+    expect(r.pages.find((p) => p.url === url)!.text).toMatch(/individual tax returns/i);
+    expect(r.dossier.failures).toContain('services: dropped "Estate planning" (not found in the text of any fetched page)');
   });
 
   it("a field still unverified after the retry becomes NOT_FOUND with a failure note; never a third call", async () => {
-    const bad = { value: ["Drake"], evidence: [{ evidence_url: SMITH.SERVICES, evidence_quote: "We file using Drake software" }] };
-    const { api, create } = fakeApi(() => smithAnswer({ software_mentioned: bad }));
+    const badSize = { value: { staff_count: 6, text: "team of six" }, evidence_url: SMITH.ABOUT, evidence_quote: "Our team of 6 people" };
+    const { api, create } = fakeApi(() => smithAnswer({ size_signal: badSize }));
     const r = await researchWebLead("L3", "smithtax.example", makeDeps(sampleWeb(), api));
     expect(create).toHaveBeenCalledTimes(2);
-    expect(r.dossier.software_mentioned).toBe(NOT_FOUND);
-    expect(r.dossier.failures.join("\n")).toMatch(/software_mentioned: evidence not verified, set to NOT_FOUND/);
+    expect(r.dossier.size_signal).toBe(NOT_FOUND);
+    expect(r.dossier.failures.join("\n")).toMatch(/size_signal: evidence not verified, set to NOT_FOUND/);
   });
 
   it("rejects evidence from a page that was not sent and retries with the likely page for that field", async () => {

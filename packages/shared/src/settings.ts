@@ -12,6 +12,11 @@ export const OfferConfigSchema = z
     founding_client_offer: z.string().nullable(),
     /** What email 3 offers by reply. The scorecard option must not be used until the scorecard exists. */
     cta_type: z.enum(["checklist", "scorecard"]).default("checklist"),
+    /**
+     * When true, emails may mention one hedged DNS observation (e.g. a DMARC record set to monitoring
+     * only), and only when the domain has MX records. Default false: no DNS remarks.
+     */
+    include_dns_observation: z.boolean().default(false),
   })
   .strict();
 export type OfferConfig = z.infer<typeof OfferConfigSchema>;
@@ -108,6 +113,15 @@ export const ScoringConfigSchema = z
     fit_threshold: z.number().int().nonnegative(),
     /** Staff counts above this make the lead out_of_icp (no sequence without approval). */
     max_staff_for_sequence: z.number().int().positive(),
+    /** Reduced points for weaker evidence (each at most its criterion's points). */
+    partial_points: z
+      .object({
+        /** public_business_email when the address is a generic inbox or not tied to a named person. */
+        public_business_email_generic: z.number().int().nonnegative(),
+        /** decision_maker_named when the person's title is not on the preference list (role_unconfirmed). */
+        decision_maker_role_unconfirmed: z.number().int().nonnegative(),
+      })
+      .strict(),
   })
   .strict()
   .superRefine((c, ctx) => {
@@ -120,6 +134,13 @@ export const ScoringConfigSchema = z
     }
     if (c.tiers.A <= c.tiers.B) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tiers"], message: "tier A cutoff must be above tier B" });
     if (c.staff_range.min > c.staff_range.max) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["staff_range"], message: "staff_range.min must be <= max" });
+    const pts = (k: ScoringKey) => c.criteria.find((x) => x.key === k)?.points ?? 0;
+    if (c.partial_points.public_business_email_generic > pts("public_business_email")) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partial_points"], message: "public_business_email_generic must not exceed the public_business_email points" });
+    }
+    if (c.partial_points.decision_maker_role_unconfirmed > pts("decision_maker_named")) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["partial_points"], message: "decision_maker_role_unconfirmed must not exceed the decision_maker_named points" });
+    }
   });
 export type ScoringConfig = z.infer<typeof ScoringConfigSchema>;
 
@@ -144,6 +165,11 @@ export const EvidenceConfigSchema = z
     personal_terms: keywordList,
     /** Decision maker = the named person whose title matches the earliest entry. */
     decision_maker_title_preferences: keywordList,
+    /**
+     * Local parts (before the @) of shared role inboxes: info@, office@, contact@. Such an address is
+     * never greeted by name and earns partial public-email points.
+     */
+    generic_inbox_prefixes: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9._-]+$/)).min(1),
   })
   .strict();
 export type EvidenceConfig = z.infer<typeof EvidenceConfigSchema>;

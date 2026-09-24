@@ -10,6 +10,7 @@ import {
   type Person,
   type ScoringConfig,
 } from "@clearpath/shared";
+import { keywordIn } from "../extract/verify";
 
 type Fit = { value: boolean | null; reason: string; qualifying_type: FirmType | null };
 type Keywords = EvidenceConfig["firm_type_keywords"];
@@ -17,7 +18,7 @@ type Keywords = EvidenceConfig["firm_type_keywords"];
 /**
  * Decision maker = the named person whose title matches the earliest entry in the docs/06
  * preference list. People with other titles rank next, people with no title last; ties keep the
- * page order.
+ * page order. role_confirmed is false unless the chosen person's title is on the list.
  */
 export function chooseDecisionMaker(people: Person[], preferences: string[]) {
   if (people.length === 0) return NOT_FOUND;
@@ -27,20 +28,21 @@ export function chooseDecisionMaker(people: Person[], preferences: string[]) {
     return i === -1 ? preferences.length : i;
   };
   const best = people.map((p, i) => ({ p, i, r: rank(p) })).sort((a, b) => a.r - b.r || a.i - b.i)[0]!.p;
-  return { value: { name: best.name, title: best.title }, evidence_url: best.evidence_url, evidence_quote: best.evidence_quote };
+  const role_confirmed = best.title !== null && preferences.some((pref) => containsPhrase(best.title!, pref));
+  return { value: { name: best.name, title: best.title, role_confirmed }, evidence_url: best.evidence_url, evidence_quote: best.evidence_quote };
 }
 
-/** Text of the verified services list and its quotes, for keyword checks. */
+/** Text of the verified services list (each item was found on a fetched page), for keyword checks. */
 function servicesText(services: ExtractedFacts["services"]): string {
   if (!isFound(services)) return "";
-  return [...services.value, ...services.evidence.map((e) => e.evidence_quote)].join(" \n ");
+  return services.value.join(" \n ");
 }
 
 /** Types whose keywords appear in the verified services. */
 export function typesShownInServices(services: ExtractedFacts["services"], keywords: Keywords): FirmType[] {
   const text = servicesText(services);
   if (!text) return [];
-  return (Object.keys(keywords) as (keyof Keywords)[]).filter((t) => keywords[t].some((k) => containsPhrase(text, k)));
+  return (Object.keys(keywords) as (keyof Keywords)[]).filter((t) => keywords[t].some((k) => keywordIn(text, k)));
 }
 
 /** Keeps only secondary types the verified services actually show; notes the rest. */

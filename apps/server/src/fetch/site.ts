@@ -1,4 +1,4 @@
-import type { PageKind } from "@clearpath/shared";
+import type { NameHint, PageKind } from "@clearpath/shared";
 import { cleanHtml, sha256, type PageDate, type PageLink } from "./clean";
 import { decodeBody, guardedFetch, type FetchOutcome, type GuardedFetchDeps } from "./guarded-fetch";
 import { checkUrl } from "./ip-guard";
@@ -21,6 +21,8 @@ export interface FetchedPage {
   hiddenText: string;
   /** Machine-readable dates in the markup (for the deterministic freshness check). */
   dates: PageDate[];
+  /** Firm-name candidates from the markup (JSON-LD Organization, og:site_name, title). */
+  nameHints: NameHint[];
   textSha256: string;
   /** Hash of the raw response body. */
   rawSha256: string;
@@ -57,6 +59,21 @@ export interface SiteFetchResult {
   failures: string[];
   links: LinkReport[];
   sitemap: SitemapResult | null;
+  /** Set when the site answered HTTP 403 or 429: no further requests to it this run. */
+  declined: DeclinedAccess | null;
+}
+
+/** HTTP 403/429 from the prospect site: it declined automated access. Never retried; the user agent is never changed. */
+export interface DeclinedAccess {
+  url: string;
+  status: number;
+}
+
+/** Statuses that mean "do not crawl me": stop requesting the host for the rest of the run. */
+export const DECLINED_STATUSES: ReadonlySet<number> = new Set([403, 429]);
+
+export function declinedMessage(d: DeclinedAccess): string {
+  return `declined_automated_access: ${d.url} answered HTTP ${d.status}; no further requests to this site in this run (not retried, user agent unchanged). Paste the site text to research this lead.`;
 }
 
 export interface CachedDocument {
@@ -135,10 +152,14 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
     maxBytes: deps.maxBytes,
   };
   const robots = new RobotsPolicy(base, limiter, deps.robotsStore);
+  let declined: DeclinedAccess | null = null;
+  const SKIPPED = "skipped: the site declined automated access earlier in this run";
   const fetchDeps: GuardedFetchDeps = {
     ...base,
     beforeRequest: async (url) => {
+      if (declined) return SKIPPED;
       const decision = await robots.check(url);
+      if (robots.declined) declined ??= robots.declined;
       if (!decision.allowed) return decision.reason ?? "disallowed by robots.txt";
       await limiter.acquire(url.hostname);
       return null;
@@ -154,9 +175,10 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
     homeUrl,
     domain,
     pages,
-    failures: [...new Set([...robots.failures, ...failures])],
+    failures: [...new Set([...robots.failures.filter((f) => !declined || !f.includes("declined automated access")), ...failures, ...(declined ? [declinedMessage(declined)] : [])])],
     links,
     sitemap,
+    declined,
   });
 
   let start: URL;
@@ -186,10 +208,14 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
       return { page, links: cached.links };
     }
 
+    if (declined) return { page: null, error: SKIPPED };
     const outcome = await guardedFetch(url, "html", fetchDeps);
     if (!outcome.ok) {
-      const message = describeFailure(label, outcome);
-      failures.push(message);
+      if (outcome.status !== null && DECLINED_STATUSES.has(outcome.status)) {
+        declined ??= { url: outcome.finalUrl, status: outcome.status };
+        return { page: null, error: `HTTP ${outcome.status} (declined automated access)` };
+      }
+      if (!declined) failures.push(describeFailure(label, outcome));
       return { page: null, error: outcome.reason };
     }
     const html = decodeBody(outcome.body, outcome.contentType);
@@ -209,6 +235,7 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
         text: cleaned.text,
         hiddenText: cleaned.hiddenText,
         dates: cleaned.dates,
+        nameHints: cleaned.nameHints,
         textSha256: cleaned.textSha256,
         rawSha256: sha256(outcome.body),
         bytes: outcome.body.length,
@@ -252,6 +279,7 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
           text: xml,
           hiddenText: "",
           dates: [],
+          nameHints: [],
           textSha256: sha256(xml),
           rawSha256: sha256(body),
           bytes: body.length,
@@ -262,6 +290,11 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
         [],
       );
     if (!outcome.ok) {
+      if (outcome.status !== null && DECLINED_STATUSES.has(outcome.status)) {
+        declined ??= { url: outcome.finalUrl, status: outcome.status };
+        return;
+      }
+      if (declined) return;
       // A missing sitemap is common and not a problem; remember it so reruns do not ask again.
       if (outcome.status === 404 || outcome.status === 410) remember(url, NO_SITEMAP, "", Buffer.alloc(0), false);
       else failures.push(describeFailure("sitemap", outcome));
@@ -273,6 +306,7 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
   }
 
   const home = await fetchPage(homeUrl, "home", "homepage");
+  if (robots.declined) declined ??= robots.declined;
   if (!home.page) return result(homeUrl, new URL(homeUrl).hostname.replace(/^www\./, ""));
   pages.push(home.page);
 
@@ -291,6 +325,6 @@ export async function fetchSite(input: string, deps: SiteFetchDeps): Promise<Sit
     if (pages.some((p) => p.url === fetched.page.url)) continue; // two links redirected to one page
     pages.push(fetched.page);
   }
-  await fetchSitemap(new URL(finalHome).origin);
+  if (!declined) await fetchSitemap(new URL(finalHome).origin);
   return result(finalHome, domain);
 }

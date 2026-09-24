@@ -96,23 +96,42 @@ describe("live regression: sites recorded from the real web (replayed offline)",
     commonChecks(r);
     expect(r.dossier.gate.status).toBe("needs_review");
     expect(r.dossier.exclusion_signals.map((s) => s.signal)).toContain("government_or_nonprofit_only");
-    // An audit firm fits the target industry (services show CPA keywords).
+    // An audit firm fits the target industry ("audits" in the verified services is a CPA keyword).
     expect(r.dossier.target_industry_fit.value).toBe(true);
   });
 
-  it("RBV Financial: qualifies only through tax preparation; no DMARC points; no family details", async () => {
+  it("Inner Circle (innercircle.cpa): qualified; the 403 on the team page stops the crawl and asks for pasted text", async () => {
+    const r = await replay("innercircle-cpa");
+    commonChecks(r);
+    expect(r.dossier.gate.status).toBe("qualified");
+    expect(r.dossier.declined_automated_access).toBe(true);
+    expect(r.dossier.failures.join("\n")).toMatch(/declined_automated_access: https:\/\/innercircle\.cpa\/meet-our-team\/ answered HTTP 403.*Paste the site text/);
+    // Nothing after the 403 was requested: only the pages fetched before it were opened.
+    expect(r.dossier.pages_opened).toEqual(["https://innercircle.cpa/", "https://innercircle.cpa/about-our-cpa-services/"]);
+    // Too few pages for the no-WISP search to count.
+    expect(r.score.breakdown.find((b) => b.key === "no_wisp_mention")!.points).toBe(0);
+    // firm_name from the og:site_name candidate; firm_type recovered by cutting the over-long verbatim quote.
+    expect(r.dossier.firm_name).toMatchObject({ value: "Inner Circle Advisors" });
+    expect(r.dossier.firm_type).toMatchObject({ value: { primary: "cpa" } });
+    // marketing@ is a generic inbox: partial points and a neutral greeting.
+    expect(r.dossier.public_email_kind).toBe("generic_inbox");
+    expect(r.score.breakdown.find((b) => b.key === "public_business_email")!.points).toBe(5);
+    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi,", genericInbox: true });
+  });
+
+  it("RBV Financial: qualifies only through tax preparation; no DMARC points; no family details; no secure-portal WISP hit", async () => {
     const r = await replay("rbvfinancial-com");
     commonChecks(r);
-    expect(["needs_review", "qualified"]).toContain(r.dossier.gate.status);
-    if (r.dossier.gate.status === "qualified") {
-      expect(r.dossier.target_industry_fit).toMatchObject({ value: true, qualifying_type: "tax_preparer" });
-    }
+    expect(r.dossier.gate.status).toBe("qualified");
+    expect(r.dossier.target_industry_fit).toMatchObject({ value: true, qualifying_type: "tax_preparer" });
     expect(isFound(r.dossier.firm_type) && r.dossier.firm_type.value.primary).toBe("credit_repair");
     expect(r.dossier.dns.no_domain_email).toMatchObject({ value: true });
     expect(r.score.breakdown.find((b) => b.key === "dmarc_missing_or_none")!.points).toBe(0);
     // The owner is named with a professional quote, never the family sentence.
     if (isFound(r.dossier.decision_maker)) expect(r.dossier.decision_maker.evidence_quote).not.toMatch(FAMILY);
-    // The public address is a shared gmail box, not tied to the owner: neutral greeting.
-    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi,", contactMismatch: true });
+    // The public address is a shared gmail box, not tied to a named person: neutral greeting, partial points.
+    expect(contactPlan(r.dossier)).toMatchObject({ greeting: "Hi," });
+    expect(r.dossier.public_email_kind).not.toBe("named_person");
+    expect(r.score.breakdown.find((b) => b.key === "public_business_email")!.points).toBe(5);
   });
 });

@@ -9,7 +9,8 @@
     "smoke": "tsx scripts/smoke.ts",
     "db:generate": "drizzle-kit generate",
     "typecheck": "tsc -p tsconfig.json",
-    "extract-live": "tsx scripts/extract-live.ts"
+    "extract-live": "tsx scripts/extract-live.ts",
+    "write-sequence": "tsx scripts/write-sequence.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

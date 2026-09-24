@@ -21,6 +21,9 @@ const KIND_PATTERNS: Record<CoreKind, { path: RegExp; text: RegExp }> = {
   security: { path: /security|safeguard|data-protection/i, text: /security|safeguard|data protection/i },
 };
 
+/** A single dated post: /2025/03/14/some-post (date archives such as /2025/03/ are skipped by pattern). */
+export const DATED_POST_PATH = /\/\d{4}\/\d{2}\/(?:\d{2}\/)?[^/]+\/?$/;
+
 /** Articles are not a firm's about/services/security pages, even when their titles use those words. */
 const ARTICLE_PATH = /\/(blog|news|articles?|posts?|insights|resources|press|events|updates)\//i;
 
@@ -38,6 +41,7 @@ export function siteKey(host: string): string {
 
 export function classifyPage(url: URL, linkText = ""): PageKind {
   if (url.pathname === "/" || url.pathname === "") return "home";
+  if (DATED_POST_PATH.test(url.pathname)) return "news";
   if (ARTICLE_PATH.test(url.pathname)) {
     // A single article (/blog/some-post), not an index (/blog/) or archive (skipped by pattern).
     const segments = url.pathname.split("/").filter(Boolean);

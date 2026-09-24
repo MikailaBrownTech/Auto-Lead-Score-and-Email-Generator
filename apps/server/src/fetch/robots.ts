@@ -33,7 +33,8 @@ export interface RobotsStore {
 /**
  * robots.txt per origin, fetched once per run through the same SSRF guard and rate limiter.
  *  - 2xx text: parsed; rules for our token (or *) apply.
- *  - 4xx: treated as "no robots.txt", everything allowed.
+ *  - 403 or 429: the site declines automated access; nothing more is requested this run (not cached).
+ *  - other 4xx: treated as "no robots.txt", everything allowed.
  *  - 5xx, network error, blocked, or too many redirects: the whole origin is disallowed for this run,
  *    and the reason is reported so it lands in the dossier's failures.
  *  - Crawl-delay over MAX_CRAWL_DELAY_S: the site is skipped for this run.
@@ -42,6 +43,8 @@ export class RobotsPolicy {
   private readonly cache = new Map<string, Promise<RobotsState>>();
   /** One message per origin that was unavailable, for the dossier failures list. */
   readonly failures: string[] = [];
+  /** Set when robots.txt itself answered 403 or 429: the site declines automated access (never cached). */
+  declined: { url: string; status: number } | null = null;
 
   constructor(
     private readonly fetchDeps: Omit<GuardedFetchDeps, "beforeRequest">,
@@ -65,6 +68,10 @@ export class RobotsPolicy {
   }
 
   private fromSnapshot(origin: string, snap: RobotsSnapshot): RobotsState {
+    if (snap.status === 403 || snap.status === 429) {
+      this.declined ??= { url: `${origin}/robots.txt`, status: snap.status };
+      return this.unavailable(origin, `HTTP ${snap.status}: the site declined automated access`);
+    }
     if (snap.status >= 400) return { kind: "missing" };
     const robotsUrl = `${origin}/robots.txt`;
     const robots = robotsParser(robotsUrl, snap.body);
@@ -91,6 +98,10 @@ export class RobotsPolicy {
       },
     });
     if (!outcome.ok) return this.unavailable(origin, outcome.reason);
+    if (outcome.status === 403 || outcome.status === 429) {
+      this.declined ??= { url: outcome.finalUrl, status: outcome.status };
+      return this.unavailable(origin, `HTTP ${outcome.status}: the site declined automated access`);
+    }
     if (outcome.status >= 500) return this.unavailable(origin, `HTTP ${outcome.status}`);
     if (outcome.status >= 200 && outcome.status < 500 && !(outcome.status >= 300 && outcome.status < 400)) {
       const body = outcome.status < 300 && outcome.body.length > 0 ? decodeBody(outcome.body, outcome.contentType) : "";

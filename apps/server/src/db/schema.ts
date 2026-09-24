@@ -67,6 +67,8 @@ export const pages = sqliteTable(
     hiddenText: text("hidden_text").notNull(),
     linksJson: text("links_json").notNull(),
     datesJson: text("dates_json").notNull().default("[]"),
+    /** Firm-name candidates from the page markup (JSON-LD, og:site_name, title). */
+    nameHintsJson: text("name_hints_json").notNull().default("[]"),
     textSha256: text("text_sha256").notNull(),
     rawSha256: text("raw_sha256").notNull(),
     bytes: integer("bytes").notNull(),
@@ -112,3 +114,28 @@ export const extractions = sqliteTable(
 
 export type RunRow = typeof runs.$inferSelect;
 export type NewRunRow = typeof runs.$inferInsert;
+
+export const SEQUENCE_STATUSES = ["blocked", "passed", "approved"] as const;
+export type SequenceStatus = (typeof SEQUENCE_STATUSES)[number];
+
+/**
+ * Generated sequences. status is "passed" only when the code validators and (for Tier A/B) the judge
+ * both passed; approval is refused otherwise. One row per generation; the newest row is current.
+ */
+export const sequences = sqliteTable(
+  "sequences",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    leadId: text("lead_id").notNull(),
+    tier: text("tier", { enum: ["A", "B", "C"] }).notNull(),
+    status: text("status", { enum: SEQUENCE_STATUSES }).notNull(),
+    sequenceJson: text("sequence_json").notNull(),
+    /** Code validator result (issues list). */
+    validationJson: text("validation_json").notNull(),
+    /** Judge verdict, or null when the judge does not run (Tier C templates). */
+    judgeJson: text("judge_json"),
+    approvedAt: text("approved_at"),
+    createdAt: text("created_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (t) => [index("sequences_lead_id_idx").on(t.leadId)],
+);

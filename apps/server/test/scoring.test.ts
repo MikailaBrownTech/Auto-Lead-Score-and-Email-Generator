@@ -224,7 +224,7 @@ describe("scoreDossier (docs/06)", () => {
     });
 
     it("sensitive data: keyword match on services, not inside other words", () => {
-      const svc = (...s: string[]) => strong({ services: { value: s, evidence: [{ evidence_url: HOME, evidence_quote: "x" }] } });
+      const svc = (...s: string[]) => strong({ services: { value: s, evidence: s.map((item) => ({ item, evidence_url: HOME })) } });
       expect(points("sensitive_data_services", svc("Payroll processing"))).toBe(10);
       expect(points("sensitive_data_services", svc("Credit counseling"))).toBe(10);
       expect(points("sensitive_data_services", svc("Syntax consulting", "Web design"))).toBe(0);

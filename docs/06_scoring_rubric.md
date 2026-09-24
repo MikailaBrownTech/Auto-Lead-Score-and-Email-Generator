@@ -7,7 +7,7 @@ FIT (computed first)
 - Target industry fit: computed by code from firm type and services with the firm_type_keywords lists. The model never decides scope.
 - US location: computed by code from the verified location.
 - Size signal within the staff range (stated or countable on a team page). No size signal scores 0.
-- Decision maker named publicly: the code picks from the named people using decision_maker_title_preferences.
+- Decision maker named publicly: the code picks from the named people using decision_maker_title_preferences. Full points only when the title is on that list; otherwise partial_points.decision_maker_role_unconfirmed and a role_unconfirmed flag.
 
 GATES (no sequence is written for a gated lead until the founder approves it)
 - out_of_icp: staff_count above max_staff_for_sequence, or target industry fit is false.
@@ -21,8 +21,8 @@ SIGNALS (count only when the fit gates pass; an out_of_icp lead gets 0 signal po
 - Doc exchange language without a mention of a secure portal
 
 REACHABILITY
-- Public business email found
-- Site appears maintained: machine-readable dates only (<time datetime>, article:published_time, JSON-LD datePublished/dateModified, sitemap lastmod) within the last N months. Copyright years, "founded" dates, and policy-page "last updated" dates never count.
+- Public business email found: full points when the address is tied to a named person (the same quote names them, or the address is built from their name); partial_points.public_business_email_generic for a generic inbox (generic_inbox_prefixes: info@, office@, contact@ ...) or an address not tied to anyone. A generic inbox is never greeted by name.
+- Site appears maintained: machine-readable dates only (<time datetime>, article:published_time, JSON-LD datePublished/dateModified, sitemap lastmod) within the last N months. A /YYYY/MM/DD/ date in a page or sitemap URL path (url_date) is lower confidence and used only when none of those exist. Copyright years, "founded" dates, and policy-page "last updated" dates never count.
 - Phone or contact form present
 
 TIERS: A (write full custom), B (custom email 1 and 2, template the rest), C (template only, or skip). Cutoffs are in the block. If the fit points are below fit_threshold, the tier is capped at C.
@@ -180,7 +180,11 @@ RULE: score only from fields with evidence. NOT_FOUND earns zero points and neve
     "protecting your information"
   ],
   "wisp_search_min_text_chars": 200,
-  "wisp_min_pages": 3
+  "wisp_min_pages": 3,
+  "partial_points": {
+    "public_business_email_generic": 5,
+    "decision_maker_role_unconfirmed": 5
+  }
 }
 ```
 
@@ -189,6 +193,7 @@ RULE: score only from fields with evidence. NOT_FOUND earns zero points and neve
 - firm_type_keywords: a firm_type quote must contain a keyword for the primary type. The same lists find secondary types in the verified services, and decide target industry fit.
 - personal_terms: an evidence quote containing any of these (family and personal details) is rejected and a professional quote is requested instead. Quotes are never passed to the writer.
 - decision_maker_title_preferences: the decision maker is the named person whose title matches the earliest entry.
+- generic_inbox_prefixes: local parts (before the @) of shared role inboxes.
 
 ```json clearpath:evidence
 {
@@ -295,6 +300,45 @@ RULE: score only from fields with evidence. NOT_FOUND earns zero points and neve
     "office manager",
     "coo",
     "partner"
+  ],
+  "generic_inbox_prefixes": [
+    "info",
+    "office",
+    "contact",
+    "contactus",
+    "admin",
+    "hello",
+    "mail",
+    "email",
+    "marketing",
+    "sales",
+    "support",
+    "help",
+    "team",
+    "staff",
+    "frontdesk",
+    "front.desk",
+    "reception",
+    "inquiries",
+    "inquiry",
+    "enquiries",
+    "general",
+    "service",
+    "services",
+    "clients",
+    "billing",
+    "accounts",
+    "accounting",
+    "bookkeeping",
+    "tax",
+    "taxes",
+    "payroll",
+    "hr",
+    "careers",
+    "jobs",
+    "noreply",
+    "no-reply",
+    "webmaster"
   ]
 }
 ```
