@@ -19,20 +19,30 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - [x] Report-4 fixes (essentialacctg, metaxparma, mapaccountinggroup): exit codes, list cap 25 without
       rejection, firm_type code fallback, true-only model booleans, needs_direct_contact for any lead
       without a person-tied email + per-lead override, url-date filter, staff-only size_signal,
-      email_security_hint, incomplete_data; 3 sites recorded as fixtures (7 total). AWAITING FOUNDER REVIEW.
-      Do not start the UI.
+      email_security_hint, incomplete_data; 3 sites recorded as fixtures (7 total).
 - [x] M5 UI (local only): Import (URLs or paste, live job status, cancel), Leads table, Lead detail,
       Sequences editor (live validators, judge on demand, rewrite one email, approve gating), Export
       (blocked messages, suppression check, CSV copy/download), minimal Settings + suppression list,
       spend meter on every page.
-- [x] Bug fix "Write sequence produces nothing" (see below). AWAITING FOUNDER REVIEW.
+- [x] Bug fix "Write sequence produces nothing" (commit 524e9bf; see Known issues 1).
+- [ ] UI polish: CSS problems reported by the founder (Known issues 2). NEXT.
 - [ ] M6 Results + settings, M7 Hardening
 
-Tests: 491 passing in 30 files (vitest, incl. component tests, an offline end-to-end API test, and a
-UI end-to-end test: import -> click Write -> sequence or visible reason). Typecheck clean (strict).
-Month to date about $0.71 of $5.
+## Current state (2026-09-24)
+- Last commit before this update: 524e9bf. Working tree clean. Tests: 491 passing in 30 files (vitest:
+  unit, component, offline end-to-end API, UI end-to-end import -> Write -> sequence or visible reason).
+  Typecheck clean (strict). Web build clean. Month to date about $0.71 of the $5 cap.
+- The app runs locally with `npm run app` (API 127.0.0.1:8787 + UI 127.0.0.1:5173). All five M5
+  screens plus a Sequences list work against the real API; verified in jsdom and by API calls through
+  the Vite proxy, not yet by the founder in a real browser after the bug fix.
+- Leads in data/clearpath.db: 7 live leads (4 qualified tier B needing a direct contact, rbvfinancial
+  qualified tier B, peasebell and cehcpas out_of_icp) plus 1 outdated lead (clearpathsecure; import again).
+  Sequences: innercircle (id 6, passed content, approval blocked by needs_direct_contact) and
+  rbvfinancial (id 7, blocked: subject_case validator error, editable in the UI).
+- Nothing exports yet: opt_out_line and physical_address are empty, checklist_ready is false, and no
+  sequence is approved.
 
-## Bug: "Write sequence" produced nothing (fixed)
+## Bug: "Write sequence" produced nothing (fixed in 524e9bf; details)
 - Root cause: the write route and UI click work (reproduced with fixtures and one real write), but
   results were hidden: for gated leads (out_of_icp/needs_review) LeadDetail.tsx disabled the button with
   no reason next to it; server refusals showed only as a small inline span; and generate.ts discarded a
@@ -133,25 +143,46 @@ Month to date about $0.71 of $5.
 - Page cache and robots.txt answers reused for PAGE_CACHE_DAYS (7). Crawl-delay > 10s skips a site.
 
 ## Known open issues
-0a. Doc-exchange "portal" detection should read link destination domains against a known portal-vendor
+1. Sequence not generating from the UI ("Write sequence" did nothing). FIXED in 524e9bf, pending the
+   founder's check in a real browser. Cause and fix: see the Bug section above. What to watch for: any
+   click that ends without a sequence must now show a reason next to the button (gate, spend cap,
+   budget, settings, API error, job failure) or a red banner for a failed request. If a click still
+   shows nothing, check the lead's Log section (write_attempt events) and the runs table.
+2. CSS problems in the UI, reported by the founder. Specifics not yet captured (need a screenshot or a
+   description of which screen, window width, and what looks wrong). Suspects from a code review, NOT
+   yet confirmed visually:
+   a. .app-header has no flex-wrap: title + five nav links + spend meter (min-width 240px) crowd or
+      overflow on narrow windows.
+   b. Wide tables (Leads: 9 columns; facts, score breakdown) have no overflow-x wrapper, so the page can
+      scroll sideways; long URLs and failure lines do not wrap.
+   c. Classes used in the JSX with no CSS rule: app, checklist, gate, leads, legend, reason-form, reasons
+      (e.g. the reason form and "why Approve is disabled" list are unstyled).
+   d. styles.css grew in three appended blocks (M0, M5, banners): duplicated selectors (main, label,
+      error colors) and order-dependent overrides; no dark-mode or small-screen rules.
+   e. The sticky Sequence toolbar (z-index 1, white background) may cover the approve reasons or banners
+      when scrolling.
+   Fix plan: reproduce each screen at 1280px and ~900px widths, consolidate styles.css into one ordered
+   sheet, add header wrapping and table scroll containers, style the unstyled classes, then add a quick
+   visual check (screenshots) before calling it done.
+3. Doc-exchange "portal" detection should read link destination domains against a known portal-vendor
     list (e.g. links to sharefile, smartvault, taxdome hosts), not only page words. Not fixed yet.
-0b. firm_type can change between runs for the same site (essentialacctg: cpa, then bookkeeper). Stabilize
+4. firm_type can change between runs for the same site (essentialacctg: cpa, then bookkeeper). Stabilize
     it later (e.g. keep the previous verified type unless new evidence contradicts it). Not fixed yet.
-0c. Jobs live in memory: restarting the API forgets job status (leads and sequences are in SQLite).
-0d. Paste mode (and the lead page's paste form) replaces the lead's facts with the pasted text only.
-0e. Leads saved by much older versions show as "outdated_research"; import them again.
-0f. The end-to-end test drives the real API in-process and renders every screen in jsdom; there is no
+5. Jobs live in memory: restarting the API forgets job status (leads and sequences are in SQLite).
+6. Paste mode (and the lead page's paste form) replaces the lead's facts with the pasted text only.
+7. Leads saved by much older versions show as "outdated_research"; import them again.
+8. The end-to-end test drives the real API in-process and renders every screen in jsdom; there is no
     real-browser (Playwright) test.
-1. innercircle live (after round 1): first pass invalid (6-word subject B; an insurer-flavored sentence),
+9. innercircle live (after round 1): first pass invalid (6-word subject B; an insurer-flavored sentence),
    the one rewrite passed validators and judge. Subject length is the most common first-pass miss.
-2. sender_title "Founder", company_name "ClearPath IT", company_website https://www.clearpathsecure.com
-   were filled from docs/01 text and the CTA domain; founder to confirm.
-3. RBV qualifies via the tax_preparer keyword "tax filing"; confirm that keyword belongs in docs/06.
-4. innercircle.cpa answers 403 on /meet-our-team/; each new run requests it once more (per-run rule).
-5. Gated leads still get a score and tier; UI must show the gate first.
-6. Playwright fallback not built; JS-only pages are recorded as failures.
-7. Node 22.14 pins undici 7 and jsdom 29 (newer majors need Node 22.19+/22.22+).
-8. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
+10. sender_title "Founder", company_name "ClearPath IT", company_website https://www.clearpathsecure.com
+    were filled from docs/01 text and the CTA domain; founder to confirm.
+11. RBV qualifies via the tax_preparer keyword "tax filing"; confirm that keyword belongs in docs/06.
+12. innercircle.cpa answers 403 on /meet-our-team/; each new run requests it once more (per-run rule).
+13. Gated leads still get a score and tier; UI must show the gate first.
+14. Playwright fallback not built; JS-only pages are recorded as failures.
+15. Node 22.14 pins undici 7 and jsdom 29 (newer majors need Node 22.19+/22.22+).
+16. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
 
 ## How to run (from repo root)
 - The app: `npm run app` -> open http://127.0.0.1:5173 (API on 127.0.0.1:8787; Ctrl+C stops both).
@@ -198,12 +229,24 @@ Month to date about $0.71 of $5.
   jobs, lead/sequence views, export + suppression list
 - apps/server/src/write/edit.ts - save/check edits, judge on demand, rewrite one email, sequence state
 - apps/server/src/pipeline/stored-dossier.ts - reads saved dossiers (defaults for newer fields)
-- apps/web/src/ - App (hash routes), api.ts, pages/ (Import, Leads, LeadDetail, Sequence, Export,
-  Settings), components/ (SpendMeter, ReasonForm, CacheWarnings)
+- apps/web/src/ - App (hash routes), api.ts, pages/ (Import, Leads, LeadDetail, Sequence + Sequences list, Export,
+  Settings), components/ (SpendMeter, ReasonForm, CacheWarnings, ErrorBanner), styles.css (see Known issues 2)
 - scripts/dev.mjs - `npm run app` (starts API + UI)
 
-## Next
-Founder review of M5 in the running app. Then M6 (results + settings) and M7 (hardening).
+## Next steps
+1. Founder: refresh the running app and click "Write sequence" on a qualified lead (e.g. rbvfinancial,
+   metaxparma) and on a gated one (peasebell): expect a sequence page or a visible reason. Report
+   anything that still shows nothing.
+2. Founder: send the CSS problems (screen, window width, screenshot); then fix Known issues 2
+   (consolidate styles.css, header wrap, table scroll, unstyled classes) and verify visually.
+3. Founder: fill opt_out_line and physical_address in Settings; confirm sender_title, company_name,
+   company_website; turn on checklist_ready once the checklist exists.
+4. Resolve direct contacts for the 4 needs_direct_contact leads (paste owner name/email, or override
+   with a reason), run the judge, approve, and do a first real export.
+5. Decisions still open: "tax filing" keyword (Known issues 11), portal link-domain detection (Known issues 3),
+   firm_type stability across runs (Known issues 4).
+6. M6 Results + settings, then M7 Hardening (persist job status across restarts, a real-browser test,
+   Playwright fallback for JS-only sites).
 
 ## Never break
 - Every fact: evidence (url + verbatim quote <= 15 words, value inside its quote) or NOT_FOUND; enforced
