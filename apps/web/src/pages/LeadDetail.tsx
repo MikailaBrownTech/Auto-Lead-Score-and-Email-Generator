@@ -158,6 +158,29 @@ function PasteForm(props: { leadId: string; onDone: () => void }) {
   );
 }
 
+/**
+ * Plain-language summary at the top of the page, composed by code (no model call) from fields
+ * already computed. One short line per topic; a topic is left out when there was nothing to say.
+ */
+function Briefing(props: { briefing: LeadDetail["briefing"] }) {
+  if (props.briefing.lines.length === 0) return null;
+  return (
+    <section className="card briefing">
+      <div className="card-head">
+        <h2>Briefing</h2>
+      </div>
+      <ul className="briefing-lines">
+        {props.briefing.lines.map((l, i) => (
+          <li key={i} className={`briefing-${l.topic}`}>
+            {l.text}
+          </li>
+        ))}
+      </ul>
+      <p className="small muted">{props.briefing.note}</p>
+    </section>
+  );
+}
+
 /** Contact: a warning only (never a blocker), optional public sources, paste mode, optional override. */
 function ContactCard(props: { lead: LeadDetail; onChange: (l: LeadDetail) => void; reload: () => void }) {
   const { lead } = props;
@@ -322,6 +345,7 @@ export function LeadDetailPage(props: { id: string }) {
         </NoticeBanner>
       )}
       <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
+      <Briefing briefing={lead.briefing} />
 
       <div className="lead-grid">
         <div className="lead-main">

@@ -754,6 +754,32 @@ table.kv td {
   }
 }
 
+/* ---------- Briefing (plain-language summary, code-composed) ---------- */
+.card.briefing {
+  background: var(--surface-sunken);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.briefing-lines {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+
+.briefing-lines li {
+  padding-left: var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.briefing .muted {
+  margin-top: var(--space-3);
+  margin-bottom: 0;
+}
+
 /* ---------- Checklist ---------- */
 .checklist {
   list-style: none;

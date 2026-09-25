@@ -55,6 +55,15 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       by lead) are removed only when no other lead's dossier still uses that domain; runs (the cost
       ledger) and extractions (also a shared, hash-keyed cache) are left alone on purpose. CLI fallback:
       `npm run delete-lead -- <lead_id> [...] [--yes]` (dry-run without --yes).
+- [x] Lead detail Briefing (2026-09-25): a plain-language summary card above the raw sections, code-
+      composed (no model call) from the dossier and the already-computed score. One line per topic
+      (fit, contact, services, DMARC/MX security posture, WISP mention, site freshness, access notes),
+      each skipped rather than filled with a guess when its field is NOT_FOUND or the criterion never
+      scored. Reuses score.breakdown (by key: size_in_range, sensitive_data_services, no_wisp_mention,
+      site_maintained) so it never duplicates the scoring rules' own logic. All wording lives in
+      config/briefing.json (apps/server/src/pipeline/briefing.ts loads and fills it); tunable without a
+      code change. 16 new tests (one fixture per branch, plus an end-to-end case against the real
+      scoring config).
 - [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
 
 ## Current state (2026-09-24, after the full-writer revert)

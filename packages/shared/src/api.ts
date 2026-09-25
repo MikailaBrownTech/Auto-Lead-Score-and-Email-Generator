@@ -49,6 +49,17 @@ export interface LeadEventView {
   createdAt: string;
 }
 
+export interface BriefingLineView {
+  topic: "fit" | "contact" | "services" | "security" | "wisp" | "freshness" | "access";
+  text: string;
+}
+
+/** Plain-language summary at the top of the lead page, composed by code from fields already computed. */
+export interface BriefingView {
+  lines: BriefingLineView[];
+  note: string;
+}
+
 export interface LeadDetail {
   id: string;
   source: "web" | "pasted";
@@ -79,6 +90,7 @@ export interface LeadDetail {
   notWrittenReason: string | null;
   /** The newest write attempt that did not end in a clean sequence (not written, error, needs fixes), if newer than the sequence. */
   lastWriteAttempt: { at: string; detail: string } | null;
+  briefing: BriefingView;
 }
 
 export interface ValidationIssueView {

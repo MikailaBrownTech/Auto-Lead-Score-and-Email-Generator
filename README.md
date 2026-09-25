@@ -26,9 +26,14 @@ Screens:
 - **Leads**: firm, type, place, score, tier, status, flags, sequence, cost. Sort and filter. Select rows
   to delete them in bulk (a confirm step; removes the dossier, sequence, and log, plus any cached page
   tied only to that lead). Lead detail has its own Delete lead button.
-- **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
-  NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
-  DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
+- **Lead detail**: a plain-language "Briefing" at the top (fit, contact, services, DMARC/MX security
+  posture, WISP mention, site freshness, access notes) — one short line per topic, code-composed with
+  no model call from fields already computed; a topic is left out rather than shown with a filler
+  sentence when its field is NOT_FOUND or wasn't scored. Wording lives in config/briefing.json, editable
+  without a code change. Below it, unchanged: the scorecard (score, tier, one bar per criterion under
+  Fit, Signals, Reachability; NOT_FOUND criteria show a gray "unknown" bar), every fact with its source
+  and quote (or NOT_FOUND), DNS findings, pages fetched vs failed, the contact card, and "Internal
+  notes: never used in emails".
 - **Sequences are written by the model, every tier**: all five emails, in the voice of the example
   sequences in docs/03 (which include the app's old fixed copy as one more style example), from the
   lead's verified values only. It never states what a law or rule requires: it marks the spot in email 2

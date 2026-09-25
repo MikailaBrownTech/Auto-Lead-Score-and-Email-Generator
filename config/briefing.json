@@ -1,0 +1,31 @@
+{
+  "footer_note": "Generated from public web pages and DNS records only. Not used in any email sent to the prospect.",
+  "firm_type_labels": {
+    "cpa": "CPA firm",
+    "tax_preparer": "tax preparation firm",
+    "bookkeeper": "bookkeeping firm",
+    "payroll": "payroll firm",
+    "credit_counseling": "credit counseling firm",
+    "collections": "collections firm",
+    "credit_repair": "credit repair firm",
+    "other": "firm"
+  },
+  "fit_in_range": "{{firm}} is a {{staff_count}}-person {{firm_type}} in {{city}}, which fits your target size.",
+  "fit_out_of_range": "This firm is larger than your target range ({{staff_count}} staff).",
+  "contact_no_email": "No public email was found for this firm at all.",
+  "contact_generic_inbox": "No named contact found; only a general inbox ({{email}}) is public.",
+  "contact_named_with_title": "{{name}} ({{title}}) is listed as {{role_status}}, reachable at {{email}}.",
+  "contact_named_no_title": "{{name}} is listed as {{role_status}}, reachable at {{email}}.",
+  "role_status_confirmed": "the decision maker",
+  "role_status_unconfirmed": "a likely contact (their role isn't confirmed)",
+  "services_summary": "They offer {{count}} services, including {{examples}}, so they likely handle sensitive client data.",
+  "security_no_mail": "This domain has no mail servers set up, so email authentication (DMARC) doesn't apply.",
+  "security_no_dmarc": "Their domain has no DMARC record, so email spoofing protection isn't set up.",
+  "security_dmarc_monitoring": "They have a DMARC record, but it's set to monitoring only, not enforced.",
+  "security_dmarc_enforced": "Their domain has DMARC enforcement in place.",
+  "wisp_none_found": "No mention of a written security plan found anywhere on their site (checked {{pages}} pages).",
+  "freshness_known": "Their site was last updated around {{date}}.",
+  "freshness_unknown": "Couldn't confirm when their site was last updated.",
+  "access_declined": "Their site blocked automated access; some fields may be incomplete.",
+  "access_incomplete": "This lead needs more info before it can be marked ready; consider paste mode."
+}

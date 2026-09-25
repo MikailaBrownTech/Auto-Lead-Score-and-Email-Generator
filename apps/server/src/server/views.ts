@@ -4,6 +4,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads, runs, sequences } from "../db/schema";
 import { DOCS_DIR, loadScoring } from "../docs/loader";
+import { buildBriefing, loadBriefingConfig } from "../pipeline/briefing";
 import { contactWarning, lacksNamedContact, leadOverride, namedContactChecklist, publicAddress } from "../scoring/direct-contact";
 import { scoreDossier } from "../scoring/score";
 import { ALL_EMAIL_NUMBERS, firstNameFor, notWrittenReason, type WriteDeps } from "../write/generate";
@@ -102,6 +103,7 @@ export function leadDetail(s: Services, id: string): LeadDetail {
   const dossier = readStoredDossier(l.dossierJson);
   const docsDir = s.docsDir ?? DOCS_DIR;
   const score = scoreDossier(dossier, loadScoring(docsDir), (s.now ?? (() => new Date()))());
+  const briefing = buildBriefing(dossier, score, loadBriefingConfig());
   const override = leadOverride(s.db, id);
   const seq = latestSequences(s.db).get(id);
   const hint = dossier.email_security_hint;
@@ -142,6 +144,7 @@ export function leadDetail(s: Services, id: string): LeadDetail {
     sequenceStatus: seq?.status ?? null,
     notWrittenReason: dossier.gate.status !== "qualified" && !l.gateApproved ? notWrittenReason(dossier.gate) : null,
     lastWriteAttempt: lastAttempt(s.db, id, seq?.createdAt ?? null),
+    briefing,
   };
 }
 
