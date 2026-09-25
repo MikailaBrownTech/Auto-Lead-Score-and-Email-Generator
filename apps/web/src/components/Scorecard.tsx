@@ -18,8 +18,9 @@ export function Scorecard(props: { lead: Pick<LeadDetail, "score" | "tier" | "ti
   return (
     <section className="card scorecard" aria-label="Scorecard">
       <div className="score-head">
-        <div>
-          <div className="score-number">{lead.score}</div>
+        {/* The one .card-glass hero element on this page: everywhere else is .card (card-dark). */}
+        <div className="card-glass score-glass">
+          <div className="score-number stat-num">{lead.score}</div>
           <div className="score-of">of {max} points</div>
         </div>
         <div className="tier-block">
@@ -43,7 +44,7 @@ export function Scorecard(props: { lead: Pick<LeadDetail, "score" | "tier" | "ti
             </h3>
             <ul className="criteria">
               {items.map((b) => (
-                <li key={b.key} className={`criterion${b.dataMissing ? " unknown" : ""}`} title={b.reason}>
+                <li key={b.key} className={`criterion${b.dataMissing ? " unknown" : b.points === 0 ? " zero" : " earned"}`} title={b.reason}>
                   <span className="label">{b.label}</span>
                   <span className="pts">{b.dataMissing ? "unknown" : `${b.points} / ${b.max}`}</span>
                   <span

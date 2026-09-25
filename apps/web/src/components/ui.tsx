@@ -128,7 +128,7 @@ export function Icon(props: { name: IconName; className?: string }) {
   );
 }
 
-export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
+export type Tone = "neutral" | "info" | "success" | "warning" | "danger" | "approved";
 
 /** A badge always shows its meaning in words; the tone only supports it. */
 export function Badge(props: { tone?: Tone; icon?: IconName; title?: string; mono?: boolean; children: ReactNode }) {
@@ -155,7 +155,8 @@ const STATUS_TONE: Record<string, Tone> = {
   extracted: "success",
   qualified: "success",
   passed: "success",
-  approved: "success",
+  // The one place --lime appears in this app: Approved status, and nothing else.
+  approved: "approved",
   no_named_contact: "warning",
   needs_review: "warning",
   budget_exceeded: "warning",

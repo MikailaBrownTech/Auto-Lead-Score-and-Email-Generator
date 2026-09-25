@@ -36,23 +36,37 @@
 }
 
 .btn.primary {
-  background: var(--accent);
+  background: var(--accent-solid);
   color: var(--on-accent);
+  position: relative;
+  overflow: hidden;
+  transition:
+    background-color 0.12s,
+    transform 0.12s,
+    box-shadow 0.12s;
 }
 
+/* Same background on hover (brightening it drops white-text contrast under AA); lift + glow instead. */
 .btn.primary:hover:not(:disabled) {
   background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 102, 255, 0.4);
 }
 
 .btn.secondary {
-  background: var(--surface);
-  border-color: var(--border-strong);
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.2);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.12s,
+    color 0.12s,
+    box-shadow 0.12s;
 }
 
 .btn.secondary:hover:not(:disabled) {
-  background: var(--surface-hover);
+  border-color: var(--electric);
+  color: var(--accent);
+  box-shadow: var(--glow-sm);
 }
 
 .btn.ghost {
@@ -66,12 +80,18 @@
 }
 
 .btn.danger {
-  background: var(--danger);
+  background: var(--danger-solid);
   color: var(--on-danger);
+  transition:
+    background-color 0.12s,
+    transform 0.12s,
+    box-shadow 0.12s;
 }
 
 .btn.danger:hover:not(:disabled) {
-  background: var(--danger-hover);
+  background: var(--danger-solid-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(192, 57, 43, 0.4);
 }
 
 .btn.sm {
@@ -242,21 +262,26 @@ textarea.mono,
   box-shadow: var(--shadow-sm);
 }
 
-/* ---------- Badges (text always carries the meaning; color only supports it) ---------- */
+/*
+ * Badges use the brand's .tag pill: a tinted background, a matching border at higher opacity, and
+ * text in the same color (never color alone - the word is always there too). Status badges (tier,
+ * gate status) and the tier chip below both use this.
+ */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   height: 20px;
-  padding: 0 7px;
+  padding: 0 9px;
   border-radius: 999px;
   font-size: var(--fs-xs);
-  font-weight: 550;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   line-height: 1;
   white-space: nowrap;
   background: var(--neutral-bg);
   color: var(--muted);
-  border: 1px solid transparent;
+  border: 1px solid var(--glass-border);
 }
 
 .badge .icon {
@@ -266,22 +291,33 @@ textarea.mono,
 
 .badge.info {
   background: var(--accent-bg);
+  border-color: rgba(0, 102, 255, 0.3);
   color: var(--accent);
 }
 
 .badge.success {
   background: var(--success-bg);
+  border-color: rgba(76, 195, 138, 0.3);
   color: var(--success);
 }
 
 .badge.warning {
   background: var(--warning-bg);
+  border-color: rgba(255, 170, 0, 0.3);
   color: var(--warning);
 }
 
 .badge.danger {
   background: var(--danger-bg);
+  border-color: rgba(192, 57, 43, 0.35);
   color: var(--danger);
+}
+
+/* The one place --lime appears: Approved status, and nothing else. */
+.badge.approved {
+  background: var(--approved-bg);
+  border-color: rgba(200, 255, 0, 0.3);
+  color: var(--approved);
 }
 
 .badge.outline {
@@ -308,10 +344,12 @@ textarea.mono,
   width: 24px;
   height: 22px;
   border-radius: var(--radius);
+  font-family: var(--font-heading);
   font-size: var(--fs-sm);
   font-weight: 700;
   background: var(--neutral-bg);
   color: var(--muted);
+  border: 1px solid var(--glass-border);
 }
 
 .tier.lg {
@@ -323,20 +361,27 @@ textarea.mono,
 
 .tier-A {
   background: var(--success-bg);
+  border-color: rgba(76, 195, 138, 0.3);
   color: var(--success);
 }
 
 .tier-B {
   background: var(--accent-bg);
+  border-color: rgba(0, 102, 255, 0.3);
   color: var(--accent);
 }
 
 .tier-C {
   background: var(--neutral-bg);
+  border-color: var(--glass-border);
   color: var(--muted);
 }
 
-/* ---------- Cards ---------- */
+/*
+ * Cards default to the brand's "card-dark" (solid, bordered): a table full of cards is where a
+ * blurred "card-glass" backdrop-blur treatment gets expensive and hard to read, so that's reserved
+ * for one hero element per page instead (.card-glass below; used once, for the score number).
+ */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -344,11 +389,35 @@ textarea.mono,
   box-shadow: var(--shadow-sm);
   padding: var(--space-4);
   min-width: 0;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .card.flush {
   padding: 0;
   overflow: hidden;
+}
+
+/* Reserved for one hero element per page (the score number card). Not used on dense lists or tables. */
+.card-glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
+}
+
+.card-glass::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 102, 255, 0.5), transparent);
 }
 
 .card-head {

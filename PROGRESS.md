@@ -64,6 +64,38 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       config/briefing.json (apps/server/src/pipeline/briefing.ts loads and fills it); tunable without a
       code change. 16 new tests (one fixture per branch, plus an end-to-end case against the real
       scoring config).
+- [x] ClearPath brand theme (2026-09-25, founder-supplied exact CSS from the marketing site): dark
+      only, no light-mode toggle. tokens.css rewritten to the exact brand values (--black #080B14,
+      --navy, --electric #0066FF, --electric-bright, --cyan, --lime, --white, --off-white, --card-bg,
+      --card-border, --glass, ...); the app's existing semantic tokens (--bg, --surface, --accent,
+      --success, --warning, --danger, ...) now resolve through them, so components.css/pages.css/
+      layout.css did not need a rewrite. Plus Jakarta Sans (headings) + DM Sans (body) via Google Fonts
+      in index.html. .card is the brand's "card-dark" (solid, bordered, hover lift) everywhere;
+      .card-glass (blurred, glowing) is used exactly once per page, the lead score number, styled with
+      .stat-num (gradient white-to-cyan text). --lime is used for exactly one meaning, Approved status
+      (a new "approved" Tone/STATUS_TONE entry, ui.tsx), never as a general accent or button color.
+      .badge/.tier restyled as the brand's .tag pill (tinted bg + matching border). The score
+      breakdown criteria list and the validator PASS/FIX log both got the brand's check-item/warn-item
+      icon language (a small colored box: check for points earned, "?" for NOT_FOUND/unknown, amber
+      warn-icon-style box for validator warnings, red for errors) while keeping this app's own bar
+      meter and text messages, which the brand's plain rows don't have. Buttons: .btn.primary =
+      .btn-primary (electric blue), .btn.secondary = .btn-outline (transparent, bordered), new
+      .btn.danger variant (red, same treatment as primary). Background grid kept at very low opacity
+      (0.025 alpha) as the only texture; no glow orbs, no float/pulse animation anywhere in the app
+      (right for a marketing page, wrong for a screen someone stares at for an hour).
+      Accessibility (WCAG AA, checked by computed contrast ratio, not eyeballed): --muted #8895B3
+      needed no change (5.9-6.6:1 on the app's dark backgrounds). Two deviations from the exact source
+      values, both solid button backgrounds carrying white text, documented in tokens.css's header
+      comment: --accent-solid #0060F0 (not the exact --electric #0066FF, which measures 4.39:1 with
+      white text, or --electric-bright, 3.17:1) for .btn.primary's background, hover kept at the same
+      color (brightening it drops back under 4.5:1) with lift + glow instead; --danger-solid #C0392B
+      (white text 4.94:1) for .btn.danger's background rather than a source-brightness red like #E5484D
+      (~3.5:1). --danger itself (text/icon/border, never a button fill) is a brighter #F07167 (6.1-
+      6.8:1), since #C0392B as text only measures 3.3-3.6:1.
+      `npm run screenshots`, reviewed at 1280px, 900px, and (now identical, since dark is the only
+      theme) the "dark" variant; iterated twice (an initial round of AA fixes before ever screenshotting,
+      then a visual pass that added a glow to the score-glass card for more hero presence, confirmed by
+      re-screenshotting and cropping it for a close look). No horizontal scroll on any screen.
 - [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
 
 ## Current state (2026-09-24, after the full-writer revert)

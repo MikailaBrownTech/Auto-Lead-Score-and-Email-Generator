@@ -27,22 +27,23 @@ h3,
 h4 {
   margin: 0;
   color: var(--text);
-  line-height: 1.3;
+  font-family: var(--font-heading);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
 /* Page title */
 h1,
 .page-title {
   font-size: var(--fs-xl);
-  font-weight: 650;
-  letter-spacing: -0.01em;
+  font-weight: 700;
 }
 
 /* Section heading */
 h2,
 .section-title {
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 h3 {
@@ -170,4 +171,23 @@ ul.plain {
 
 ul.plain > li + li {
   margin-top: var(--space-1);
+}
+
+/* Scrollbar (WebKit/Blink; Firefox falls back to its own default, still readable on dark). */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--navy);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--electric);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--electric-bright);
 }

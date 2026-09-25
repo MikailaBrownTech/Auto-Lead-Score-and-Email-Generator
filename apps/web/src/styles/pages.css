@@ -148,12 +148,28 @@ dl.notes dd {
   gap: var(--space-3);
 }
 
+/* The page's one hero glass card: the score number, echoing the brand's own stat counters. */
+.score-glass {
+  padding: var(--space-3) var(--space-4);
+  box-shadow: 0 0 32px rgba(0, 102, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
 .score-number {
   font-size: var(--fs-score);
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
+}
+
+/* Large gradient number (brand's .stat-num): white to cyan, text-clipped. Used once, for this score. */
+.stat-num {
+  font-family: var(--font-heading);
+  background: linear-gradient(135deg, var(--white), var(--cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .score-of {
@@ -210,11 +226,56 @@ dl.notes dd {
   gap: var(--space-3);
 }
 
+/*
+ * The brand's check-item/warn-item pattern, adapted: a small colored icon box ahead of the label
+ * (checkmark = points earned, "?" = unknown/NOT_FOUND in the brand's warning amber, "-" = a real
+ * zero on known evidence, muted). The bar meter underneath is this app's own addition, kept because
+ * it shows partial credit the brand's plain check/warn rows don't need to.
+ */
 .criterion {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 3px var(--space-2);
+  padding-left: 24px;
   font-size: var(--fs-sm);
+}
+
+.criterion::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.criterion.earned::before {
+  content: "\2713";
+  background: var(--success-bg);
+  border: 1px solid rgba(76, 195, 138, 0.3);
+  color: var(--success);
+}
+
+.criterion.unknown::before {
+  content: "?";
+  background: var(--warning-bg);
+  border: 1px solid rgba(255, 170, 0, 0.3);
+  color: var(--warning);
+}
+
+.criterion.zero::before {
+  content: "\2013";
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  color: var(--muted);
 }
 
 .criterion .label {
@@ -423,6 +484,7 @@ mark.personal {
   gap: 6px;
 }
 
+/* The validator log: the brand's warn-item icon box (a small tinted, bordered square) around the icon already here. */
 .issue {
   display: flex;
   align-items: flex-start;
@@ -433,7 +495,13 @@ mark.personal {
 }
 
 .issue .icon {
-  margin-top: 2px;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  padding: 2px;
+  border-radius: 4px;
+  border: 1px solid transparent;
 }
 
 .issue.error {
@@ -441,9 +509,19 @@ mark.personal {
   color: var(--danger);
 }
 
+.issue.error .icon {
+  background: rgba(192, 57, 43, 0.15);
+  border-color: rgba(192, 57, 43, 0.3);
+}
+
 .issue.warning {
   background: var(--warning-bg);
   color: var(--warning);
+}
+
+.issue.warning .icon {
+  background: var(--warning-bg);
+  border-color: rgba(255, 170, 0, 0.3);
 }
 
 .issue .issue-text {

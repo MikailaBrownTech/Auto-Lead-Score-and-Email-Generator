@@ -1,47 +1,96 @@
 /*
- * Design tokens. Every color pair used for text was checked against WCAG AA (4.5:1 for body text,
- * 3:1 for bars and borders that carry meaning) on bg, surface, and its own tint, in both themes.
- * Success is #1b7a44 (not #1f8a4c): the lighter green measured 4.38:1 on white and failed AA.
+ * ClearPath brand theme (from the live marketing site). Dark only, no light-mode toggle: the brand
+ * variables below are the exact source values. The semantic tokens (--bg, --surface, --accent, ...)
+ * map onto them so the rest of the app's CSS, written against those names, did not need a rewrite.
+ *
+ * Contrast, checked against WCAG AA (4.5:1 body text, 3:1 for non-text UI) on every background it
+ * actually sits on. The brand's exact colors are all present as --black/--navy/--electric/etc.; the
+ * only deviations are two solid button backgrounds that carry white text, where the exact brand blue
+ * and a brand-brightness red both fall short of 4.5:1:
+ *  - --muted #8895B3 needed no change: 6.6:1 on --black, 5.9:1 on --card-bg, 6.1:1 on --navy. Used
+ *    exactly as given, for body and data-table text.
+ *  - White on the source --electric (#0066FF) measures 4.39:1 (fails); white on --electric-bright
+ *    (the source's own hover color, #2D87FF) measures 3.17:1 (fails worse). --accent-solid (#0060F0,
+ *    a hair darker than --electric) measures 4.86:1 and is what .btn.primary's background uses
+ *    instead; hover keeps that same background (no brighten) and relies on lift + glow only, since any
+ *    brighten toward the brand blues drops back under 4.5:1 with white text. --electric-bright itself
+ *    is still used exactly as given for TEXT/border/icon color (links, focus rings, info tags, active
+ *    nav): 5.6:1 on black, 5.1:1 on card-bg, well clear of AA there.
+ *  - A brand-brightness red (e.g. #E5484D) only reaches ~3.5:1 with white text. --danger-solid
+ *    (#C0392B, 4.94:1) is used for .btn.danger's background instead. --danger itself (for text, icons,
+ *    borders - never a button fill) is a brighter red, #F07167 (6.1-6.8:1), since #C0392B as TEXT only
+ *    measures 3.3-3.6:1 and would fail everywhere else it's used (banners, badges, status text).
+ *  - --lime is reserved for exactly one meaning (Approved status: see .badge.approved) and is never
+ *    used as a button or a general accent, per the brand direction for this app.
  */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  --bg: #f7f8fa;
-  --surface: #ffffff;
-  --surface-sunken: #f1f3f6;
-  --surface-hover: #f4f6f9;
-  --border: #e3e6eb;
-  --border-strong: #cdd2da;
-  --text: #1a1f29;
-  --muted: #5b6472;
+  /* ---- Exact brand values ---- */
+  --black: #080b14;
+  --navy: #0d1525;
+  --electric: #0066ff;
+  --electric-bright: #2d87ff;
+  --cyan: #00d4ff;
+  --lime: #c8ff00;
+  --white: #f0f4ff;
+  --off-white: #e2e8f8;
+  --muted: #8895b3;
+  --card-bg: #111827;
+  --card-border: rgba(0, 102, 255, 0.2);
+  --glass: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.08);
 
-  --accent: #2f5fd0;
-  --accent-hover: #284fb0;
-  --accent-bg: #eaf0fc;
-  --on-accent: #ffffff;
+  /* AA-safe button-background blues (see file header); not source values. */
+  --accent-solid: #0060f0;
+  --danger-solid: #c0392b;
+  --danger-solid-hover: #a53124;
 
-  --success: #1b7a44;
-  --success-bg: #e6f4ec;
-  --warning: #92590a;
-  --warning-bg: #fcf1de;
-  --danger: #c0392b;
-  --danger-hover: #a53124;
-  --danger-bg: #fbe9e7;
-  --on-danger: #ffffff;
-  --neutral-bg: #eef0f3;
+  /* ---- Semantic tokens the rest of the app's CSS is written against ---- */
+  --bg: var(--black);
+  --surface: var(--card-bg);
+  --surface-sunken: var(--navy);
+  --surface-hover: color-mix(in srgb, var(--card-bg) 88%, white);
+  --border: var(--card-border);
+  --border-strong: rgba(0, 102, 255, 0.4);
+  --text: var(--white);
+  /* --muted stays the exact brand value: already AA-safe, see header. */
+
+  --accent: var(--electric-bright);
+  --accent-hover: var(--accent-solid);
+  --accent-bg: rgba(0, 102, 255, 0.15);
+  --on-accent: var(--white);
+
+  --success: #4cc38a;
+  --success-bg: rgba(76, 195, 138, 0.15);
+  --warning: #ffaa00;
+  --warning-bg: rgba(255, 170, 0, 0.15);
+  /* Text/icon/border red (AA on dark backgrounds: 6.1-6.8:1). Solid button backgrounds use
+     --danger-solid instead (see file header) - white text on this value only measures 3.3-3.6:1. */
+  --danger: #f07167;
+  --danger-hover: var(--danger-solid-hover);
+  --danger-bg: rgba(192, 57, 43, 0.18);
+  --on-danger: var(--white);
+  --neutral-bg: var(--glass);
+
+  /* Approved status: the one place --lime is used. */
+  --approved: var(--lime);
+  --approved-bg: rgba(200, 255, 0, 0.1);
+  --on-approved: var(--black);
 
   /* Score bars: "unknown" (NOT_FOUND) is gray, never a red zero. */
-  --bar-track: #eceef2;
+  --bar-track: rgba(255, 255, 255, 0.08);
   --bar-fill: var(--accent);
-  --bar-unknown: #8a93a1;
+  --bar-unknown: var(--muted);
 
-  /* Code-inserted approved sentences (subtle). */
-  --highlight: #fff3c4;
-  --highlight-border: #e9cf6a;
+  /* Code-inserted approved sentences (subtle amber, matches the brand's own warning tone). */
+  --highlight: rgba(255, 170, 0, 0.18);
+  --highlight-border: rgba(255, 170, 0, 0.45);
 
   --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow-md: 0 1px 3px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --glow-sm: 0 0 20px rgba(0, 102, 255, 0.15);
 
   /* Spacing scale: 4 / 8 / 12 / 16 / 24 / 32. */
   --space-1: 4px;
@@ -52,9 +101,10 @@
   --space-6: 32px;
 
   --radius: 6px;
-  --radius-lg: 8px;
+  --radius-lg: 12px;
 
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-heading: "Plus Jakarta Sans", var(--font-sans);
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   --fs-xs: 12px;
@@ -68,43 +118,4 @@
   --sidebar-w: 208px;
   --topbar-h: 52px;
   --content-max: 1160px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-
-    --bg: #0f1218;
-    --surface: #171b23;
-    --surface-sunken: #12161d;
-    --surface-hover: #1d222c;
-    --border: #2a303b;
-    --border-strong: #3a4250;
-    --text: #e8ebf0;
-    --muted: #9aa4b2;
-
-    --accent: #6b93f5;
-    --accent-hover: #86a7f7;
-    --accent-bg: #1b2542;
-    --on-accent: #0b1020;
-
-    --success: #4cc38a;
-    --success-bg: #12291e;
-    --warning: #e0a84a;
-    --warning-bg: #2d2413;
-    --danger: #f07167;
-    --danger-hover: #f38b83;
-    --danger-bg: #331b1b;
-    --on-danger: #1a0b0b;
-    --neutral-bg: #222834;
-
-    --bar-track: #252b36;
-    --bar-unknown: #6b7482;
-
-    --highlight: #3a3313;
-    --highlight-border: #7a6720;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
 }
