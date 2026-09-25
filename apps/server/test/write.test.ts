@@ -1,6 +1,6 @@
 import { FIRM_TYPES, type Dossier, type FirmType, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openDb, type Db } from "../src/db/client";
 import { leads, runs, sequences } from "../src/db/schema";
 import { parseTemplates } from "../src/docs/templates";
@@ -327,6 +327,36 @@ describe("approval, edits, judge, rewrite one email", () => {
     saveLead("L2", generic());
     const t = await generateSequence("L2", generic(), "C", c);
     await expect(rewriteOne(db, t.sequenceId!, 1, c)).rejects.toThrow(/Tier C/);
+  });
+
+  it("rewrite email 1: accepted when the model returns only that one email (not all five)", async () => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db);
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const { deps: rewriteDeps } = testWriteDeps(
+      db,
+      scripted((m) => {
+        const one = writerAnswerFor(m).emails[0]!;
+        one.body = "A fresh open: quick question about the written plan at your firm. Worth a look?";
+        return { emails: [one] };
+      }),
+    );
+    const r = await rewriteOne(db, g.sequenceId!, 1, rewriteDeps);
+    expect(r.sequence.emails[0]!.body).toMatch(/^A fresh open/);
+    expect(r.sequence.emails[0]!.subject_a).toBeTruthy();
+    expect(r.sequence.emails[0]!.subject_b).toBeTruthy();
+  });
+
+  it("rewrite: an unusable answer logs the raw response and gives a plain error", async () => {
+    saveLead("L1", generic());
+    const { deps } = testWriteDeps(db);
+    const g = await generateSequence("L1", generic(), "B", deps);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { deps: badDeps } = testWriteDeps(db, scripted(() => ({ emails: [{ n: 3, subject_a: null, subject_b: null, body: "not email 1" }] })));
+    await expect(rewriteOne(db, g.sequenceId!, 1, badDeps)).rejects.toThrow(/wrong shape/);
+    expect(spy).toHaveBeenCalled();
+    expect(String(spy.mock.calls[0]![0])).toMatch(/rewriteOne/);
+    spy.mockRestore();
   });
 });
 

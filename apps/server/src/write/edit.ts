@@ -185,14 +185,27 @@ export async function rewriteOne(db: Db, sequenceId: number, n: number, deps: Wr
   let raw: unknown;
   try {
     raw = toolInput(message);
-  } catch {
+  } catch (err) {
+    console.error(`rewriteOne(${sequenceId}, email ${n}): ${err instanceof Error ? err.message : String(err)}`, JSON.stringify(message.content));
     throw new SequenceError("The model did not answer in the expected format. Nothing was changed; try again.");
   }
   const parsed = RewriteOutput.safeParse(raw);
   const w = parsed.success ? parsed.data.emails.find((e) => e.n === n) : undefined;
-  if (!w) throw new SequenceError(`The rewrite of email ${n} came back in the wrong shape. Nothing was changed; try again.`);
+  if (!w) {
+    console.error(
+      `rewriteOne(${sequenceId}, email ${n}): ${parsed.success ? "no email numbered " + n + " in the answer" : parsed.error.message}`,
+      JSON.stringify(raw),
+    );
+    throw new SequenceError(`The rewrite of email ${n} came back in the wrong shape. Nothing was changed; try again.`);
+  }
   const { email } = buildEmail(w, input, deps.style.send_days[n - 1]!, true);
-  const seq = SequenceSchema.parse({ ...ctx.sequence, emails: ctx.sequence.emails.map((e) => (e.n === n ? email : e)) });
+  let seq: Sequence;
+  try {
+    seq = SequenceSchema.parse({ ...ctx.sequence, emails: ctx.sequence.emails.map((e) => (e.n === n ? email : e)) });
+  } catch (err) {
+    console.error(`rewriteOne(${sequenceId}, email ${n}): built email failed the sequence schema: ${err instanceof Error ? err.message : String(err)}`, JSON.stringify(w));
+    throw new SequenceError(`The rewrite of email ${n} came back in the wrong shape. Nothing was changed; try again.`);
+  }
   const state = sequenceState(ctx, seq, null, deps);
   store(db, sequenceId, seq, state, null);
   return { ...state, sequence: seq };
