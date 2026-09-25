@@ -1,4 +1,4 @@
-import { FIRM_TYPES, type Dossier, type FirmType, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
+import { FIRM_TYPES, WRITER_TOOL_NAME, type Dossier, type FirmType, type OfferConfig, type Sequence, type SequenceEmail } from "@clearpath/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { openDb, type Db } from "../src/db/client";
@@ -10,10 +10,10 @@ import { checkEdits, rewriteOne, runJudge, saveEdits } from "../src/write/edit";
 import { approveSequence, exportBlockers, generateSequence } from "../src/write/generate";
 import { firmShort, renderSettings, renderSignature } from "../src/write/merge";
 import { examplesFor, loadExampleSequences, writerMessage } from "../src/write/prompt";
-import { buildEmail, writerInput } from "../src/write/writer";
+import { buildEmail, toolInput, writerInput } from "../src/write/writer";
 import { ev, strongDossier } from "./fixtures/dossiers";
 import { userText } from "./fixtures/fakeapi";
-import { approved, evidence, offer, personas, READY_OFFER, scripted, style, templates, testWriteDeps, writerAnswerFor } from "./fixtures/write-deps";
+import { approved, evidence, offer, personas, READY_OFFER, scripted, style, templates, testWriteDeps, toolMessage, writerAnswerFor } from "./fixtures/write-deps";
 
 let db: Db;
 beforeEach(() => {
@@ -345,6 +345,14 @@ describe("approval, edits, judge, rewrite one email", () => {
     expect(r.sequence.emails[0]!.body).toMatch(/^A fresh open/);
     expect(r.sequence.emails[0]!.subject_a).toBeTruthy();
     expect(r.sequence.emails[0]!.subject_b).toBeTruthy();
+  });
+
+  it("toolInput: unwraps a double-nested { emails: { emails: [...] } } answer (a model quirk seen on rewrites)", () => {
+    const good = writerAnswerFor("");
+    const doubled = toolMessage(WRITER_TOOL_NAME, { emails: good }, 1);
+    expect(toolInput(doubled)).toEqual(good);
+    const flat = toolMessage(WRITER_TOOL_NAME, good, 2);
+    expect(toolInput(flat)).toEqual(good);
   });
 
   it("rewrite: an unusable answer logs the raw response and gives a plain error", async () => {

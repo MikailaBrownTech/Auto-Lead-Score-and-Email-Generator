@@ -80,10 +80,25 @@ function unstringify(input: unknown): unknown {
   );
 }
 
+/**
+ * On a rewrite, the model occasionally echoes the shape of the `<your_draft>` block it was shown
+ * ({ emails: [...] }) as the value of its own "emails" key, doubly nesting the array: { emails: {
+ * emails: [...] } }. Unwrap one level when that's what happened.
+ */
+function unwrapDoubleNesting(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const obj = input as Record<string, unknown>;
+  const inner = obj.emails;
+  if (inner && typeof inner === "object" && !Array.isArray(inner) && Array.isArray((inner as Record<string, unknown>).emails)) {
+    return inner;
+  }
+  return input;
+}
+
 export function toolInput(message: Anthropic.Message): unknown {
   const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === WRITER_TOOL_NAME);
   if (!block) throw new Error(`the model did not call ${WRITER_TOOL_NAME} (stop_reason: ${message.stop_reason})`);
-  return unstringify(block.input);
+  return unwrapDoubleNesting(unstringify(block.input));
 }
 
 const GREETING_RE = /^(hi|hello|dear)\b[^\n]*,\s*$/i;
