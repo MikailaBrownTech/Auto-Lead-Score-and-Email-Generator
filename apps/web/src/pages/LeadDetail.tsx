@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { JobView, LeadDetail, SequenceView } from "@clearpath/shared";
+import type { DeleteLeadsView, JobView, LeadDetail, SequenceView } from "@clearpath/shared";
 import { api, useApi, usd } from "../api";
 import { ErrorBanner, NoticeBanner } from "../components/ErrorBanner";
 import { ReasonForm } from "../components/ReasonForm";
@@ -260,6 +260,20 @@ export function LeadDetailPage(props: { id: string }) {
     }
   }
 
+  async function deleteThisLead() {
+    const firm = d.firm_name !== "NOT_FOUND" ? d.firm_name.value : lead!.id;
+    if (!window.confirm(`Delete ${firm}? This removes its research, sequence, and log for good. This cannot be undone.`)) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await api<DeleteLeadsView>(`/leads/${encodeURIComponent(lead!.id)}`, { method: "DELETE" });
+      navigate("leads");
+    } catch (err) {
+      setActionError((err as Error).message);
+      setBusy(false);
+    }
+  }
+
   const gated = d.gate.status !== "qualified";
   return (
     <section className="stack">
@@ -293,6 +307,10 @@ export function LeadDetailPage(props: { id: string }) {
           <button type="button" className="btn primary" onClick={writeSequence} disabled={busy || !!lead.notWrittenReason}>
             <Icon name="pen" />
             {busy ? "Writing… (about 10-30 seconds)" : lead.sequenceId ? "Write the sequence again" : "Write sequence"}
+          </button>
+          <button type="button" className="btn danger" onClick={deleteThisLead} disabled={busy} title="Deletes this lead's research, sequence, and log for good">
+            <Icon name="trash" />
+            Delete lead
           </button>
         </div>
       </div>

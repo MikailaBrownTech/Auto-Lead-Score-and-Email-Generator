@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import type { LeadRow } from "@clearpath/shared";
-import { useApi, usd } from "../api";
+import type { DeleteLeadsView, LeadRow } from "@clearpath/shared";
+import { api, useApi, usd } from "../api";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { Badge, EmptyState, Icon, Skeleton, StatusBadge, TierChip, type Tone } from "../components/ui";
 import { href } from "../router";
@@ -35,6 +35,9 @@ export function LeadsPage() {
   const [tier, setTier] = useState("all");
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "score", desc: true });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const statuses = useMemo(() => [...new Set((data ?? []).map((l) => l.status))].sort(), [data]);
 
   const rows = useMemo(() => {
@@ -47,6 +50,45 @@ export function LeadsPage() {
       return sort.desc ? -c : c;
     });
   }, [data, tier, status, sort]);
+
+  function toggle(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const rowIds = rows.map((l) => l.id);
+  const allSelected = rowIds.length > 0 && rowIds.every((id) => selected.has(id));
+  function toggleAll() {
+    setSelected((s) => {
+      if (allSelected) {
+        const next = new Set(s);
+        for (const id of rowIds) next.delete(id);
+        return next;
+      }
+      return new Set([...s, ...rowIds]);
+    });
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    const names = rows.filter((l) => selected.has(l.id)).map((l) => l.firm ?? l.id);
+    if (!window.confirm(`Delete ${ids.length} lead${ids.length === 1 ? "" : "s"}?\n\n${names.join("\n")}\n\nThis removes their research, sequences, and logs for good. This cannot be undone.`)) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api<DeleteLeadsView>("/leads/bulk-delete", { method: "POST", body: { ids } });
+      setSelected(new Set());
+      reload();
+    } catch (err) {
+      setDeleteError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   const header = (key: SortKey, label: string, num = false) => (
     <th className={num ? "num" : undefined} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : "none"}>
@@ -65,6 +107,12 @@ export function LeadsPage() {
           <p className="sub">Researched firms, their score and tier, and anything that needs your attention.</p>
         </div>
         <div className="row">
+          {selected.size > 0 && (
+            <button type="button" className="btn danger" onClick={deleteSelected} disabled={deleting}>
+              <Icon name="trash" />
+              {deleting ? "Deleting…" : `Delete selected (${selected.size})`}
+            </button>
+          )}
           <button type="button" className="btn secondary" onClick={reload}>
             <Icon name="refresh" />
             Refresh
@@ -75,6 +123,7 @@ export function LeadsPage() {
           </a>
         </div>
       </div>
+      <ErrorBanner message={deleteError} onDismiss={() => setDeleteError(null)} />
       <div className="filters">
         <label className="inline-field">
           Tier
@@ -131,6 +180,9 @@ export function LeadsPage() {
           <table className="data leads">
             <thead>
               <tr>
+                <th className="checkbox-col">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all leads" />
+                </th>
                 {header("firm", "Firm")}
                 <th>Type</th>
                 <th>Location</th>
@@ -145,6 +197,9 @@ export function LeadsPage() {
             <tbody>
               {rows.map((l) => (
                 <tr key={l.id}>
+                  <td className="checkbox-col">
+                    <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l.id)} aria-label={`Select ${l.firm ?? l.id}`} />
+                  </td>
                   <td className="primary-cell">
                     <a href={href("leads", l.id)}>{l.firm ?? l.id}</a>
                     {l.source === "pasted" && (

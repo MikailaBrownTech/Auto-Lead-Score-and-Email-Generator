@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import type { CacheHealth, ExportView, JobView, OfferSettingsView, SpendView } from "@clearpath/shared";
+import type { CacheHealth, DeleteLeadsView, ExportView, JobView, OfferSettingsView, SpendView } from "@clearpath/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, leads } from "../db/schema";
@@ -7,6 +7,7 @@ import { BlockError } from "../docs/blocks";
 import { DOCS_DIR, loadOffer, saveBlock } from "../docs/loader";
 import { loadTemplates } from "../docs/templates";
 import { cacheHealth } from "../llm/cache-health";
+import { deleteLead, deleteLeads, LeadNotFoundError } from "../pipeline/delete-lead";
 import { OutdatedDossierError } from "../pipeline/stored-dossier";
 import type { SpendGate } from "../llm/spend-gate";
 import { leadOverride, MIN_OVERRIDE_REASON, overrideDirectContact } from "../scoring/direct-contact";
@@ -79,7 +80,7 @@ export function createApp(deps: AppDeps) {
   // Plain one-line errors only; never a stack trace.
   app.onError((err, c) => {
     if (err instanceof UserError) return c.json({ error: err.message }, err.status);
-    if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
+    if (err instanceof NotFoundError || err instanceof LeadNotFoundError) return c.json({ error: err.message }, 404);
     if (err instanceof OutdatedDossierError) return c.json({ error: err.message }, 409);
     if (err instanceof JobInputError || err instanceof SequenceError || err instanceof BlockError) return c.json({ error: plainError(err) }, 400);
     if (err instanceof ApprovalBlockedError) return c.json({ error: err.message }, 409);
@@ -190,6 +191,22 @@ export function createApp(deps: AppDeps) {
     }
     if (g.status === "no_sequence" || !g.sequenceId || !g.sequence) throw new UserError(g.reason, 409);
     return c.json(sequenceView(db, g.sequenceId, wd));
+  });
+
+  /** Deletes one lead: its dossier (part of the lead row), sequences, and event log; cached pages too, if no other lead still uses that domain. */
+  app.delete("/api/leads/:id", (c) => {
+    const id = c.req.param("id");
+    const result = deleteLead(db, id);
+    return c.json({ deleted: [id], pagesDeleted: result.pagesDeleted } satisfies DeleteLeadsView);
+  });
+
+  /** Bulk delete from the Leads table. Ids that are already gone are skipped, not an error. */
+  app.post("/api/leads/bulk-delete", async (c) => {
+    const b = await body<{ ids?: unknown }>(c);
+    const ids = Array.isArray(b.ids) ? b.ids.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
+    if (ids.length === 0) throw new UserError("No leads were selected.");
+    const result = deleteLeads(db, ids);
+    return c.json(result satisfies DeleteLeadsView);
   });
 
   // ---- sequences ----

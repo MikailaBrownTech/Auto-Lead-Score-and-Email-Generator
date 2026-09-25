@@ -23,7 +23,9 @@ about 900px wide (the sidebar becomes an icon rail).
 Screens:
 - **Import**: up to 5 website addresses, or paste text (a lead label + pasted text as the only source).
   Live status while it runs; Cancel stops before the next step.
-- **Leads**: firm, type, place, score, tier, status, flags, sequence, cost. Sort and filter.
+- **Leads**: firm, type, place, score, tier, status, flags, sequence, cost. Sort and filter. Select rows
+  to delete them in bulk (a confirm step; removes the dossier, sequence, and log, plus any cached page
+  tied only to that lead). Lead detail has its own Delete lead button.
 - **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
   NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
   DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
@@ -62,6 +64,8 @@ Other commands (from the repo root):
   `-- --dry-run` shows the writer's input without calling the API) into
   apps/server/test/fixtures/generations/, with a readable .md per lead for a tone check. Re-record after
   editing prompts/write.md or the docs/03 examples.
+- `npm run delete-lead -- <lead_id> [<lead_id> ...] [--yes]` deletes leads from the command line (a
+  CLI fallback for the UI's delete buttons). Without `--yes` it only reports what would be deleted.
 
 ---
 

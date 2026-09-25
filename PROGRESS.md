@@ -49,6 +49,12 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       templateSequence() stay only for the signature block and for hand-editing sequences written before
       this change (they may still carry template: true emails). tier_gating validator and
       modelEmailsFor() removed; rewriteOne no longer blocks by tier.
+- [x] Delete a lead (2026-09-25): Lead detail has a Delete lead button, and the Leads table supports
+      row selection with a bulk Delete selected button; both confirm first (window.confirm). Removes
+      the lead row (its dossier), sequences, and event log. Cached pages (pages table, keyed by URL, not
+      by lead) are removed only when no other lead's dossier still uses that domain; runs (the cost
+      ledger) and extractions (also a shared, hash-keyed cache) are left alone on purpose. CLI fallback:
+      `npm run delete-lead -- <lead_id> [...] [--yes]` (dry-run without --yes).
 - [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
 
 ## Current state (2026-09-24, after the full-writer revert)

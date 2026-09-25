@@ -12,7 +12,8 @@
     "extract-live": "tsx scripts/extract-live.ts",
     "write-sequence": "tsx scripts/write-sequence.ts",
     "screenshots": "tsx scripts/screenshots.ts",
-    "record-sequences": "tsx scripts/record-sequences.ts"
+    "record-sequences": "tsx scripts/record-sequences.ts",
+    "delete-lead": "tsx scripts/delete-lead.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

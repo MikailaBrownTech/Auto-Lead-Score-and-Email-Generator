@@ -476,6 +476,11 @@ table.data .primary-cell a:hover {
   color: var(--accent);
 }
 
+table.data .checkbox-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
 /* Label / value tables (facts, DNS): no hover, fixed label column. */
 table.kv {
   width: 100%;

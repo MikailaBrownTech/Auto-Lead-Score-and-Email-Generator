@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { ExportView, SequenceView } from "@clearpath/shared";
+import type { ExportView, LeadRow, SequenceView } from "@clearpath/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MIN_REASON, ReasonForm } from "./components/ReasonForm";
 import { ExportPanel } from "./pages/Export";
+import { LeadsPage } from "./pages/Leads";
 import { approvalState, SequenceEditor } from "./pages/Sequence";
 
 const APPROVED = "The FTC Safeguards Rule applies to non-bank financial institutions.";
@@ -139,6 +140,62 @@ describe("export blocking", () => {
     fireEvent.click(screen.getByRole("button", { name: "Drafts (2)" }));
     expect(onMode).toHaveBeenCalledWith("drafts");
     expect(screen.getByText(/No Email CPA: no public email; add before sending/)).toBeTruthy();
+  });
+});
+
+describe("Leads table: select rows, bulk delete", () => {
+  function leadRow(id: string, firm: string): LeadRow {
+    return { id, source: "web", firm, type: "cpa", city: "Columbus", state: "OH", score: 70, tier: "B", gate: "qualified", status: "extracted", flags: { generic_inbox: false, unattributed_inbox: false, no_public_email: false, incomplete_data: false, declined_automated_access: false }, costUsd: 0.03, sequenceStatus: null, updatedAt: "2026-09-24T00:00:00.000Z" };
+  }
+
+  it("selecting rows shows a Delete selected button; confirming calls bulk-delete and clears the selection", async () => {
+    const rows = [leadRow("lead-a", "A Firm"), leadRow("lead-b", "B Firm")];
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        calls.push({ url, body });
+        const json = url.endsWith("/leads/bulk-delete") ? { deleted: (body as { ids: string[] }).ids, pagesDeleted: 0 } : rows;
+        return new Response(JSON.stringify(json), { status: 200, headers: { "content-type": "application/json" } });
+      }),
+    );
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<LeadsPage />);
+    await waitFor(() => expect(screen.getByText("A Firm")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Delete selected/ })).toBeNull();
+
+    fireEvent.click(screen.getByLabelText("Select A Firm"));
+    const deleteButton = await screen.findByRole("button", { name: "Delete selected (1)" });
+    fireEvent.click(deleteButton);
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith("/leads/bulk-delete"))).toBe(true));
+    const bulkCall = calls.find((c) => c.url.endsWith("/leads/bulk-delete"))!;
+    expect(bulkCall.body).toEqual({ ids: ["lead-a"] });
+    expect(confirmSpy).toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Delete selected/ })).toBeNull());
+
+    confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("declining the confirm makes no request", async () => {
+    const rows = [leadRow("lead-a", "A Firm")];
+    const fetchFn = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(rows), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchFn);
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(<LeadsPage />);
+    await waitFor(() => expect(screen.getByText("A Firm")).toBeTruthy());
+    fireEvent.click(screen.getByLabelText("Select A Firm"));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete selected (1)" }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(fetchFn.mock.calls.every(([url]) => !String(url).includes("bulk-delete"))).toBe(true);
+
+    confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 });
 

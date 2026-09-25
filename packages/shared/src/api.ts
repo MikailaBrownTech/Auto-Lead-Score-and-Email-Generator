@@ -188,6 +188,13 @@ export interface SpendView {
   avgPerLeadUsd: number;
 }
 
+/** Response of DELETE /api/leads/:id and POST /api/leads/bulk-delete. */
+export interface DeleteLeadsView {
+  deleted: string[];
+  /** Cached pages removed with it (only pages tied to no other lead's domain). */
+  pagesDeleted: number;
+}
+
 /** Every error from the API: one plain sentence. */
 export interface ApiError {
   error: string;
