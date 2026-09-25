@@ -7,20 +7,17 @@ import { ExportPanel } from "./pages/Export";
 import { approvalState, SequenceEditor } from "./pages/Sequence";
 
 const APPROVED = "The FTC Safeguards Rule applies to non-bank financial institutions.";
-const LINE = "Smith Tax handles Tax Preparation, which means holding a lot of sensitive client financial data.";
-
 function view(over: Partial<SequenceView> = {}): SequenceView {
-  const email = (n: number, template: boolean) => ({
+  const email = (n: number) => ({
     n,
     send_day: [0, 3, 7, 12, 18][n - 1]!,
     subject_a: n === 1 ? "security plan question" : null,
     subject_b: n === 1 ? "client data question" : null,
-    body: n === 1 ? `Quick question for whoever looks after IT at Smith Tax:\n\n${LINE}\n\n${APPROVED} Is a written plan on file?` : `Email ${n}. Does that help?`,
+    body: n === 1 ? "Quick question for whoever looks after IT at Smith Tax: is a written plan on file?" : n === 2 ? `Following up.\n\n${APPROVED}\n\nDoes that help?` : `Email ${n}. Does that help?`,
     grounding: [],
-    template,
-    ...(n === 1 ? { personal_line: { text: LINE, source: "model" as const } } : {}),
+    template: false,
   });
-  const emails = [email(1, true), email(2, true), email(3, true), email(4, true), email(5, true)];
+  const emails = [1, 2, 3, 4, 5].map(email);
   return {
     id: 7,
     leadId: "lead-smith",
@@ -35,13 +32,13 @@ function view(over: Partial<SequenceView> = {}): SequenceView {
     contactWarning: null,
     exportBlockers: [],
     approvedSentences: [{ id: "applies_non_bank", text: APPROVED }],
-    rewritable: [1],
-    wordLimits: { "1": 130, "2": 140, "3": 100, "4": 130, "5": 75 },
+    rewritable: [1, 2, 3, 4, 5],
+    wordLimits: { "1": 130, "2": 150, "3": 110, "4": 140, "5": 60 },
     subjectMaxWords: 6,
     signature: ["Mikaila Brown", "Founder, ClearPath IT"],
     rendered: emails.map((e) => ({ n: e.n, subject_a: e.subject_a, subject_b: e.subject_b, body: e.body })),
     kind: "custom",
-    personalLine: { text: LINE, source: "model", note: null },
+    drafts: [],
     ...over,
   };
 }
@@ -79,7 +76,7 @@ describe("sequence editor: code validators re-run live as you type", () => {
     render(<SequenceEditor initial={view()} />);
     const marks = document.querySelectorAll("mark.approved");
     expect([...marks].some((m) => m.textContent === APPROVED)).toBe(true);
-    expect(screen.getAllByText(/words \(limit 75\)/).length).toBe(1);
+    expect(screen.getAllByText(/words \(limit 60\)/).length).toBe(1);
   });
 });
 

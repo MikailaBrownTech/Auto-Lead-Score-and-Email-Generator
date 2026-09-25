@@ -44,13 +44,8 @@ export interface ValidationContext {
    * sentence must appear in these facts (no invented deadlines, counts, or section numbers).
    */
   verifiedFacts?: RegulatoryFact[];
-  /**
-   * docs/02 approved sentences (text). When present, writer emails may state regulatory or insurer
-   * facts only through these exact sentences, and may use universal quantifiers only inside them.
-   */
+  /** docs/02 approved sentences (text). When present, writer emails may state what a rule requires only through these exact sentences. */
   approvedSentences?: string[];
-  /** The one detail field the code gave the writer for each email (null = none). */
-  assignedDetails?: Record<number, string | null>;
   /**
    * Per email, extra sentences allowed by the allowlist: the original docs/09 template text of a
    * template email the founder edited (its fixed, reviewed sentences stay allowed).
@@ -97,7 +92,8 @@ const BULLET_RE = /^[-*•]\s+/;
  * (bullet lists are allowed); other lines are joined and split at sentence ends.
  */
 export function bodySentences(body: string): string[] {
-  const lines = body.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const lines = body.split(/\r?\n/).map((l) => l.trim());
+  while (lines.length > 0 && lines[0] === "") lines.shift();
   if (lines.length > 0 && GREETING_LINE_RE.test(lines[0]!)) lines.shift();
   const out: string[] = [];
   let prose: string[] = [];
@@ -106,7 +102,9 @@ export function bodySentences(body: string): string[] {
     prose = [];
   };
   for (const line of lines) {
-    if (BULLET_RE.test(line)) {
+    // A blank line ends a paragraph, and so a sentence (the spliced approved sentence stays whole).
+    if (line === "") flush();
+    else if (BULLET_RE.test(line)) {
       flush();
       out.push(line.replace(BULLET_RE, ""));
     } else prose.push(line);
@@ -123,27 +121,47 @@ export function renderEmail(body: string, offer: OfferConfig, signature: string[
 /** Settings merge fields left as placeholders because their docs/01 value is empty: export blockers, not text errors. */
 const SETTINGS_PLACEHOLDER_RE = new RegExp(`\\{\\{(?:${SETTINGS_FIELDS.join("|")})\\}\\}`, "g");
 
-/** Terms that make a sentence regulatory (only approved docs/02 sentences may contain them). */
+/**
+ * A sentence states what a law or rule requires when it names a rule, law, or regulator, or uses an
+ * obligation verb. Referring to "the requirement" (the noun) is allowed: the writer may point at the
+ * approved sentence without restating it. "fine" (okay) and "WISP" (the plan's name) are not claims.
+ */
 export const REGULATORY_SENTENCE_RE =
-  /\b(ftc|safeguards?|irs|pub(lication)?\.?\s*4557|4557|wisps?|penalt(y|ies)|fines?|fined|required|requires?|requirements?|must|compliance|compliant|regulations?|regulators?|regulatory|law|laws|legally|cfr)\b/i;
-/** Assertions about insurers are regulatory-type claims; questions about them are allowed. */
-export const INSURER_RE = /\b(insurers?|insurance|underwriters?|carriers?|renewals?|policyholders?)\b/i;
-export const QUANTIFIER_RE = /\b(all|every|always)\b|\bgenerally covered\b/i;
+  /\b(ftc|safeguards rule|glba|gramm[- ]leach|irs|efin|ptin|pub(lication)?\.?\s*4557|4557|penalt(y|ies)|fines|fined|must|required|requires|mandatory|mandated|obligated|compliance|compliant|regulations?|regulators?|regulatory|law|laws|legally|cfr)\b/i;
 
 /**
- * Allowlist check for writer emails: every sentence that mentions a regulatory term, asserts what
- * insurers do, or uses a universal quantifier must be one of the approved docs/02 sentences, verbatim.
+ * Allowlist check for model-written and edited emails: every statement (not a question) that names a
+ * rule, law, or regulator or uses an obligation verb must be one of the approved docs/02 sentences,
+ * verbatim. Insurer remarks and quantifiers are left to the judge (lighter validators, 2026-09-24).
  */
-export function unapprovedSentences(body: string, approved: string[]): { sentence: string; code: string }[] {
+export function unapprovedSentences(body: string, approved: string[], exempt: string[] = []): { sentence: string; code: string }[] {
   const ok = new Set(approved.map((a) => normalizeText(a).toLowerCase()));
   const out: { sentence: string; code: string }[] = [];
   for (const sentence of bodySentences(body)) {
     if (ok.has(normalizeText(sentence).toLowerCase())) continue;
-    if (REGULATORY_SENTENCE_RE.test(sentence)) out.push({ sentence, code: "unapproved_regulatory_sentence" });
-    else if (INSURER_RE.test(sentence) && !sentence.trim().endsWith("?")) out.push({ sentence, code: "unapproved_insurer_claim" });
-    if (QUANTIFIER_RE.test(sentence)) out.push({ sentence, code: "universal_quantifier" });
+    // A question asks; it does not state what a rule requires.
+    if (sentence.trim().endsWith("?")) continue;
+    // The firm's name and its verified services are named as written ("IRS Representation" is a service, not a claim).
+    const stripped = exempt.filter(Boolean).reduce((s, x) => s.replace(new RegExp(x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " "), sentence);
+    if (REGULATORY_SENTENCE_RE.test(stripped)) out.push({ sentence, code: "unapproved_regulatory_sentence" });
   }
   return out;
+}
+
+/** Capitalized words the lead itself uses (its name, verified services and software): allowed as-is. */
+function leadAcronyms(d: Dossier | undefined): string[] {
+  if (!d) return [];
+  const texts = [isFound(d.firm_name) ? d.firm_name.value : "", ...(isFound(d.services) ? d.services.value : []), ...(isFound(d.software_mentioned) ? d.software_mentioned.value : [])];
+  const found = new Set(texts.flatMap((t) => t.match(CAPS_WORD_RE) ?? []));
+  // Accounting shorthand for accounts payable/receivable is how these firms describe their own services.
+  if (texts.some((t) => /accounts (payable|receivable)/i.test(t))) found.add("AP").add("AR");
+  return [...found];
+}
+
+/** A sentence about the prospect: its name, or "you/your" plus the firm, team, site, security, or setup. */
+const PROSPECT_RE = /\byou(?:'re| are)\b|\byour (?:firm|practice|team|office|shop|business|site|website|security|setup|systems?|data|clients?|work)\b/i;
+export function aboutProspect(sentence: string, firmName: string | null): boolean {
+  return PROSPECT_RE.test(sentence) || (!!firmName && (containsPhrase(sentence, firmName) || containsPhrase(sentence, firmShort(firmName))));
 }
 
 function checkText(
@@ -185,7 +203,14 @@ function checkSubject(
   // The firm's name (full or short) and the region are exempt from the case rule and the word limit.
   const firmName = ctx.dossier && isFound(ctx.dossier.firm_name) ? ctx.dossier.firm_name.value : null;
   const exempt = [firmName, firmName ? firmShort(firmName) : null, ctx.offer.region.trim() || null, "{{region}}"].filter((x): x is string => !!x);
-  const withoutFirm = exempt.reduce((s, x) => s.split(x).join(" "), subject).replace(SETTINGS_PLACEHOLDER_RE, " ");
+  // Words of the firm's name also count as the name ("M.E. & Associates" for "M.E. & Associates Services").
+  const firmWords = new Set((firmName ?? "").split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)));
+  const withoutFirm = exempt
+    .reduce((s, x) => s.split(x).join(" "), subject)
+    .replace(SETTINGS_PLACEHOLDER_RE, " ")
+    .split(/(\s+)/)
+    .map((w) => (firmWords.has(w.replace(/[?,:;]+$/, "")) ? " " : w))
+    .join("");
   if (withoutFirm !== withoutFirm.toLowerCase()) err("subject_case", `${label} must be lowercase (firm name and region excepted)`);
   const words = countWords(withoutFirm);
   if (words > ctx.style.subject_max_words) {
@@ -269,7 +294,17 @@ export function findAbsenceClaims(text: string, style: StyleConfig): string[] {
   return bodySentences(text).filter((sentence) => {
     const s = normalizeText(sentence);
     if (s.endsWith("?") || /^(if|whether)\b/i.test(s)) return false;
-    return negations.some((n) => containsPhrase(s, n)) && plan_terms.some((t) => containsPhrase(s, t));
+    // The negation has to govern the plan term: within the few words before it ("you don't have a
+    // written plan", "operating without a WISP"), not anywhere in the sentence ("a written plan, no cost").
+    const lower = s.toLowerCase();
+    for (const t of plan_terms) {
+      const re = new RegExp(`\\b${t.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+      for (const m of lower.matchAll(re)) {
+        const before = lower.slice(0, m.index).split(/\s+/).filter(Boolean).slice(-6).join(" ");
+        if (negations.some((n) => containsPhrase(before, n))) return true;
+      }
+    }
+    return false;
   });
 }
 
@@ -295,10 +330,11 @@ function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[])
   const words = countWords(e.body);
   if (words > limit) err("word_count", `${words} words (max ${limit})`);
 
-  // The firm's own name (full or short) is exempt from the text checks ("RBV Financial" is not ALL CAPS shouting).
+  // The firm's own name (full or short) is exempt from the text checks, and capitalized words from its
+  // name or verified values ("RBV", "AP/AR") are not ALL CAPS shouting.
   const firmName = ctx.dossier && isFound(ctx.dossier.firm_name) ? ctx.dossier.firm_name.value : null;
   const bodyText = (firmName ? [firmName, firmShort(firmName)] : []).reduce((s, x) => s.split(x).join(" "), e.body);
-  checkText(n, "body", bodyText.replace(SETTINGS_PLACEHOLDER_RE, " "), style, issues);
+  checkText(n, "body", bodyText.replace(SETTINGS_PLACEHOLDER_RE, " "), { ...style, allowed_acronyms: [...style.allowed_acronyms, ...leadAcronyms(ctx.dossier)] }, issues);
 
   const links = findLinks(e.body);
   if (links.length > style.max_links_per_email) {
@@ -309,14 +345,12 @@ function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[])
     if (canonicalLink(link) !== booking) err("link_not_allowed", `link ${link} is not the booking_link in docs/01`);
   }
   if (n === 1 && links.length > 0) warn("link_in_email_1", "email 1 has a link (style guide: none in email 1 if possible)");
-  if (n === 1 && (e.body.match(/\?/g) ?? []).length !== 1) {
-    warn("email_1_question", "email 1 should end on exactly one question");
-  }
 
-  checkProof(n, e.body, ctx, issues);
+  // Untouched docs/09 copy is the founder's own reviewed wording ("I'm launching ... so I'm working with a
+  // small first group"); proof and traction checks apply to model-written and edited text.
+  if (!e.template || e.edited) checkProof(n, e.body, ctx, issues);
   checkDns(e, ctx, issues);
-  const questions = (e.body.match(/\?/g) ?? []).length;
-  if (questions > 1) err("too_many_questions", `${questions} questions (max one per email)`);
+  // Questions per email and details per email are prompt guidance, not rules (natural writing sometimes needs two).
   // The company name comes only from docs/01 (the signature); a variant in the text is invented.
   // Links are skipped: the booking link may carry the company's name in its path.
   for (const m of e.body.replace(URL_RE, " ").matchAll(/\bclear\s*path(?:\s+(?:it|secure|security|technologies|solutions))?\b/gi)) {
@@ -324,16 +358,18 @@ function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[])
       err("company_name", `names the company as "${m[0]}"; only docs/01 company_name ("${ctx.offer.company_name}") may be used`);
     }
   }
-  // Model-written or hand-edited text: regulatory statements only as approved docs/02 sentences.
+  // Model-written or hand-edited text: a statement of what a law or rule requires must be the exact
+  // approved docs/02 sentence (spliced in by code). One other such sentence fails the email.
   if ((!e.template || e.edited) && ctx.approvedSentences) {
-    for (const hit of unapprovedSentences(e.body, [...ctx.approvedSentences, ...(ctx.templateSentences?.[n] ?? [])])) {
-      const what =
-        hit.code === "universal_quantifier"
-          ? "uses all/every/always/generally covered outside an approved docs/02 sentence"
-          : hit.code === "unapproved_insurer_claim"
-            ? "asserts what insurers do; only approved docs/02 sentences may (ask instead)"
-            : "is a regulatory sentence that is not an approved docs/02 sentence";
-      err(hit.code, `${what}: "${hit.sentence}"`);
+    const services = ctx.dossier && isFound(ctx.dossier.services) ? ctx.dossier.services.value : [];
+    for (const hit of unapprovedSentences(e.body, [...ctx.approvedSentences, ...(ctx.templateSentences?.[n] ?? [])], [firmName ?? "", ...services])) {
+      err(hit.code, `states a regulatory point that is not the approved docs/02 sentence (refer to "the requirement" or ask instead): "${hit.sentence}"`);
+    }
+    // No evaluation of the prospect: an evaluative word in a sentence about the firm.
+    for (const sentence of bodySentences(e.body)) {
+      if (!aboutProspect(sentence, firmName)) continue;
+      const term = style.evaluative_terms.find((t) => containsPhrase(firmName ? sentence.split(firmName).join(" ") : sentence, t));
+      if (term) err("evaluates_prospect", `evaluates the prospect ("${term}"); describe or ask instead: "${sentence}"`);
     }
   }
   if (ctx.verifiedFacts) {
@@ -351,19 +387,6 @@ function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[])
   if (e.subject_a) checkSubject(n, "A", e.subject_a, ctx, issues);
   if (e.subject_b) checkSubject(n, "B", e.subject_b, ctx, issues);
 
-  const details = e.grounding.filter((f) => !ADDRESSING_FIELDS.has(f));
-  const assigned = ctx.assignedDetails?.[n];
-  if (!e.template && !e.edited && assigned !== undefined) {
-    for (const f of details) {
-      if (f !== assigned) err("unassigned_detail", `uses ${f}, but the detail given for this email was ${assigned ?? "none"}`);
-    }
-  }
-  if (details.length > style.max_personal_details_per_email) {
-    err(
-      "too_many_details",
-      `uses ${details.length} personal details (${details.join(", ")}); max ${style.max_personal_details_per_email}`,
-    );
-  }
   if (ctx.dossier) {
     for (const f of e.grounding) {
       if (f === "dns_observation") {
@@ -396,7 +419,7 @@ function checkEmail(raw: SequenceEmail, ctx: ValidationContext, issues: Issue[])
       }
     }
   }
-  // Template copy uses no dossier details; only email 1's personal line (checked by code) may.
+  // The docs/09 fixed copy uses no dossier details (legacy sequences carry a personal line that may).
   if (e.template && !e.edited && !e.personal_line && e.grounding.length > 0) {
     err("template_grounding", "template emails must not use dossier details");
   }
@@ -424,7 +447,8 @@ export function validateSequence(seq: Sequence, ctx: ValidationContext): Validat
   }
 
   seq.emails.forEach((e) => {
-    const mustBeTemplate = seq.tier === "C" || (seq.tier === "B" && e.n >= 3);
+    // Tier C is the docs/09 fixed copy only (no model call); tiers A and B are written by the model.
+    const mustBeTemplate = seq.tier === "C";
     if (mustBeTemplate && !e.template) {
       issues.push({
         severity: "error",

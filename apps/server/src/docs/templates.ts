@@ -5,12 +5,13 @@ import { BlockError } from "./blocks";
 import { DOC_FILES, DOCS_DIR } from "./loader";
 
 /**
- * docs/09_sequences.md: the human-written sequence. The code fills merge fields; the model writes only
- * {{personal_line}}. This module reads the file as the founder wrote it (plain Markdown, no JSON).
+ * docs/09_sequences.md: the human-written Tier C sequence (no model call). The code fills merge fields.
+ * Tiers A and B are written by the model (write/writer.ts). This module reads the file as the founder
+ * wrote it (plain Markdown, no JSON).
  */
 
 /** Filled per lead when the sequence is assembled. */
-export const LEAD_FIELDS = ["firm", "firm_short", "city", "first_name", "personal_line", "approved_sentence"] as const;
+export const LEAD_FIELDS = ["firm", "firm_short", "city", "first_name", "approved_sentence"] as const;
 /** Filled from docs/01 when an email is shown, checked, or exported (so later settings apply without a rewrite). */
 export const SETTINGS_FIELDS = ["company", "offer", "booking_link", "region", "company_one_liner"] as const;
 /** Only in the signature block. */
@@ -27,7 +28,7 @@ export interface EmailTemplate {
   subject_b: string | null;
   /** Paragraphs from the first line to the one before {{signature}}. */
   paragraphs: string[];
-  /** Email 1: the role-based opening paragraph (the one before {{personal_line}}); null otherwise. */
+  /** Email 1: the role-based opening paragraph (its first paragraph, unless that is a greeting); null otherwise. */
   roleLine: string | null;
 }
 
@@ -38,8 +39,6 @@ export interface SegmentSwap {
 
 export interface TemplateSet {
   emails: Map<number, EmailTemplate>;
-  /** "Fallback personal lines", by firm type. */
-  fallbackLines: Partial<Record<FirmType, string>>;
   /** "Segment swaps" table rows, by firm type. */
   segments: Partial<Record<FirmType, SegmentSwap>>;
   /** "Signature block" lines, with {{...}} fields. */
@@ -115,21 +114,15 @@ function parseEmail(n: number, lines: string[]): EmailTemplate {
   let roleLine: string | null = null;
   if (n === 1) {
     if (!subject_a || !subject_b) fail("email 1 needs \"Subject A:\" and \"Subject B:\" lines");
-    const at = paras.findIndex((p) => p.includes("{{personal_line}}"));
-    if (at < 0) fail("email 1 must contain {{personal_line}}");
-    if (at > 0) roleLine = paras[0]!;
+    if (paras.length < 2) fail("email 1 needs a role-based opening paragraph and at least one more");
+    if (!/^(hi|hello|dear)\b/i.test(paras[0]!)) roleLine = paras[0]!;
   }
   return { n, subject_a, subject_b, paragraphs: paras, roleLine };
-}
-
-function unquote(s: string): string {
-  return s.trim().replace(/^["“]|["”]$/g, "").trim();
 }
 
 export function parseTemplates(markdown: string): TemplateSet {
   const secs = sections(markdown);
   const emails = new Map<number, EmailTemplate>();
-  let fallbackLines: TemplateSet["fallbackLines"] = {};
   let segments: TemplateSet["segments"] = {};
   let signature: string[] = [];
   for (const [heading, lines] of secs) {
@@ -138,14 +131,6 @@ export function parseTemplates(markdown: string): TemplateSet {
       const n = Number(email[1]);
       if (emails.has(n)) fail(`email ${n} appears twice`);
       emails.set(n, parseEmail(n, lines));
-    } else if (/^Fallback personal lines/i.test(heading)) {
-      fallbackLines = {};
-      for (const line of lines) {
-        const m = /^\s*[-*]\s*([a-z_]+)\s*:\s*(.+)$/.exec(line);
-        if (!m) continue;
-        if (!(FIRM_TYPES as readonly string[]).includes(m[1]!)) fail(`fallback line for unknown firm type "${m[1]}"`);
-        fallbackLines[m[1] as FirmType] = unquote(m[2]!);
-      }
     } else if (/^Segment swaps/i.test(heading)) {
       segments = {};
       for (const line of lines) {
@@ -162,20 +147,13 @@ export function parseTemplates(markdown: string): TemplateSet {
     }
   }
   for (let n = 1; n <= 5; n++) if (!emails.has(n)) fail(`missing "## Email ${n}"`);
-  if (!fallbackLines.cpa) fail(`"Fallback personal lines" needs a cpa line (the default for other firm types)`);
   if (signature.length === 0) fail(`missing "## Signature block"`);
-  for (const [type, line] of Object.entries(fallbackLines)) if (/\{\{/.test(line!)) fail(`the ${type} fallback line has a merge field; it must be plain text`);
-  return { emails, fallbackLines, segments, signature };
+  return { emails, segments, signature };
 }
 
 export const loadTemplates = (docsDir = DOCS_DIR) => parseTemplates(fs.readFileSync(path.join(docsDir, DOC_FILES.templates), "utf8"));
 
 /** The segment row for a lead: its primary type if the file has a row for it, else the cpa default. */
 export function segmentType(primary: FirmType | null, set: TemplateSet): FirmType {
-  return primary && set.segments[primary] ? primary : primary && (SEGMENT_TYPES as readonly string[]).includes(primary) && set.fallbackLines[primary] ? primary : "cpa";
-}
-
-/** The fallback personal line for a type (the cpa line for types without their own). */
-export function fallbackLine(type: FirmType, set: TemplateSet): string {
-  return set.fallbackLines[type] ?? set.fallbackLines.cpa!;
+  return primary && set.segments[primary] ? primary : "cpa";
 }

@@ -12,7 +12,7 @@
     "extract-live": "tsx scripts/extract-live.ts",
     "write-sequence": "tsx scripts/write-sequence.ts",
     "screenshots": "tsx scripts/screenshots.ts",
-    "record-personal-lines": "tsx scripts/record-personal-lines.ts"
+    "record-sequences": "tsx scripts/record-sequences.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

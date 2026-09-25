@@ -1,20 +1,27 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { NOT_FOUND, PERSONAL_LINE_TOOL_NAME, type Dossier } from "@clearpath/shared";
+import { NOT_FOUND, WRITER_TOOL_NAME, type Dossier } from "@clearpath/shared";
 import { leads } from "../src/db/schema";
 import { makeHarness, PORT } from "./fixtures/app-harness";
 import { strongDossier } from "./fixtures/dossiers";
+import { writerAnswerFor } from "./fixtures/write-deps";
 
 /**
- * Every path that ends without a sequence leaves a plain reason the lead page shows. Anything the code
- * can repair (a model line that fails the checks, an unreadable answer, an API error, the spend cap)
- * is repaired with the docs/09 fallback line and a note, never shown as a failure.
+ * Every path that ends without a clean sequence leaves a plain reason the lead page shows: gates,
+ * validator-blocked drafts (shown in full with their errors), unusable model output, the spend cap,
+ * broken settings or docs, rejected requests, and a failure inside a background job.
  */
 function insertLead(h: ReturnType<typeof makeHarness>, id: string, d: Dossier, tier: "A" | "B" | "C" = "B") {
   h.db.insert(leads).values({ id, source: "web", status: "extracted", tier, score: 60, gateStatus: d.gate.status, dossierJson: JSON.stringify(d) }).run();
 }
-const lineCalls = (h: ReturnType<typeof makeHarness>) => h.calls.filter((c) => JSON.stringify(c.tools).includes(PERSONAL_LINE_TOOL_NAME));
+const writerCalls = (h: ReturnType<typeof makeHarness>) => h.calls.filter((c) => JSON.stringify(c.tools).includes(WRITER_TOOL_NAME));
+/** A writer answer whose email 3 states a rule (a validator error the rewrite cannot fix here). */
+const RULE_CLAIM = (() => {
+  const a = writerAnswerFor('"firm_name": "Smith Tax Services" where you put [[APPROVED]] in email 2');
+  a.emails[2]!.body = "The FTC Safeguards Rule requires a written plan. Want the checklist?";
+  return a;
+})();
 
 describe("why no sequence was written: always visible on the lead page", { timeout: 60_000 }, () => {
   it("out_of_icp and needs_review: 409 with a plain reason and how to proceed; logged; the override clears it", async () => {
@@ -40,7 +47,7 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     }
   });
 
-  it("tier C: docs/09 copy with the fallback line (no model call), listed on the Sequences screen", async () => {
+  it("tier C: the docs/09 fixed copy (no model call), listed on the Sequences screen", async () => {
     const h = makeHarness();
     try {
       const c = strongDossier({ size_signal: NOT_FOUND, decision_maker: NOT_FOUND, people: [], services: NOT_FOUND, personal_email_domain_on_site: NOT_FOUND, client_portal_or_doc_exchange: NOT_FOUND, security_mention_search: "NOT_CHECKED" });
@@ -48,37 +55,52 @@ describe("why no sequence was written: always visible on the lead page", { timeo
       const w = await h.call("POST", "/api/leads/L-c/sequence");
       expect(w.status).toBe(200);
       const seq = (await h.call("GET", `/api/sequences/${w.json.id}`)).json;
-      expect(seq).toMatchObject({ kind: "template", judgeRequired: false, tier: "C", rewritable: [], personalLine: { source: "fallback" } });
+      expect(seq).toMatchObject({ kind: "template", judgeRequired: false, tier: "C", rewritable: [] });
       expect((await h.call("GET", "/api/sequences")).json).toMatchObject([{ leadId: "L-c", kind: "template", tier: "C" }]);
-      expect(lineCalls(h)).toHaveLength(0);
+      expect(h.calls).toHaveLength(0);
     } finally {
       h.cleanup();
     }
   });
 
-  it.each([
-    ["a line that fails the checks", { line: { personal_line: "Great news for your firm!" } }, /did not pass the checks/],
-    ["an unreadable answer", { line: { oops: true } }, /could not be read/],
-    [
-      "an API error",
-      {
-        line: () => {
-          throw new Error("model endpoint unavailable");
-        },
-      },
-      /the model was not used \(.*model endpoint unavailable/,
-    ],
-    ["the monthly spend cap", { capUsd: 0.000001 }, /the model was not used \(.*cap/i],
-  ])("%s: repaired with the fallback line, approvable, and the note says why (not an error)", async (_label, opts, note) => {
-    const h = makeHarness(opts as Parameters<typeof makeHarness>[0]);
+  it("validator errors that survive the one rewrite: the draft is shown in full with its errors, both drafts kept", async () => {
+    const h = makeHarness({ writer: RULE_CLAIM });
     try {
-      insertLead(h, "L-fb", strongDossier());
-      const r = await h.call("POST", "/api/leads/L-fb/sequence");
+      insertLead(h, "L-bad", strongDossier());
+      const r = await h.call("POST", "/api/leads/L-bad/sequence");
       expect(r.status).toBe(200);
-      expect(r.json).toMatchObject({ validationPass: true, personalLine: { source: "fallback" } });
-      expect(r.json.personalLine.note).toMatch(note);
-      expect(r.json.sequence.emails[0].body).not.toContain("Great news");
-      expect((await h.call("GET", "/api/leads/L-fb")).json.lastWriteAttempt).toBeNull();
+      expect(r.json.validationPass).toBe(false);
+      expect(r.json.sequence.emails[2].body).toMatch(/Safeguards Rule requires/);
+      expect(r.json.issues.map((i: { code: string }) => i.code)).toContain("unapproved_regulatory_sentence");
+      expect(r.json.drafts).toHaveLength(2);
+      expect(writerCalls(h)).toHaveLength(2);
+      expect((await h.call("GET", "/api/leads/L-bad")).json.lastWriteAttempt.detail).toMatch(/^Written, needs fixes: .*validator errors remain after the rewrite/);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("two unusable writer answers: 409 with a plain reason that stays on the lead page", async () => {
+    const h = makeHarness({ writer: { oops: true } });
+    try {
+      insertLead(h, "L-bad", strongDossier());
+      const r = await h.call("POST", "/api/leads/L-bad/sequence");
+      expect(r.status).toBe(409);
+      expect(r.json.error).toMatch(/^Not written: the writer's answers could not be used/);
+      expect((await h.call("GET", "/api/leads/L-bad")).json.lastWriteAttempt.detail).toMatch(/could not be used/);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("spend-cap refusal: a plain 409 and the reason stays on the lead page", async () => {
+    const h = makeHarness({ capUsd: 0.000001 });
+    try {
+      insertLead(h, "L-cap", strongDossier());
+      const r = await h.call("POST", "/api/leads/L-cap/sequence");
+      expect(r.status).toBe(409);
+      expect(r.json.error).toMatch(/cap/i);
+      expect((await h.call("GET", "/api/leads/L-cap")).json.lastWriteAttempt.detail).toMatch(/^Not written: .*cap/i);
     } finally {
       h.cleanup();
     }
@@ -113,25 +135,21 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     }
   });
 
-  it("a background job: a model error is repaired; a broken docs/09 file fails the write with a plain reason", async () => {
+  it("a failure while a background job writes: the job says so and the lead page keeps the reason", async () => {
     const h = makeHarness({
-      line: () => {
+      writer: () => {
         throw new Error("model endpoint unavailable");
       },
     });
     try {
       const job = (await h.call("POST", "/api/jobs", { mode: "web", urls: ["smithtax.example"] })).json;
       await h.jobs.idle();
-      expect((await h.call("GET", `/api/jobs/${job.id}`)).json.items[0]).toMatchObject({ state: "done", sequenceStatus: "passed" });
-
-      const f = path.join(h.docsDir, "09_sequences.md");
-      fs.writeFileSync(f, fs.readFileSync(f, "utf8").replace("## Email 5", "## Notes"));
-      await h.call("POST", "/api/jobs", { mode: "web", urls: ["smithtax.example/other"] });
-      await h.jobs.idle();
-      const again = (await h.call("POST", "/api/leads/lead-smithtax-example/sequence"));
-      expect(again.status).toBe(400);
-      expect(again.json.error).toMatch(/09_sequences\.md: missing "## Email 5"/);
-      expect((await h.call("GET", "/api/leads/lead-smithtax-example")).json.lastWriteAttempt.detail).toMatch(/^Not written: .*09_sequences\.md/);
+      const item = (await h.call("GET", `/api/jobs/${job.id}`)).json.items[0];
+      expect(item.state).toBe("failed");
+      expect(item.message).toMatch(/^Research done, but the sequence was not written: /);
+      const detail = (await h.call("GET", "/api/leads/lead-smithtax-example")).json;
+      expect(detail.lastWriteAttempt.detail).toMatch(/^Not written: /);
+      expect(detail.sequenceId).toBeNull();
     } finally {
       h.cleanup();
     }

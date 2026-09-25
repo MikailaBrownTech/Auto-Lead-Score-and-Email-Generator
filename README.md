@@ -27,24 +27,27 @@ Screens:
 - **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
   NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
   DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
-- **Sequences are template-first.** The copy is yours, in docs/09_sequences.md. The app fills the merge
-  fields and the model writes only one sentence, {{personal_line}} in email 1 (one small call per tier A/B
-  lead; tier C and any line that fails the code checks use the fallback line from the same file).
+- **Sequences are written by the model** (tiers A and B): all five emails, in the voice of the example
+  sequences in docs/03, from the lead's verified values only. It never states what a law or rule
+  requires: it marks the spot in email 2 and the app inserts the exact VERIFIED docs/02 sentence. Code
+  validators run on the draft, a second model (the judge) checks for unsupported claims, and the writer
+  gets one rewrite with its own draft and the problems found. Tier C leads get the fixed copy in
+  docs/09_sequences.md (no model call).
 - **Contact without a named person** is a warning, never a block. A generic or unattributed inbox shows
   "lower reply odds"; a lead with no public email shows "no public email; add before sending". Email 1
-  then opens with the role-based line from docs/09; with a named contact tied to the address it opens
+  then opens with a role-based line (never "Hi there,"); with a named contact tied to the address it opens
   "Hi <first name>,". The lead page lists optional public sources to find an owner name or email.
 - **Sequence**: five email cards, word counts, validators re-run as you type with problems shown on the
-  email they belong to, the personal line and the docs/02 approved sentence highlighted (with a legend),
-  a preview with the settings filled in, "New personal line" on email 1, Run judge (only needed after
-  hand edits), Approve (the reason shows when it is disabled).
+  email they belong to, the docs/02 approved sentence highlighted (with a legend), a preview with the
+  settings filled in, the writer's drafts and their errors, "Rewrite this email", Run judge, Approve (the
+  reason shows when it is disabled).
 - **Export**: approved leads only, in two modes: "Ready to send" (rows with an address) and "Drafts"
   (every approved row). The CSV has send_ready (Y/N) and contact_note columns. Blocked until the
   signature/footer, founding_client_offer, booking_link, and region settings are filled in, and while
   checklist_ready is off. The suppression list is checked before every row.
-- **Settings**: signature/footer fields, the merge fields the emails use (founding-client offer, booking
-  link, region, company one-liner), checklist ready, DNS remark (saved into docs/01 with a backup in
-  data/backups), and the suppression list.
+- **Settings**: signature/footer fields, what the writer is told about you (founding-client offer,
+  booking link, region, company one-liner), checklist ready, DNS remark (saved into docs/01 with a backup
+  in data/backups), and the suppression list.
 
 Other commands (from the repo root):
 - `npm test` runs every test offline (fixtures and recorded model answers; no network, no API spend).
@@ -54,9 +57,10 @@ Other commands (from the repo root):
   First time only: `npx playwright install chromium`.
 - `npm run extract-live -- <url> [...]` and `npm run write-sequence -- <url> [...]` run live research
   from the command line; full reports go to data/reports/.
-- `npm run record-personal-lines` records 5 real personal-line generations for the regression test (about
-  $0.01; `-- --dry-run` shows the requests without calling the API). Re-record after editing
-  prompts/personal_line.md.
+- `npm run record-sequences` records real writer and judge answers for 5 fixture leads (about $0.15-0.20;
+  `-- --dry-run` shows the writer's input without calling the API) into
+  apps/server/test/fixtures/generations/, with a readable .md per lead for a tone check. Re-record after
+  editing prompts/write.md or the docs/03 examples.
 
 ---
 

@@ -1,26 +1,18 @@
-# Email sequences (human-written templates)
+# Tier C fixed sequence (human-written, no model call)
 
-The model writes only {{personal_line}}. Everything else is fixed copy. Edit anything in [brackets] before sending.
+Tier C leads get this copy with the merge fields filled in; no model is called. Tiers A and B get emails the writer model writes in full (docs/03 has the example sequences it follows). Edit anything in [brackets] before sending.
 
 ## Merge fields
 
 - {{firm}}: firm name as on the site
 - {{firm_short}}: firm name without legal suffixes (LLC, LLP, PLLC, Inc, P.C.)
 - {{city}}, {{region}}: city, and your target region such as "Cleveland-area"
-- {{personal_line}}: one sentence from the model (max 30 words, verified facts only)
 - {{approved_sentence}}: one sentence from a VERIFIED line in docs/02, inserted verbatim
 - {{company}}, {{offer}}, {{booking_link}}, {{signature}}, {{first_name}}
 
-## Fallback personal lines (used if the model line fails validation)
-
-- cpa: "Firms like yours handle a lot of sensitive client financial information."
-- tax_preparer: "Tax preparers hold some of the most sensitive data there is: SSNs, bank details, prior-year returns."
-- bookkeeper: "With remote access to clients' books and bank feeds, a lot rides on how those logins are protected."
-- payroll: "Payroll means holding employee SSNs and bank details for every client."
-
 ## Greeting rules
 
-- No named contact tied to the address: email 1 opens with the role-based line below. Emails 2 to 5 have no greeting line.
+- No named contact tied to the address: email 1 opens with the role-based line below (its first paragraph). Emails 2 to 5 have no greeting line.
 - Named contact tied to the address: email 1 opens "Hi {{first_name}}," and skips the role-based line.
 
 ## Email 1 (day 0)
@@ -29,8 +21,6 @@ Subject A: written security plan at {{firm_short}}?
 Subject B: quick question about client data
 
 Quick question for whoever looks after IT and client data at {{firm}}:
-
-{{personal_line}}
 
 Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?
 

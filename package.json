@@ -22,7 +22,7 @@
     "write-sequence": "npm run write-sequence -w @clearpath/server --",
     "build:web": "npm run build -w @clearpath/web",
     "screenshots": "npm run screenshots -w @clearpath/server",
-    "record-personal-lines": "npm run record-personal-lines -w @clearpath/server --"
+    "record-sequences": "npm run record-sequences -w @clearpath/server --"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

@@ -1,38 +1,107 @@
 {
   "fixture": "innercircle-cpa",
-  "model": "claude-haiku-4-5-20251001",
-  "captured_at": "2026-09-24T22:54:49.381Z",
-  "request": {
-    "facts": {
-      "firm_name": "Inner Circle Advisors",
-      "firm_type": "cpa",
-      "city": "Independence",
-      "state": "OH",
-      "service": "Tax Preparation"
+  "lead_id": "record-innercircle-cpa",
+  "captured_at": "2026-09-25T03:04:40.083Z",
+  "offer": {
+    "sender_name": "Mikaila Brown",
+    "sender_title": "Founder",
+    "company_name": "Clear Path Secure",
+    "company_website": "https://www.clearpathsecure.com",
+    "opt_out_line": "Click here to opt out",
+    "physical_address": "Cleveland, Ohio",
+    "approved_proof": [],
+    "founding_client_offer": "Get free security audit",
+    "booking_link": "https://www.clearpathsecure.com/contact",
+    "region": "Ohio",
+    "company_one_liner": "",
+    "include_dns_observation": false,
+    "checklist_ready": true
+  },
+  "calls": [
+    {
+      "tool": "write_sequence",
+      "input": {
+        "emails": [
+          {
+            "n": 1,
+            "subject_a": "written security plan at Inner Circle Advisors?",
+            "subject_b": "quick question about client data",
+            "body": "Quick question for whoever handles this at Inner Circle Advisors: has anyone, an insurer, a bank, a client, asked for a written information security plan yet?\n\nWith the tax prep, planning, and IRS representation work you're doing, plus the secure portal for client documents, it's the kind of thing that tends to come up at insurance renewal time, if it hasn't already.\n\nI run Clear Path Secure, flat-rate IT and security for financial firms, and I help firms get that plan documented along with the basics behind it, without hiring IT staff. If it's already handled, just say so and I'll leave you be.",
+            "subject_b_unused": null
+          },
+          {
+            "n": 2,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Following up on my note from a few days ago.\n\nHere's the short version of what's usually expected: a written plan for protecting client data, one person named as responsible for it, multi-factor authentication on email and key systems, and a plan for what happens if something goes wrong.\n\n[[APPROVED]]\n\nMost firms I talk to have some of this in place already, just not written down in one document. Curious where things stand at Inner Circle Advisors."
+          },
+          {
+            "n": 3,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "I put together a one-page checklist that covers what's usually expected, in plain language, so you can see where Inner Circle Advisors stands in about ten minutes. No call needed for it.\n\nWant me to send it over?"
+          },
+          {
+            "n": 4,
+            "subject_a": "a founding-client offer for Ohio firms",
+            "subject_b": null,
+            "body": "I'm taking on a small group of Ohio firms right now as founding clients, and part of that is a free security audit. In exchange I just ask for honest feedback as I go, which is worth more to me than the audit costs.\n\nIf that's useful, happy to do a short call: {{booking_link}}. And if timing's bad with everything else on your plate, just let me know when to check back and I will."
+          },
+          {
+            "n": 5,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Haven't heard back, so I'll take that as not right now, which is completely fine.\n\nIf a security plan ever comes up, from an insurer, a client, or your own planning, reply here and I'll send that checklist over.\n\nHope things go smoothly for you."
+          }
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 854,
+        "cache_creation_input_tokens": 7409,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 7409,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 906,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     },
-    "theme": "",
-    "before": "Quick question for whoever looks after IT and client data at Inner Circle Advisors:",
-    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
-    "subjects": {
-      "A": "written security plan at Inner Circle Advisors?",
-      "B": "quick question about client data"
+    {
+      "tool": "record_judgment",
+      "input": {
+        "unsupported_claims": []
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 1591,
+        "cache_creation_input_tokens": 1973,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 1973,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 39,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     }
-  },
-  "tool_input": {
-    "personal_line": "Inner Circle Advisors handles Tax Preparation, which means managing detailed financial records for many clients.",
-    "subject": "B"
-  },
-  "usage": {
-    "input_tokens": 1530,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 0,
-    "cache_creation": {
-      "ephemeral_5m_input_tokens": 0,
-      "ephemeral_1h_input_tokens": 0
+  ],
+  "result": {
+    "status": "passed",
+    "firstPassValid": true,
+    "writerCalls": 1,
+    "judge": {
+      "unsupported_claims": []
     },
-    "output_tokens": 70,
-    "service_tier": "standard",
-    "inference_geo": "not_available"
-  },
-  "cost_usd": 0.00188
+    "cost_usd": 0.037794999999999995
+  }
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { ModelFactsSchema } from "./dossier";
-import { JudgeOutputSchema, PersonalLineOutputSchema } from "./sequence";
+import { JudgeOutputSchema, WriterOutputSchema } from "./sequence";
 
 export const EXTRACTION_TOOL_NAME = "record_dossier";
 
@@ -31,9 +31,9 @@ export function extractionToolSchema(): Record<string, unknown> {
   return toJsonSchema(ExtractionToolInputSchema);
 }
 
-/** Tool input schema for the personal line (generated from zod, like the extraction tool). */
-export function personalLineToolSchema(): Record<string, unknown> {
-  return toJsonSchema(PersonalLineOutputSchema);
+/** Tool input schema for the writer (generated from zod, like the extraction tool). */
+export function writerToolSchema(): Record<string, unknown> {
+  return toJsonSchema(WriterOutputSchema);
 }
 
 /** Tool input schema for the judge. */

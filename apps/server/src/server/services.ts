@@ -13,7 +13,7 @@ import type { LlmClient } from "../llm/client";
 import type { SpendGate } from "../llm/spend-gate";
 import type { ResearchDeps } from "../pipeline/research";
 import type { WriteDeps } from "../write/generate";
-import { loadJudgeSystemPrompt, loadPersonalLineSystemPrompt } from "../write/prompt";
+import { examplesFor, loadExampleSequences, loadJudgeSystemPrompt, loadPersonaHeadings, loadWriterSystemPrompt } from "../write/prompt";
 
 export type ServiceEnv = Pick<
   Env,
@@ -70,8 +70,9 @@ export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): Res
 }
 
 /**
- * Sequence dependencies, with the docs read fresh. The personal line uses the small model
- * (MODEL_EXTRACT, one call per lead); the on-demand judge of hand edits uses MODEL_WRITE.
+ * Sequence dependencies, with the docs read fresh. Writer and judge use MODEL_WRITE and see only the
+ * compact dossier values. The writer prompt holds two of the docs/03 example sequences, rotated by lead
+ * id; each pair's prompt is built once per deps object.
  */
 export function writeDeps(s: Services): WriteDeps {
   const docsDir = s.docsDir ?? DOCS_DIR;
@@ -81,9 +82,8 @@ export function writeDeps(s: Services): WriteDeps {
   return {
     db: s.db,
     llm: s.llm,
-    modelLine: s.env.MODEL_EXTRACT,
-    lineSystem: loadPersonalLineSystemPrompt(style, s.promptsDir),
-    modelJudge: s.env.MODEL_WRITE,
+    modelWrite: s.env.MODEL_WRITE,
+    writerSystem: writerSystemFor({ offer, facts, docsDir, style, ...(s.promptsDir ? { promptsDir: s.promptsDir } : {}) }),
     judgeSystem: loadJudgeSystemPrompt({ offer, facts, docsDir, ...(s.promptsDir ? { promptsDir: s.promptsDir } : {}) }),
     style,
     offer,
@@ -91,5 +91,18 @@ export function writeDeps(s: Services): WriteDeps {
     templates: loadTemplates(docsDir),
     facts,
     approved: loadApprovedSentences(docsDir).sentences,
+    personas: loadPersonaHeadings(docsDir),
+  };
+}
+
+/** The writer system prompt per lead (example pair rotated by lead id), memoized by pair. */
+export function writerSystemFor(sources: Omit<Parameters<typeof loadWriterSystemPrompt>[0], "exampleIds">): (leadId: string) => string {
+  const examples = loadExampleSequences(sources.docsDir);
+  const cache = new Map<string, string>();
+  return (leadId) => {
+    const ids = examplesFor(leadId, examples);
+    const key = ids.join(",");
+    if (!cache.has(key)) cache.set(key, loadWriterSystemPrompt({ ...sources, exampleIds: ids }));
+    return cache.get(key)!;
   };
 }

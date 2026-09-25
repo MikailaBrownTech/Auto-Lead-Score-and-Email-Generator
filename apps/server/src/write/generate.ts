@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
+import type Anthropic from "@anthropic-ai/sdk";
 import {
   isFound,
+  JUDGE_TOOL_NAME,
+  JudgeOutputSchema,
   SequenceSchema,
   type ApprovedSentence,
   type Dossier,
@@ -16,15 +19,17 @@ import {
 import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { leadEvents, sequences, type SequenceStatus } from "../db/schema";
-import { fallbackLine, type TemplateSet } from "../docs/templates";
-import type { LlmClient } from "../llm/client";
+import type { TemplateSet } from "../docs/templates";
+import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
+import { MAX_OUTPUT_TOKENS } from "../llm/limits";
 import { contactPlan } from "../scoring/contact";
 import { contactWarning, type DirectContactOverride } from "../scoring/direct-contact";
 import { validateSequence, type ValidationContext, type ValidationResult } from "../validators/email";
-import { assembleEmails, leadSegment, type PersonalLine } from "./assemble";
+import { assembleEmails, leadSegment } from "./assemble";
 import { emptySettingsUsed } from "./merge";
-import { writePersonalLine, type LineResult } from "./personal-line";
+import { judgeMessage, judgeTool } from "./prompt";
 import { verifiedValues } from "./values";
+import { writerInput, writerType, writeSequenceEmails, type Draft } from "./writer";
 
 export class ApprovalBlockedError extends Error {
   override name = "ApprovalBlockedError";
@@ -33,34 +38,39 @@ export class ApprovalBlockedError extends Error {
 export interface WriteDeps {
   db: Db;
   llm: LlmClient;
-  /** Small model for {{personal_line}} (one call per lead). */
-  modelLine: string;
-  lineSystem: string;
-  /** Model for the on-demand judge of hand-edited emails. */
-  modelJudge: string;
+  /** Writer and judge model (MODEL_WRITE). The writer sees only the compact dossier values. */
+  modelWrite: string;
+  /** Writer system prompt for a lead: the example pair is rotated by lead id (prompt.examplesFor). */
+  writerSystem: (leadId: string) => string;
   judgeSystem: string;
   style: StyleConfig;
   offer: OfferConfig;
   evidence: EvidenceConfig;
-  /** docs/09_sequences.md */
+  /** docs/09_sequences.md: the tier C fixed copy and the signature block. */
   templates: TemplateSet;
   /** VERIFIED docs/02 facts (money/penalty facts removed); for the judge prompt. */
   facts: RegulatoryFact[];
   /** Usable docs/02 approved sentences (loadApprovedSentences). */
   approved: ApprovedSentence[];
+  /** docs/08 "PERSONA:" headings. */
+  personas: string[];
 }
 
 export interface GenerateResult {
   leadId: string;
-  /** no_sequence: gated. blocked: a validator error the code could not repair (docs/09 copy or settings). passed: approvable. */
+  /** no_sequence: gated. blocked: validators or judge failed after the rewrite. passed: approvable. */
   status: "no_sequence" | SequenceStatus;
   reason: string;
   tier: Tier;
   sequence: Sequence | null;
   validation: ValidationResult | null;
-  /** The personal line and why the fallback was used (a note, never an error). */
-  personalLine: (LineResult & { usedFallbackAfterAssembly: boolean }) | null;
-  modelCalls: number;
+  judge: JudgeOutput | null;
+  /** Every writer draft (first, rewrite) with its errors; empty for tier C. */
+  drafts: Draft[];
+  /** True when the first draft had no validator errors (null: no writer call). */
+  firstPassValid: boolean | null;
+  writerCalls: number;
+  judgeCalls: number;
   sequenceId: number | null;
   /** A lead without a named contact: a warning in plain words (never a blocker); null for a named contact. */
   contactWarning: string | null;
@@ -74,12 +84,9 @@ export interface StoredJudge {
   content_hash: string;
 }
 
-/**
- * Emails that need the judge: those the founder edited by hand. docs/09 copy is human-written and the
- * personal line is checked by code, so an unedited sequence needs no judge call.
- */
+/** Emails that need the judge: model-written or hand-edited ones. The untouched docs/09 copy does not. */
 export function judgedEmails(emails: SequenceEmail[]): SequenceEmail[] {
-  return emails.filter((e) => e.edited);
+  return emails.filter((e) => !e.template || e.edited);
 }
 
 /** Hash of the subjects and bodies the judge must have seen for approval to count. */
@@ -101,9 +108,9 @@ export function logWriteAttempt(db: Db, leadId: string, detail: string): void {
   db.insert(leadEvents).values({ leadId, kind: "write_attempt", detail: detail.slice(0, 1000) }).run();
 }
 
-/** Emails whose personal line the model writes, by tier: A and B email 1; C none (fallback line, no call). */
+/** Emails the writer model writes, by tier: A and B all five; C none (docs/09 fixed copy, no call). */
 export function modelEmailsFor(tier: Tier): number[] {
-  return tier === "C" ? [] : [1];
+  return tier === "C" ? [] : [1, 2, 3, 4, 5];
 }
 
 /** First name for email 1: only when the public address is tied to that person, and never after a contact override. */
@@ -125,8 +132,8 @@ export function exportBlockers(offer: OfferConfig, seq: Sequence | null): string
   return out;
 }
 
-/** The validation context for a lead's sequence (templateSentences: the docs/09 copy stays allowed in edits). */
-export function validationContext(d: Dossier, deps: WriteDeps, original?: SequenceEmail[]): ValidationContext {
+/** The validation context for a lead (templateSentences: the docs/09 copy stays allowed in hand edits of tier C emails). */
+export function validationContext(d: Dossier, deps: Pick<WriteDeps, "style" | "offer" | "facts" | "approved">, original?: SequenceEmail[]): ValidationContext {
   return {
     style: deps.style,
     offer: deps.offer,
@@ -147,32 +154,59 @@ function splitCopy(body: string): string[] {
     .filter(Boolean);
 }
 
-/** Builds the sequence from docs/09 for a personal line. */
-export function buildSequence(leadId: string, d: Dossier, tier: Tier, deps: WriteDeps, line: PersonalLine, subject: "A" | "B" | null, override: DirectContactOverride | null): Sequence {
+/** Tier C: the docs/09 fixed copy for a lead (no model call). */
+export function templateSequence(leadId: string, d: Dossier, deps: WriteDeps, override: DirectContactOverride | null): Sequence {
   const segment = leadSegment(d, deps.templates);
-  const emails = assembleEmails({
-    dossier: d,
-    templates: deps.templates,
-    style: deps.style,
-    approved: deps.approved,
-    personalLine: line,
-    firstName: firstNameFor(d, override),
-    subjectChoice: subject,
-    values: verifiedValues(d, deps.offer, deps.evidence).prospect_facts,
-  });
-  // The angle tag (Results screen) follows the lead's own primary type; the copy follows its docs/09 segment.
+  const emails = assembleEmails({ dossier: d, templates: deps.templates, style: deps.style, approved: deps.approved, firstName: firstNameFor(d, override) });
   const primary = isFound(d.firm_type) ? d.firm_type.value.primary : "other";
-  return SequenceSchema.parse({ lead_id: leadId, tier, persona: `docs/09 ${segment}`, angle: deps.style.firm_type_angles[primary][0]!, emails });
+  return SequenceSchema.parse({ lead_id: leadId, tier: "C", persona: `docs/09 ${segment}`, angle: deps.style.firm_type_angles[primary][0]!, emails });
+}
+
+/** The sender's own details the emails may state (docs/01): supported facts for the judge. */
+export function senderSettings(o: OfferConfig): Record<string, string> {
+  return {
+    company: o.company_name.trim(),
+    what_the_company_does: o.company_one_liner.trim(),
+    founding_client_offer: (o.founding_client_offer ?? "").trim(),
+    region: o.region.trim(),
+    booking_link: o.booking_link.trim(),
+  };
+}
+
+/** Runs the judge over the model-written and edited emails (dossier values only). */
+export async function judgeEmails(leadId: string, d: Dossier, emails: SequenceEmail[], deps: WriteDeps, budgetSinceRunId = lastRunId(deps.db)): Promise<JudgeOutput> {
+  const toJudge = judgedEmails(emails);
+  const values = verifiedValues(d, deps.offer, deps.evidence).prospect_facts;
+  const message: Anthropic.Message = (
+    await deps.llm.call(
+      { callType: "judge", leadId, budgetSinceRunId },
+      {
+        model: deps.modelWrite,
+        max_tokens: MAX_OUTPUT_TOKENS.judge,
+        thinking: { type: "disabled" },
+        tools: [judgeTool()],
+        tool_choice: { type: "tool", name: JUDGE_TOOL_NAME },
+        system: [{ type: "text", text: deps.judgeSystem, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: judgeMessage(values, deps.approved.map((a) => a.text), toJudge, senderSettings(deps.offer)) }],
+      },
+    )
+  ).message;
+  const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === JUDGE_TOOL_NAME);
+  const parsed = JudgeOutputSchema.safeParse(block?.input);
+  // An unreadable verdict never passes.
+  return parsed.success
+    ? parsed.data
+    : { unsupported_claims: [{ email: toJudge[0]?.n ?? 1, claim: "The judge's answer could not be read; run it again.", reason: "other" }] };
 }
 
 /**
- * Generates a lead's sequence (template-first):
+ * Generates a lead's sequence by tier and gate (docs/06):
  *  - out_of_icp or needs_review: nothing is written unless the founder approved the gate.
- *  - Every email is docs/09 copy assembled by code. The model writes only {{personal_line}} in
- *    email 1 (tiers A and B: one small call; tier C: the fallback line, no call).
- *  - Anything the code can repair is repaired: a failed call or a line that fails the checks uses the
- *    docs/09 fallback line; if the assembled email 1 still fails with the model's line, the fallback
- *    line replaces it. Only problems in the docs/09 copy or settings can leave a sequence blocked.
+ *  - Tier C: the docs/09 fixed copy; no writer or judge call.
+ *  - Tiers A and B: the writer model writes all five emails in the docs/03 examples' voice, from verified
+ *    values only. Code splices the approved docs/02 sentence at [[APPROVED]] in email 2 and runs the
+ *    validators; on errors the writer rewrites once from its own draft and the errors. The judge then
+ *    checks for unsupported claims. "passed" means validators and judge are both clean.
  */
 export async function generateSequence(
   leadId: string,
@@ -189,8 +223,11 @@ export async function generateSequence(
     reason: "",
     sequence: null,
     validation: null,
-    personalLine: null,
-    modelCalls: 0,
+    judge: null,
+    drafts: [],
+    firstPassValid: null,
+    writerCalls: 0,
+    judgeCalls: 0,
     sequenceId: null,
     contactWarning: contactWarning(dossier),
     exportBlockers: [],
@@ -201,57 +238,90 @@ export async function generateSequence(
     return { ...base, reason };
   }
 
-  const line = await writePersonalLine(leadId, dossier, deps, { call: modelEmailsFor(tier).includes(1), firstName: firstNameFor(dossier, override) });
   const vctx = validationContext(dossier, deps);
-  let sequence = buildSequence(leadId, dossier, tier, deps, line.line, line.subject, override);
-  let validation = validateSequence(sequence, vctx);
-  let usedFallbackAfterAssembly = false;
-  const e1Errors = (v: ValidationResult) => v.issues.filter((i) => i.severity === "error" && i.email === 1).length;
-  if (line.line.source === "model" && e1Errors(validation) > 0) {
-    const fb: PersonalLine = { text: fallbackLine(leadSegment(dossier, deps.templates), deps.templates), source: "fallback" };
-    const seq2 = buildSequence(leadId, dossier, tier, deps, fb, null, override);
-    const v2 = validateSequence(seq2, vctx);
-    if (e1Errors(v2) < e1Errors(validation)) {
-      const problems = validation.issues.filter((i) => i.severity === "error" && i.email === 1).map((i) => i.message);
-      line.rejected = line.line.text;
-      line.note = `email 1 did not pass with the model's line (${problems.join("; ")}), so the docs/09 fallback line is used`;
-      line.line = fb;
-      line.subject = null;
-      [sequence, validation, usedFallbackAfterAssembly] = [seq2, v2, true];
+  let sequence: Sequence;
+  let judge: JudgeOutput | null = null;
+  let drafts: Draft[] = [];
+  let writerCalls = 0;
+  let judgeCalls = 0;
+  let note: string | null = null;
+
+  if (modelEmailsFor(tier).length === 0) {
+    sequence = templateSequence(leadId, dossier, deps, override);
+  } else {
+    const budgetSinceRunId = lastRunId(deps.db);
+    const input = writerInput(dossier, deps, firstNameFor(dossier, override));
+    try {
+      const w = await writeSequenceEmails(leadId, dossier, tier, deps, vctx, {
+        firstName: firstNameFor(dossier, override),
+        review: (emails) => judgeEmails(leadId, dossier, emails, deps, budgetSinceRunId),
+      });
+      drafts = w.drafts;
+      writerCalls = w.writerCalls;
+      note = w.note;
+      if (!w.emails) {
+        // Two unusable answers: nothing to show but the reason (the lead page keeps it).
+        const reason = `Not written: the writer's answers could not be used (${drafts.map((x) => x.formatProblem).filter(Boolean).join("; ")}). Write again.`;
+        logWriteAttempt(deps.db, leadId, reason);
+        return { ...base, reason, drafts, writerCalls };
+      }
+      sequence = SequenceSchema.parse({ lead_id: leadId, tier, persona: input.persona, angle: deps.style.firm_type_angles[writerType(dossier)][0]!, emails: w.emails });
+      judge = w.judge;
+      judgeCalls = w.judgeCalls;
+    } catch (err) {
+      if (!(err instanceof BudgetExceededError)) throw err;
+      const reason = `Not written: stopped by the lead's token budget (${err.message}).`;
+      logWriteAttempt(deps.db, leadId, reason);
+      return { ...base, reason, drafts, writerCalls };
     }
   }
 
-  const status: SequenceStatus = validation.pass ? "passed" : "blocked";
-  const lineNote = line.line.source === "model" ? "personal line written by the model" : `personal line: ${line.note}`;
-  const reason = status === "passed" ? `validators passed; ${lineNote}` : `the docs/09 copy or settings fail a validator (edit the email or docs/09); ${lineNote}`;
+  const validation = validateSequence(sequence, vctx);
+  const needsJudge = judgedEmails(sequence.emails).length > 0;
+  const judgePass = !needsJudge || (judge !== null && judge.unsupported_claims.length === 0);
+  const status: SequenceStatus = validation.pass && judgePass ? "passed" : "blocked";
+  const reason =
+    status === "passed"
+      ? [tier === "C" ? "tier C: docs/09 fixed copy, no model call; validators passed" : "validators and judge passed", note].filter(Boolean).join("; ")
+      : [note, !validation.pass ? "validator errors remain after the rewrite" : "", !judgePass ? "the judge still listed unsupported claims after the rewrite" : ""].filter(Boolean).join("; ");
   const row = deps.db
     .insert(sequences)
-    .values({ leadId, tier, status, sequenceJson: JSON.stringify(sequence), validationJson: JSON.stringify({ validation, personalLine: line }), judgeJson: null })
+    .values({
+      leadId,
+      tier,
+      status,
+      sequenceJson: JSON.stringify(sequence),
+      validationJson: JSON.stringify({ validation, drafts }),
+      judgeJson: judge ? JSON.stringify({ result: judge, content_hash: judgedContentHash(sequence.emails) } satisfies StoredJudge) : null,
+    })
     .returning({ id: sequences.id })
     .get();
-  if (status !== "passed") logWriteAttempt(deps.db, leadId, `Written, needs fixes: ${reason}.`);
+  if (status !== "passed" || note) logWriteAttempt(deps.db, leadId, `${status === "passed" ? "Written" : "Written, needs fixes"}: ${reason}.`);
   return {
     ...base,
     status,
     reason,
     sequence,
     validation,
-    personalLine: { ...line, usedFallbackAfterAssembly },
-    modelCalls: line.called ? 1 : 0,
+    judge,
+    drafts,
+    firstPassValid: drafts[0] ? !drafts[0].formatProblem && drafts[0].errors.length === 0 : null,
+    writerCalls,
+    judgeCalls,
     sequenceId: row.id,
     exportBlockers: exportBlockers(deps.offer, sequence),
   };
 }
 
 /**
- * Approval is refused unless the sequence is the lead's newest and passed the code validators (and
- * the judge, when emails were edited by hand). A missing named contact never blocks approval.
+ * Approval is refused unless the sequence is the lead's newest and passed the code validators and the
+ * judge. A missing named contact never blocks approval.
  */
 export function approveSequence(db: Db, sequenceId: number, now: () => Date = () => new Date()): void {
   const row = db.select().from(sequences).where(eq(sequences.id, sequenceId)).get();
   if (!row) throw new ApprovalBlockedError(`sequence ${sequenceId} not found`);
   const newest = db.select({ id: sequences.id }).from(sequences).where(eq(sequences.leadId, row.leadId)).orderBy(desc(sequences.id)).limit(1).get();
   if (newest?.id !== row.id) throw new ApprovalBlockedError(`sequence ${sequenceId} is not the lead's newest sequence`);
-  if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs the code validators (and the judge for hand edits) to pass`);
+  if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs the code validators and the judge to pass`);
   db.update(sequences).set({ status: "approved", approvedAt: now().toISOString() }).where(eq(sequences.id, sequenceId)).run();
 }

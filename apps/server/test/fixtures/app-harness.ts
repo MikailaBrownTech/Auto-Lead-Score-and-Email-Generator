@@ -2,10 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import { EXTRACTION_TOOL_NAME, JUDGE_TOOL_NAME, PERSONAL_LINE_TOOL_NAME } from "@clearpath/shared";
+import { EXTRACTION_TOOL_NAME, JUDGE_TOOL_NAME, WRITER_TOOL_NAME } from "@clearpath/shared";
 import type { DnsResolver } from "../../src/dns/lookup";
 import { openDb } from "../../src/db/client";
 import { fromRoot } from "../../src/config/paths";
+import { saveBlock } from "../../src/docs/loader";
 import { createLlmClient } from "../../src/llm/client";
 import { SpendGate } from "../../src/llm/spend-gate";
 import { createApp } from "../../src/server/app";
@@ -14,10 +15,28 @@ import { TOKEN_HEADER } from "../../src/server/local-guard";
 import type { Services } from "../../src/server/services";
 import { fakeApi, smithAnswer, testPrices, TEST_MODEL, userText } from "./fakeapi";
 import { fakeLimiter, sampleWeb } from "./fakeweb";
+import { writerAnswerFor } from "./write-deps";
 
 export const PORT = 8787;
 export const TOKEN = "t".repeat(64);
 export const NOW = new Date("2026-09-24T12:00:00.000Z");
+
+/** docs/01 settings for the harness: signature filled, footer and merge settings empty (tests fill them). */
+export const HARNESS_OFFER = {
+  sender_name: "Mikaila Brown",
+  sender_title: "Founder",
+  company_name: "ClearPath IT",
+  company_website: "https://www.clearpathsecure.com",
+  opt_out_line: "",
+  physical_address: "",
+  approved_proof: [],
+  founding_client_offer: null,
+  booking_link: "",
+  region: "",
+  company_one_liner: "",
+  include_dns_observation: false,
+  checklist_ready: false,
+};
 
 export const DOE_TEXT = [
   "Doe Tax Service",
@@ -51,15 +70,6 @@ export function doeAnswer(): Record<string, unknown> {
   };
 }
 
-/**
- * A personal-line answer that passes the checks for any lead: it names the firm (from the model's
- * message, as the real model does) and nothing else.
- */
-export function lineAnswerFor(message: string): { personal_line: string; subject: "A" } {
-  const firm = /"firm_name":\s*"([^"]+)"/.exec(message)?.[1];
-  return { personal_line: `${firm ?? "Your firm"} works with a lot of sensitive client financial data.`, subject: "A" };
-}
-
 function message(name: string, input: unknown, i: number): Anthropic.Message {
   return {
     id: `msg_${i}`,
@@ -85,23 +95,29 @@ const fakeDns: DnsResolver = {
  * The whole API in-process: saved HTML fixtures (smithtax.example), fake DNS, recorded model answers
  * (extraction, writer, judge by tool name), and a temporary copy of docs/ so settings saves stay local.
  */
-export function makeHarness(opts: { judge?: unknown; line?: unknown | ((call: number) => unknown); capUsd?: number } = {}) {
+export function makeHarness(opts: { judge?: unknown | unknown[]; writer?: unknown | ((call: number) => unknown); capUsd?: number } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "clearpath-e2e-"));
   const docsDir = path.join(tmp, "docs");
   fs.cpSync(fromRoot("docs"), docsDir, { recursive: true });
+  // Tests run against fixed settings, not whatever the founder has entered in docs/01 today.
+  saveBlock("offer", HARNESS_OFFER, { docsDir, backupDir: path.join(tmp, "backups") });
   const db = openDb(":memory:");
   const now = () => NOW;
   const calls: Anthropic.MessageCreateParamsNonStreaming[] = [];
-  let lineCall = 0;
+  let writerCall = 0;
+  let judgeCall = 0;
   const f = fakeApi((p, i) => {
     calls.push(p);
     const tool = (p.tools![0] as Anthropic.Tool).name;
     if (tool === EXTRACTION_TOOL_NAME) return message(tool, userText(p).includes("doetax") ? doeAnswer() : smithAnswer(), i);
-    if (tool === PERSONAL_LINE_TOOL_NAME) {
-      const w = opts.line;
-      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(lineCall++) : (w ?? lineAnswerFor(userText(p))), i);
+    if (tool === WRITER_TOOL_NAME) {
+      const w = opts.writer;
+      return message(tool, typeof w === "function" ? (w as (n: number) => unknown)(writerCall++) : (w ?? writerAnswerFor(userText(p))), i);
     }
-    if (tool === JUDGE_TOOL_NAME) return message(tool, opts.judge ?? { unsupported_claims: [] }, i);
+    if (tool === JUDGE_TOOL_NAME) {
+      const list = Array.isArray(opts.judge) ? opts.judge : [opts.judge ?? { unsupported_claims: [] }];
+      return message(tool, list[Math.min(judgeCall++, list.length - 1)], i);
+    }
     throw new Error(`unexpected tool ${tool}`);
   });
   const gate = new SpendGate(db, opts.capUsd ?? 5, now);

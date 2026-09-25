@@ -49,10 +49,10 @@ describe("real docs (tests run against the files in docs/)", () => {
     );
   });
 
-  it("docs/01 offer parses; unfilled settings are empty, so no proof can be claimed", () => {
+  it("docs/01 offer parses; approved_proof is empty, so no proof can be claimed", () => {
     const offer = loadOffer();
     expect(offer.sender_name).toBe("Mikaila Brown");
-    expect(offer).toMatchObject({ booking_link: "", region: "", founding_client_offer: null, company_one_liner: "" });
+    expect(typeof offer.booking_link).toBe("string");
     expect(offer.approved_proof).toEqual([]);
   });
 

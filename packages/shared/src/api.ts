@@ -105,17 +105,17 @@ export interface SequenceView {
   exportBlockers: string[];
   /** Code-inserted approved sentences (docs/02), to show apart from other text. */
   approvedSentences: { id: string; text: string }[];
-  /** Emails whose personal line the model may write again (email 1, tiers A and B). */
+  /** Emails the writer may rewrite (tiers A and B: all five; tier C: none). */
   rewritable: number[];
   wordLimits: Record<string, number>;
   subjectMaxWords: number;
   signature: string[];
   /** Emails with settings merge fields ({{offer}}, {{booking_link}}, ...) filled in, as they will be sent. */
   rendered: { n: number; subject_a: string | null; subject_b: string | null; body: string }[];
-  /** "template": fixed docs/09 text plus a fallback personal line (no model call). "custom": a model-written personal line or your edits. */
+  /** "template": the docs/09 fixed copy (tier C, no model call). "custom": written by the model or edited by you. */
   kind: "template" | "custom";
-  /** The {{personal_line}} in email 1: who wrote it, and why the fallback was used (never an error). */
-  personalLine: { text: string; source: "model" | "fallback"; note: string | null } | null;
+  /** Every writer draft of this sequence (first draft, rewrite), with the validator errors it got. */
+  drafts: { attempt: number; formatProblem: string | null; errors: ValidationIssueView[] }[];
 }
 
 export interface SequenceListItem {

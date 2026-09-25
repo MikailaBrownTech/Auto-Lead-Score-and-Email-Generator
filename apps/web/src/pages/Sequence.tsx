@@ -31,7 +31,7 @@ interface Mark {
   title: string;
 }
 
-/** The body with inserted text marked apart: approved docs/02 sentences, and email 1's personal line. */
+/** The body with inserted text marked apart: approved docs/02 sentences (and a legacy personal line). */
 export function markInserted(body: string, marks: Mark[]): ReactNode[] {
   const parts: ReactNode[] = [];
   let rest = body;
@@ -65,8 +65,7 @@ export function markApproved(body: string, approved: { id: string; text: string 
 
 function origin(e: SequenceView["sequence"]["emails"][number]): { text: string; tone: "neutral" | "info" | "warning" } {
   if (e.edited) return { text: "Edited by you", tone: "warning" };
-  if (e.personal_line) return e.personal_line.source === "model" ? { text: "docs/09 + model line", tone: "info" } : { text: "docs/09 + fallback line", tone: "neutral" };
-  return { text: "docs/09 copy", tone: "neutral" };
+  return e.template ? { text: "docs/09 fixed copy", tone: "neutral" } : { text: "Written by the model", tone: "info" };
 }
 
 export function EmailCard(props: {
@@ -112,8 +111,8 @@ export function EmailCard(props: {
           </Badge>
         )}
         {props.onRewrite && (
-          <button type="button" className="btn ghost sm" onClick={props.onRewrite} disabled={props.busy} title="One small model call; email 1 is rebuilt from docs/09 with the new line">
-            New personal line
+          <button type="button" className="btn ghost sm" onClick={props.onRewrite} disabled={props.busy} title="One writer call: the model rewrites this email, seeing the whole sequence and this email's problems">
+            Rewrite this email
           </button>
         )}
       </header>
@@ -303,14 +302,13 @@ export function SequenceEditor(props: { initial: SequenceView }) {
           Contact: {view.contactWarning}. This is a warning only; it does not block approval or export.
         </NoticeBanner>
       )}
-      {view.personalLine?.source === "fallback" && (
-        <NoticeBanner tone="info">
-          Personal line: the docs/09 fallback line is used{view.personalLine.note ? ` (${view.personalLine.note.replace(", so the docs/09 fallback line is used", "")})` : ""}. Nothing to fix
-          {view.rewritable.includes(1) ? "; choose New personal line on email 1 to try the model again." : "."}
-        </NoticeBanner>
+      {view.kind === "template" && (
+        <NoticeBanner tone="info">Tier C: the docs/09 fixed copy with the lead's details filled in. No model was used, so no judge is needed.</NoticeBanner>
       )}
       {!view.validationPass && (
-        <NoticeBanner>A validator error remains in the docs/09 copy or your edits. It is shown on the email below: edit it here and save, or fix docs/09_sequences.md.</NoticeBanner>
+        <NoticeBanner>
+          A validator error remains after the one rewrite. It is shown on the email below: edit it and save, or choose Rewrite this email{view.kind === "template" ? " (tier C: edit by hand or fix docs/09_sequences.md)" : ""}.
+        </NoticeBanner>
       )}
       {view.issues
         .filter((i) => i.email === null)
@@ -334,11 +332,32 @@ export function SequenceEditor(props: { initial: SequenceView }) {
           </ul>
         </section>
       )}
+      {view.drafts.length > 0 && (
+        <details className="card">
+          <summary>Writer drafts for this sequence ({view.drafts.length})</summary>
+          <div className="stack-sm small">
+            {view.drafts.map((d) => (
+              <div key={d.attempt}>
+                <strong>{d.attempt === 1 ? "First draft" : "Rewrite"}</strong>:{" "}
+                {d.formatProblem ? `could not be used (${d.formatProblem})` : d.errors.length === 0 ? "passed the validators" : `${d.errors.length} validator error(s)`}
+                {d.errors.length > 0 && (
+                  <ul>
+                    {d.errors.map((i, k) => (
+                      <li key={k}>
+                        {i.email ? `Email ${i.email}: ` : ""}
+                        {i.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       <p className="legend">
-        <mark className="personal">Personal line</mark>
-        <span>is the one sentence the model writes (checked by code, or the docs/09 fallback).</span>
         <mark className="approved">Approved sentence</mark>
-        <span>is inserted by code from docs/02. Everything else is your docs/09 copy.</span>
+        <span>is the exact VERIFIED docs/02 sentence, inserted by code where the writer marked it. The model never states a rule itself.</span>
       </p>
       <div className="email-stack">
         {emails.map((e) => (
@@ -350,7 +369,7 @@ export function SequenceEditor(props: { initial: SequenceView }) {
             busy={!!busy}
             onChange={edit}
             {...(view.rewritable.includes(e.n)
-              ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), "New personal line written.") }
+              ? { onRewrite: () => act(`rewrite-${e.n}`, () => api<SequenceView>(`/sequences/${view.id}/rewrite`, { method: "POST", body: { n: e.n } }), `Email ${e.n} rewritten. Run the judge again.`) }
               : {})}
           />
         ))}
@@ -378,7 +397,7 @@ export function SequencePage(props: { id: string }) {
           <div className="lead-meta">
             <TierChip tier={data.tier} />
             <StatusBadge status={data.status} />
-            {data.kind === "template" ? <Badge>docs/09 + fallback line</Badge> : <Badge tone="info">docs/09 + model line</Badge>}
+            {data.kind === "template" ? <Badge>docs/09 fixed copy (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}
           </div>
         </div>
       </div>
@@ -418,7 +437,7 @@ export function SequencesPage() {
             </a>
           }
         >
-          Open a lead and choose Write sequence. Tier C leads get the docs/09 copy with the fallback line (no model call).
+          Open a lead and choose Write sequence. Tier C leads get the docs/09 fixed copy (no model call).
         </EmptyState>
       )}
       {data && data.length > 0 && (
@@ -442,7 +461,7 @@ export function SequencesPage() {
                   <td>
                     <TierChip tier={s.tier} />
                   </td>
-                  <td>{s.kind === "template" ? <Badge>docs/09 + fallback line</Badge> : <Badge tone="info">docs/09 + model line</Badge>}</td>
+                  <td>{s.kind === "template" ? <Badge>docs/09 fixed copy (no model call)</Badge> : <Badge tone="info">Written by the model</Badge>}</td>
                   <td>
                     <StatusBadge status={s.status} />
                   </td>

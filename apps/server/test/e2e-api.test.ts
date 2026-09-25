@@ -65,10 +65,10 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(exp.csv).not.toMatch(/doetax/i);
       expect(exp.csv).toContain("Reply no and I will not email again.");
       expect(exp.csv).toContain("ClearPath IT");
-      // Generic inbox: the role-based opening line, sendable, with the contact note; settings merge fields filled.
-      expect(exp.csv).toContain("Quick question for whoever looks after IT and client data at Smith Tax Services:");
-      expect(exp.csv).toContain("half off the first three months");
-      expect(exp.csv).not.toMatch(/\{\{/);
+      // Generic inbox: a role-based opener written by the model, sendable, with the contact note; the booking link filled in.
+      expect(exp.csv).toContain("Quick question for whoever handles client data at Smith Tax Services:");
+      expect(exp.csv).toContain("https://cal.example.com/clearpath");
+      expect(exp.csv).not.toMatch(/\{\{|\[\[/);
       expect(exp.csv).toContain("office@smithtax.example,Y,generic inbox: lower reply odds,");
 
       const file = await h.call("GET", "/api/export.csv");
@@ -77,7 +77,7 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(file.text).toBe(exp.csv);
 
       // No evidence quote ever reached a writer or judge message.
-      for (const p of h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "record_personal_line" || t.name === "record_judgment")))) {
+      for (const p of h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "write_sequence" || t.name === "record_judgment")))) {
         const text = JSON.stringify(p.messages);
         expect(text).not.toMatch(/evidence_quote|evidence_url|Jane Smith, EA/);
       }
@@ -106,7 +106,7 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
     }
   });
 
-  it("internal notes (incomplete_data, email_security_hint, client_count_signal) never reach the personal-line model, the judge, or the CSV", async () => {
+  it("internal notes (incomplete_data, email_security_hint, client_count_signal) never reach the writer, the judge, or the CSV", async () => {
     const h = makeHarness();
     try {
       await h.call("PUT", "/api/settings/offer", { opt_out_line: "Reply no to stop.", physical_address: "1 Main St", checklist_ready: true, founding_client_offer: "half off the first three months", booking_link: "https://cal.example.com/clearpath", region: "Columbus-area" });
@@ -139,9 +139,9 @@ describe("end to end: import -> research -> write -> approve -> export", { timeo
       expect(exp.rowCount).toBe(1);
 
       const forbidden = /itpro-example|IT provider|DMARC reports|900 local businesses|client_count|incomplete|paste mode/i;
-      // One model call per lead (the personal line); no judge call on an unedited sequence.
-      const modelCalls = h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "record_personal_line" || t.name === "record_judgment")));
-      expect(modelCalls.map((c) => (c.tools![0] as { name: string }).name)).toEqual(["record_personal_line"]);
+      // A clean first draft: one writer call and one judge call, plus the on-demand judge run above.
+      const modelCalls = h.calls.filter((c) => c.tools?.some((t) => "name" in t && (t.name === "write_sequence" || t.name === "record_judgment")));
+      expect(modelCalls.map((c) => (c.tools![0] as { name: string }).name)).toEqual(["write_sequence", "record_judgment", "record_judgment"]);
       for (const c of modelCalls) expect(JSON.stringify(c.messages)).not.toMatch(forbidden);
       expect(exp.csv).not.toMatch(forbidden);
     } finally {

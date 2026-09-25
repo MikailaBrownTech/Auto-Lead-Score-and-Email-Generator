@@ -11,11 +11,11 @@ export type GroundingField = (typeof GROUNDING_FIELDS)[number];
 export const FactFieldSchema = z.enum(GROUNDING_FIELDS as unknown as [string, ...string[]]);
 
 /**
- * One email, assembled by code from docs/09_sequences.md. `body` runs from the opening line to the
- * last sentence before the signature. Lead merge fields are filled in; settings merge fields
- * ({{company}}, {{offer}}, {{booking_link}}, {{region}}, {{company_one_liner}}) stay as placeholders and
- * are filled from docs/01 when the email is shown, checked, or exported. The signature block is
- * appended by code.
+ * One email. `body` runs from the greeting or opening line to the last sentence before the signature.
+ * Tiers A and B: written by the writer model, with the approved docs/02 sentence spliced in by code.
+ * Tier C: the docs/09 fixed copy, whose settings merge fields ({{company}}, {{offer}}, {{booking_link}},
+ * {{region}}, {{company_one_liner}}) are filled from docs/01 when shown, checked, or exported. The
+ * signature block is appended by code.
  */
 export const SequenceEmailSchema = z
   .object({
@@ -28,9 +28,9 @@ export const SequenceEmailSchema = z
     body: z.string().trim().min(1),
     /** Dossier fields this email relies on (found by code in the personal line). Every listed field must be found. */
     grounding: z.array(FactFieldSchema),
-    /** True for docs/09 template copy (every email is now). */
+    /** True for the docs/09 fixed copy (tier C); false when the writer model wrote it. */
     template: z.boolean(),
-    /** Email 1: the {{personal_line}} inserted by code, and whether the model or the docs/09 fallback wrote it. */
+    /** Legacy: sequences built by the template-first version (2026-09-24) carry their personal line. */
     personal_line: z.object({ text: z.string().trim().min(1), source: z.enum(["model", "fallback"]) }).strict().optional(),
     /** True once the founder edited the text by hand. Edited emails get the same checks as model-written text (allowlist, judge). */
     edited: z.boolean().optional(),
@@ -71,20 +71,27 @@ export const WRITER_GROUNDING = [
 export type WriterGrounding = (typeof WRITER_GROUNDING)[number];
 
 /**
- * The only thing the model writes: {{personal_line}} in email 1, plus an optional pick of subject A or
- * B. Everything else is docs/09 copy assembled by code.
+ * One email as the writer model returns it: the full body (greeting through the last sentence, no
+ * signature). In email 2 the marker [[APPROVED]] stands where the code inserts the approved docs/02
+ * sentence.
  */
-export const PersonalLineOutputSchema = z
+export const WriterEmailSchema = z
   .object({
-    personal_line: z
-      .string()
-      .trim()
-      .min(1)
-      .describe("One sentence, at most 30 words, using one or two of the given values. No question, no greeting."),
-    subject: z.enum(["A", "B"]).optional().describe("Which of the two subject lines fits this firm better."),
+    n: z.number().int().min(1).max(5).describe("Email number, 1 to 5."),
+    subject_a: z.string().trim().min(1).nullable().describe("Email 1: subject A. Email 4: optional subject. Otherwise null."),
+    subject_b: z.string().trim().min(1).nullable().describe("Email 1 only: subject B. Otherwise null."),
+    body: z.string().trim().min(1).describe("The full email body, greeting (email 1 only) through the last sentence. No sign-off, name, or footer."),
   })
   .strict();
-export type PersonalLineOutput = z.infer<typeof PersonalLineOutputSchema>;
+export type WriterEmail = z.infer<typeof WriterEmailSchema>;
+
+export const WriterOutputSchema = z
+  .object({ emails: z.array(WriterEmailSchema).length(5).describe("Emails 1 to 5, in order.") })
+  .strict();
+export type WriterOutput = z.infer<typeof WriterOutputSchema>;
+
+/** Where the code inserts the approved docs/02 sentence in the writer's draft. */
+export const APPROVED_MARKER = "[[APPROVED]]";
 
 export const JUDGE_REASONS = [
   "not_in_prospect_facts",
@@ -116,5 +123,5 @@ export const JudgeOutputSchema = z
   .strict();
 export type JudgeOutput = z.infer<typeof JudgeOutputSchema>;
 
-export const PERSONAL_LINE_TOOL_NAME = "record_personal_line";
+export const WRITER_TOOL_NAME = "write_sequence";
 export const JUDGE_TOOL_NAME = "record_judgment";

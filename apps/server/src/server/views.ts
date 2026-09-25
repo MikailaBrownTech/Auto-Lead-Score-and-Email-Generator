@@ -38,7 +38,7 @@ function latestSequences(db: Db): Map<string, { id: number; status: string; crea
   return out;
 }
 
-/** "template": docs/09 copy and a fallback personal line (no model text). "custom": a model-written line or hand edits. */
+/** "template": the docs/09 fixed copy (tier C, no model text). "custom": written by the model or edited by hand. */
 export function sequenceKind(seq: Sequence): "template" | "custom" {
   return seq.emails.every((e) => e.template && !e.edited && e.personal_line?.source !== "model") ? "template" : "custom";
 }
@@ -164,7 +164,7 @@ function lastAttempt(db: Db, leadId: string, sequenceAt: string | null): { at: s
 export function sequenceView(db: Db, sequenceId: number, deps: WriteDeps): SequenceView {
   const ctx = loadSequenceContext(db, sequenceId, deps);
   const state = sequenceState(ctx, ctx.sequence, ctx.judge, deps);
-  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.personalLine);
+  return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.drafts);
 }
 
 export function sequenceViewFrom(
@@ -176,10 +176,8 @@ export function sequenceViewFrom(
   sequence: SequenceView["sequence"],
   state: ReturnType<typeof sequenceState>,
   deps: WriteDeps,
-  line: SequenceContextLine = null,
+  drafts: SequenceView["drafts"] = [],
 ): SequenceView {
-  const e1 = sequence.emails[0];
-  const current = e1?.personal_line ?? null;
   return {
     id,
     leadId,
@@ -205,8 +203,6 @@ export function sequenceViewFrom(
       body: renderSettings(e.body, deps.offer),
     })),
     kind: sequenceKind(sequence),
-    personalLine: current ? { ...current, note: current.source === "fallback" && line?.line.text === current.text ? line.note : current.source === "fallback" ? "the docs/09 fallback line is used" : null } : null,
+    drafts,
   };
 }
-
-type SequenceContextLine = ReturnType<typeof loadSequenceContext>["personalLine"];

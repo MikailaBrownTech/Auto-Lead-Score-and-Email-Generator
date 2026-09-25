@@ -34,23 +34,36 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       founder's copy; code assembles every email; the model writes only {{personal_line}} (one small call per
       tier A/B lead, fallback line otherwise). Greeting rules, merge fields, relaxed word limits, segment
       swaps, export blockers for offer/booking_link/region; 5 recorded real generations pass first time.
-- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder reviews the new sequences).
+- [x] Full AI writer again (2026-09-24, founder decision; replaces template-first for tiers A and B): the
+      writer model writes all five emails in the voice of the founder's docs/03 example sequences; code
+      splices the VERIFIED docs/02 sentence at [[APPROVED]]; lighter validators; one rewrite from its own
+      draft plus the validator errors or judge claims; judge as the second check. Tier C keeps the docs/09
+      fixed copy. 5 recorded real generations pass the validator set.
+- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
 
-## Current state (2026-09-24, after the template-first rewrite)
-- Tests: 495 passing in 32 files (vitest: unit, component, offline end-to-end API, UI end-to-end,
-  recorded personal-line generations). Typecheck clean (strict). Web build clean. Month to date about
-  $0.79 of the $5 cap: recording the personal lines took four rounds of 5 calls (about $0.038 total,
-  about $0.002 per call) while the prompt was tuned; the last round is what the fixtures hold.
+## Current state (2026-09-24, after the full-writer revert)
+- Tests: 482 passing in 32 files (vitest: unit, component, offline end-to-end API, UI end-to-end,
+  recorded writer generations). Typecheck clean (strict). Web build clean. Month to date about $1.45 of the
+  $5 cap. Recording rounds for this change: 5 rounds (about $0.57 total; one round of 5 leads costs about
+  $0.15-0.17, about $0.03 per lead: writer, sometimes a rewrite, judge). The last round is what the
+  fixtures hold.
+- Recorded outcome (last round, real MODEL_WRITE): innercircle, essentialacctg, mapaccountinggroup passed
+  on the first draft (validators and judge). rbvfinancial: first draft tied the plan to "EFIN or PTIN
+  renewal time" (caught), the rewrite passed the validators, the judge then listed 2 claims (one is a
+  false positive on verified services; the other says the "what's usually expected" list is more specific
+  than docs/02) -> blocked for review. metaxparma: first draft had over-long subjects (caught); the rewrite
+  passed the validators; the judge flagged "this doesn't need to wait until after season" (urgency) ->
+  blocked for review. All 5 final drafts pass the reduced validator set (the test's requirement).
 - The app runs locally with `npm run app` (API 127.0.0.1:8787 + UI 127.0.0.1:5173). Every screen was
   captured in a real browser (Playwright/Chromium) on seed data: data/screenshots/ (1280px),
   data/screenshots/900/, data/screenshots/dark/. No screen scrolls sideways at 1280 or 900.
-- Leads in data/clearpath.db: 7 live leads (4 qualified tier B labeled no_named_contact, rbvfinancial
-  qualified tier B, peasebell and cehcpas out_of_icp) plus 1 outdated lead (clearpathsecure; import
-  again). The two stored sequences (innercircle id 6, rbvfinancial id 7) were written by the old
-  whole-email writer: they open with "Hi," and use the old copy, so the new validators flag them. Choose
-  "Write the sequence again" on each lead to get the docs/09 sequence.
-- Nothing exports yet: opt_out_line, physical_address, founding_client_offer, booking_link, and region
-  are empty in docs/01; checklist_ready is false; no sequence is approved.
+- Leads in data/clearpath.db: 7 live leads plus 1 outdated lead (clearpathsecure; import again). Stored
+  sequences were written by earlier versions; choose "Write the sequence again" to get the new writer.
+- docs/01 (founder, 2026-09-24): company_name "Clear Path Secure", opt_out_line "Click here to opt out",
+  physical_address "Cleveland, Ohio", founding_client_offer "Get free security audit", booking_link = the
+  contact page, region "Ohio", checklist_ready true. Export is no longer blocked by settings. Before sending:
+  commercial email needs a valid postal address (street or PO box), and "Click here to opt out" needs a
+  working link or a reply instruction.
 
 ## Bug: "Write sequence" produced nothing (fixed in 524e9bf; details)
 - Root cause: the write route and UI click work (reproduced with fixtures and one real write), but
@@ -83,41 +96,56 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - 403/429 from a prospect site: stop that host for the run, never retry, same UA, paste-text prompt in
   the report. Extraction uses the pages already fetched. INTENTIONAL (founder decision): robots.txt
   answering 403/429 is treated the same way (strict), not as "no robots.txt".
-- Template-first (founder decision 2026-09-24): docs/09_sequences.md is the human-written sequence,
-  read at runtime as plain Markdown (docs/templates.ts): "## Email N" sections, "Subject A/B:" and
-  "Subject (...):" lines, copy up to the {{signature}} line (notes after it are ignored), "Fallback
-  personal lines" (per type), "Segment swaps" table, "Signature block". Unknown merge fields refuse the
-  file with a plain error. The old whole-email writer, its prompt (prompts/write.md), personas (docs/08
-  is no longer read), and the per-email rewrite loop are gone.
-- Merge fields: lead fields filled at assembly (firm, firm_short = legal suffixes stripped, city,
-  first_name, personal_line, approved_sentence); settings fields filled when shown, checked, or exported
-  (company, offer = founding_client_offer, booking_link, region, company_one_liner), so a Settings change
-  applies to every sequence without a rewrite. An empty setting stays a visible {{placeholder}} and blocks
-  export (not approval). {{approved_sentence}} = the first docs/02 approved sentence for email 2 and the
-  segment (cpa: insurers at renewal; tax_preparer: IRS Pub 4557; others: rule requirements), verbatim;
-  without one the paragraph is dropped.
-- Greeting (docs/09 rules): a first name tied to the public address -> email 1 opens "Hi {{first_name}},"
-  and the role-based line is omitted; otherwise (or after a contact override) email 1 opens with the
-  role-based line. Emails 2-5 never greet. "Hi there," and docs/01 neutral_greeting_style are gone.
-- {{personal_line}}: the only model text. One small call (MODEL_EXTRACT) per tier A/B lead, forced tool
-  record_personal_line {personal_line, subject A|B}; max_tokens 200; no thinking. Input: firm name, type,
-  city/state, ONE code-chosen service (the first verified service naming the firm type, else the first),
-  the segment theme ("emphasize ..."), the copy around the line, and the two subjects. Code checks
-  (personal-line.ts): one sentence ending with a period, <= 30 words, 1-2 values from firm/city/service and
-  nothing else about the firm, no number outside the firm name or a verified service, no regulatory or
-  insurer words outside a verified service name ("IRS Representation" is fine), no evaluative terms
-  (docs/03 evaluative_terms) or banned phrases, no absence claim, proof, company name, person's name,
-  link, DNS remark, or ALL CAPS. The model's subject pick goes first (both kept for A/B).
-- Never a failure the code can repair: tier C, spend cap, budget, API error, unreadable answer, or a line
-  that fails the checks -> the docs/09 fallback line for the type (cpa line for other types), with a plain
-  note on the sequence page. If the assembled email 1 fails with the model's line, it is rebuilt with the
-  fallback. Only a problem in the docs/09 copy or settings can leave a sequence blocked.
-- Segments: the lead's primary firm type picks the docs/09 row (cpa, tax_preparer, bookkeeper, payroll);
-  any other type uses the cpa row. The row sets email 3's subject and the personal-line theme. The
-  sequence's angle tag still follows the primary type (docs/03 firm_type_angles).
-- Every email: at most one question mark (the email 1 referral ask was reworded to a statement, founder
-  decision); banned phrases; company name only from docs/01 (links are skipped, so a booking link may
-  contain it); the firm's own name is exempt from the ALL CAPS and subject case rules.
+- Writer (tiers A and B, founder decision 2026-09-24, replacing template-first): MODEL_WRITE writes all
+  five emails (forced tool write_sequence {emails: [{n, subject_a, subject_b, body}]}, thinking disabled,
+  max_tokens 2500). System prompt (prompts/write.md, cacheable): rules, docs/01 prose, the docs/03 style
+  guide, TWO of the three docs/03 example sequences (rotated by a hash of the lead id; one cached prompt
+  per pair), docs/08 personas. VERIFIED docs/02 facts are NOT given to the writer. User message: verified
+  values only (verifiedValues: firm, type, location, size, services, software, portal; never quotes,
+  people, emails, phones), firm type, persona, angle, the greeting rule, sender settings (company,
+  one-liner, offer, region; "{{booking_link}}" as a token the app fills), and the approved sentence text.
+- The docs/03 examples (founder's text, 3 sequences) had minimal founder-approved fixes: no "Hi there,"
+  (B, C), no traction claims ("I do a lot of work with ..." and "I'm working with a small group" became
+  "There's a question I've been asking ..." and "I'm taking on a small group ..."), "your own to-do list"
+  (banned) and "compliance team" reworded. Their notes and the "What to feed the writer prompt" section
+  stay in the file; only the preamble and "## EXAMPLE" sections go to the model.
+- Hard rule, in code: the writer never states what a law or rule requires. In email 2 it writes
+  [[APPROVED]] on its own line; code replaces it with the exact VERIFIED docs/02 sentence (by writer type:
+  cpa insurers at renewal, tax_preparer IRS Pub 4557, others rule requirements), always as its own
+  paragraph. A missing marker is a rewrite problem, then repaired by code (inserted before the last
+  paragraph); stray markers are removed. The validator fails any other statement (not a question) that
+  names a rule, law, or regulator (FTC, Safeguards Rule, GLBA, IRS, EFIN, PTIN, Pub 4557, compliance,
+  regulations, law, penalty, fines) or uses an obligation verb (must, required, requires, mandatory).
+  "the requirement" (noun), "fine" (okay), "WISP", the firm's name, and its verified service names
+  ("IRS Representation") are not claims.
+- Lighter validators (founder decision): kept: banned phrases (+ "hi there,"), exclamation/emoji/ALL CAPS
+  (words from the firm's name and verified values, and AP/AR, allowed), placeholders, evaluative language
+  about the prospect (docs/03 evaluative_terms in a sentence naming the firm or "you're"/"your firm/team/
+  site/..."), unapproved proof and traction (proof_patterns + "I work with", "I'm working with", ...;
+  the untouched docs/09 fixed copy is exempt), penalty amounts and dollar figures, the regulatory rule
+  above, absence claims (negation within 6 words before a plan term), DKIM, DNS unless enabled, links
+  (booking_link only), company name, greeting only for a tied contact, generic email 1, subjects (<= 6
+  words, firm-name words and region excluded, lowercase), word limits 130/150/110/140/60, footer for export.
+  Dropped as rules (now prompt guidance): one question per email, one detail per email; insurer remarks and
+  all/every/always are left to the judge.
+- Rewrite-on-failure: at most one rewrite. The writer gets the same input, its own draft (as JSON,
+  approved sentence as the marker), and the specific problems (validator errors, or the judge's claims
+  when the validators passed), and is told to rework the sentences in its own voice. The rewrite wins
+  unless it is unusable or has more validator errors than the (repaired) first draft; the judge runs
+  again on a rewrite. Max 2 writer + 2 judge calls per write. Still failing -> "blocked", shown in full
+  with both drafts' errors for hand editing or "Rewrite this email".
+- Judge: MODEL_WRITE, dossier values only plus sender_settings (company, one-liner, offer, region,
+  booking link: supported facts about the sender) and the approved sentences. prompts/judge.md no longer
+  names the company; general remarks about small firms and hedged hypotheticals are fine.
+- Tier C: the docs/09 fixed copy (docs/09 is now only the tier C sequence: the {{personal_line}} slot and
+  fallback lines are gone), no writer or judge call. Its settings merge fields ({{offer}}, ...) are filled
+  when shown or exported.
+- Greeting: a first name only when the public address is tied to that person (and never after a contact
+  override); otherwise a role-based opener, never "Hi there,". Code adds a missing "Hi <name>," for a tied
+  contact. Emails 2-5 never greet.
+- company_one_liner: when empty, the writer is told to describe the company only as in docs/01 (first
+  person, never as a track record). An invented default description led to "We do managed IT ...,
+  mostly helping ..." in one recording and was removed.
 - Signature: the docs/09 "Signature block" with docs/01 values ({{sender_name}}, "{{sender_title}},
   {{company}}", {{website}}, then {{opt_out_line}} and {{physical_address}}); a line whose fields are all
   empty is left out.
@@ -149,18 +177,18 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - size_signal = people working at the firm; client/company counts go to client_count_signal (not scored).
 - url_date freshness ignores /wp-content/uploads/ and non-HTML files; those are never the news page.
 - email_security_hint (INTERNAL ONLY): DMARC rua/ruf domains outside the firm's domain and not on
-  config/dmarc-vendors.json = "possible existing IT provider". Never in the personal-line input or emails.
+  config/dmarc-vendors.json = "possible existing IT provider". Never in the writer input or emails.
 - incomplete_data (leads.incomplete_data, ScoreResult.incompleteData): tier below A, data-gap NOT_FOUND
   points would reach the next tier and are at least half the points lost. Score unchanged; report
   recommends paste mode.
 - UI (M5): plain React + hash routes, no UI framework. All data goes through the local API; the Vite
   proxy adds the per-process token (written only after the API binds its port). Live validation runs on
   the server (debounced POST /check), so there is one validator implementation. Human edits mark an
-  email "edited": it gets the regulatory allowlist (its original docs/09 copy stays allowed) and needs
-  the judge (MODEL_WRITE, on demand). An unedited sequence needs no judge call. Any edit clears approval;
-  the judge result is tied to a content hash. Approve needs validators (+ judge when edited) on the saved
-  text. "New personal line" (email 1, tiers A/B) makes one small call and rebuilds email 1 from docs/09.
-  Gate override and contact override need a typed reason (>= 10 chars), logged in lead_events.
+  email "edited": it gets the regulatory allowlist (tier C: its original docs/09 copy stays allowed) and
+  the judge result is cleared (tied to a content hash). Approve needs validators + judge on the saved text
+  (tier C unedited: no judge). "Rewrite this email" (tiers A/B) makes one writer call that sees the whole
+  sequence and that email's problems, and replaces only that email. Gate override and contact override
+  need a typed reason (>= 10 chars), logged in lead_events.
 - Export: approved leads only; refused as a whole while sender/company/opt-out/address, founding_client_
   offer, booking_link, or region are empty (or another settings field a sequence uses), or while
   checklist_ready is off (every sequence has email 3); suppression (email or domain) checked first per
@@ -175,21 +203,21 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - Spend: MONTHLY_SPEND_CAP_USD in .env (currently $5); each call reserves worst case first.
 - Per-lead budget: LEAD_TOKEN_BUDGET 60000 tokens per run (research run, and separately the write run).
   Input caps: 6000 tokens/page, 30000/lead (count_tokens API, cached by text hash).
-- Models: MODEL_EXTRACT claude-haiku-4-5-20251001 (extraction and the personal line), MODEL_WRITE
-  claude-sonnet-5 (only the on-demand judge of hand edits; forced tool call, thinking disabled). Prices in
-  config/prices.json (source + date recorded). Cost per lead for writing: one personal-line call, about
-  $0.002 (measured on the 5 recordings).
-- Retry: one targeted extraction retry, fixable failures only. Personal line: no retry (fallback line).
+- Models: MODEL_EXTRACT claude-haiku-4-5-20251001 (extraction), MODEL_WRITE claude-sonnet-5 (writer and
+  judge; forced tool call, thinking disabled). Prices in config/prices.json (source + date recorded). Cost
+  per lead for writing, measured on the recordings: about $0.03 (writer ~7.4k cached prompt tokens + ~0.8k
+  input, ~0.9k output; a rewrite reads the cached prompt; judge ~1.4k input).
+- Retry: one targeted extraction retry, fixable failures only. Writer: one rewrite (validator errors or
+  judge claims).
 - DMARC scored only when MX exists (no_domain_email recorded). DNS lookup failures never scored.
 - No-WISP points: code keyword search of full page text; needs home + privacy/security page or 3+
   complete pages.
 - Freshness: machine-readable dates only; url_date (/YYYY/MM/DD/ path) only when none exist.
-- Tiers: A and B get the model's personal line (one call); C gets the fallback line (no call). All five
-  emails are docs/09 copy for every tier.
-- Word limits (docs/03): email 1 <= 130, 2 <= 140, 3 <= 100, 4 <= 130, 5 <= 75 words (the break-up
-  sentence count is gone). Subjects <= 6 words, not counting the firm name (full or short) or region
-  (founder decision: email 4's subject is 6 words). Bullet lists are allowed (each bullet is one item).
-- Grounding is detected by code in email 1's personal line; template copy carries no dossier details.
+- Tiers: A and B: the writer writes all five emails, then the judge. C: the docs/09 fixed copy, no model.
+- Word limits (docs/03): email 1 <= 130, 2 <= 150, 3 <= 110, 4 <= 140, 5 <= 60 words. Subjects <= 6
+  words, not counting the firm's name (or its words) or region. Bullet lists are allowed; a blank line
+  always ends a sentence (so the spliced approved sentence stays whole).
+- Grounding is detected by code in each model-written email's text (subjects included).
 - Page cache and robots.txt answers reused for PAGE_CACHE_DAYS (7). Crawl-delay > 10s skips a site.
 
 ## Known open issues
@@ -210,27 +238,30 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 7. Leads saved by much older versions show as "outdated_research"; import them again.
 8. The end-to-end test drives the real API in-process and renders every screen in jsdom; there is no
     real-browser (Playwright) test.
-9. Personal-line prompt tuning (recorded): the first prompt produced lines with no value ("your
-   bookkeeping work") or three values; giving the model one code-chosen service and "firm name first, then
-   the city or the service, not both" made all 5 pass. Lines read a little formulaic ("<firm> handles
-   <service>, which means ..."); the founder may want to vary the shape in prompts/personal_line.md.
-10. sender_title "Founder", company_name "ClearPath IT", company_website https://www.clearpathsecure.com
-    were filled from docs/01 text; founder to confirm. The old cta_url
-    (https://www.clearpathsecure.com/contact) was removed with cta_type; booking_link starts empty.
+9. Writer recordings: the manual tone check is the founder's (apps/server/test/fixtures/generations/
+   <lead>.md). Things noticed while recording: "Wanted to mention this while it's still open" (mild
+   urgency, essentialacctg email 4); rbvfinancial mixed "we" and "I" (from the removed default one-liner).
+   The judge sometimes flags general remarks or the "what's usually expected" list from the founder's own
+   examples; it is a strict second check whose blocks go to the founder.
+10. Tension to decide: the docs/03 examples paraphrase "what's usually expected" (written plan, a named
+    person, MFA, an incident plan) outside the approved sentence. The validator allows it (no rule named, no
+    obligation verb); the judge sometimes flags it as more specific than docs/02. Either add an approved
+    docs/02 sentence for that list, or accept judge blocks there.
 11. RBV qualifies via the tax_preparer keyword "tax filing"; confirm that keyword belongs in docs/06.
 12. innercircle.cpa answers 403 on /meet-our-team/; each new run requests it once more (per-run rule).
 13. Gated leads still get a score and tier; UI must show the gate first.
 14. Playwright fallback not built; JS-only pages are recorded as failures.
 15. Node 22.14 pins undici 7 and jsdom 29 (newer majors need Node 22.19+/22.22+).
-16. opt_out_line and physical_address are empty in docs/01 (founder will fill); export stays blocked.
+16. docs/01 physical_address "Cleveland, Ohio" is not a full postal address, and "Click here to opt out" has
+    no link or reply instruction; fix before sending (export no longer blocks on them).
 17. Screenshot seed data reuses the smithtax fixture DNS evidence for the added leads (their DNS rows show
     smithtax.example). Seed only; not a product issue.
-18. docs/09 email 2 lists four expectations ("generally expected to have") outside {{approved_sentence}};
-    template copy is exempt from the regulatory allowlist, so this is the founder's own wording. For
-    bookkeeper/payroll leads the approved sentence (rule requirements) repeats the same list.
-19. include_dns_observation has no slot in docs/09, so no DNS remark appears unless added by hand.
-20. {{offer}} is shown as written; a dollar figure there would fail the dollar_amount validator (docs/01:
-    no pricing).
+18. docs/09 (tier C) email 2 lists four expectations outside {{approved_sentence}}; the untouched fixed
+    copy is exempt from the regulatory allowlist and the proof check (founder's reviewed wording).
+19. include_dns_observation: the writer gets the code-worded DNS remark in its facts only when the setting
+    is on; the validators still block DNS mentions otherwise.
+20. The absence-claim check is a heuristic (negation within 6 words before a plan term); "No pressure: a
+    written plan can wait" would still be flagged.
 
 ## How to run (from repo root)
 - The app: `npm run app` -> open http://127.0.0.1:5173 (API on 127.0.0.1:8787; Ctrl+C stops both).
@@ -242,26 +273,29 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
   (batch: fetch all, then extract; `--record` saves regression fixtures). Full reports go to
   data/reports/<lead>.txt; the console shows only the summary.
 - Sequences: `npm run write-sequence -- <url> [<url>...] [--refresh]` -> one summary line per lead;
-  the report (personal line: model or fallback and why, the sequence as sent, validator log, blockers,
-  tokens, cost) goes to data/reports/<lead>-sequence.txt
-- Recorded personal lines: `npm run record-personal-lines [-- <fixture> ...] [--dry-run]` (5 real small
-  calls, about $0.01; --dry-run prints the requests and makes no call) -> apps/server/test/fixtures/
-  generations/, replayed by test/personal-line-recorded.test.ts. Re-record after changing the prompt.
+  the report (every writer draft with its errors, the sequence as sent with the approved sentence marked,
+  validator log, judge, blockers, tokens, cost) goes to data/reports/<lead>-sequence.txt
+- Recorded writer generations: `npm run record-sequences [-- <fixture> ...] [--dry-run]` (real writer +
+  judge calls for 5 fixture leads, about $0.15-0.17 a round; --dry-run prints the writer input only) ->
+  apps/server/test/fixtures/generations/<lead>.json (every tool answer, the docs/01 settings used) and
+  <lead>.md (readable, for the tone check), replayed by test/writer-recorded.test.ts. Runs are logged
+  under lead id record-<fixture>; their sequence and event rows are deleted. Re-record after changing
+  prompts/write.md or the docs/03 examples.
 - Dev: `npm run dev:server` (127.0.0.1:8787) and `npm run dev:web` (Vite 5173, proxies /api with token)
 - Migrations: `npm run db:generate` after editing apps/server/src/db/schema.ts
 
 ## File map
-- docs/01,02,03,04,06,09 - offer + settings, VERIFIED facts + approved sentences, style + limits, dossier
-  schema, scoring + evidence lists, docs/09_sequences.md (the founder's sequence copy). docs/08 personas are
-  no longer read by code.
-- prompts/extract.md, personal_line.md, judge.md - system prompts (docs inserted at runtime)
+- docs/01,02,03,04,06,08,09 - offer + settings, VERIFIED facts + approved sentences, style guide + limits +
+  the founder's example sequences, dossier schema, scoring + evidence lists, personas, docs/09_sequences.md
+  (the tier C fixed copy and the signature block)
+- prompts/extract.md, write.md, judge.md - system prompts (docs inserted at runtime)
 - config/prices.json, skip-patterns.json, mx-providers.json, injection-patterns.json
 - packages/shared/src/dossier.ts - model facts vs stored facts, dossier schema, writerView
 - packages/shared/src/settings.ts - offer/style/scoring/evidence block schemas
-- packages/shared/src/sequence.ts - sequence (email personal_line), personal-line tool output, judge output schemas
+- packages/shared/src/sequence.ts - sequence, writer tool output ([[APPROVED]] marker), judge output schemas
 - apps/server/src/config/env.ts - .env validation
 - apps/server/src/llm/client.ts - only API path: count, budget, reserve, backoff, runs log
-- apps/server/src/docs/loader.ts, blocks.ts - docs blocks read/write; templates.ts - docs/09_sequences.md parser
+- apps/server/src/docs/loader.ts, blocks.ts - docs blocks read/write; templates.ts - docs/09 (tier C) parser
 - apps/server/src/fetch/guarded-fetch.ts, ip-guard.ts, transport.ts - SSRF-safe fetching
 - apps/server/src/fetch/robots.ts, rate-limit.ts, clean.ts, select.ts, site.ts - crawl, name hints, 403/429
 - apps/server/src/dns/lookup.ts - MX/SPF/DMARC, no_domain_email
@@ -270,15 +304,17 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - apps/server/src/scoring/score.ts, derive.ts, freshness.ts, contact.ts, security-search.ts
 - apps/server/src/pipeline/research.ts - prepare/complete lead, gate, save
 - apps/server/src/validators/email.ts - deterministic email checks (DNS remarks, regulatory numbers)
-- apps/server/src/write/assemble.ts - builds the five emails from docs/09 (greeting, merge fields, swaps)
+- apps/server/src/write/writer.ts - writer input, marker splice (buildEmail), write + one rewrite
+- apps/server/src/write/prompt.ts - writer/judge prompts, docs/03 examples + rotation, rewrite message
+- apps/server/src/write/generate.ts - tier/gate gating, writer + judge, tier C copy, sequences table,
+  export blockers, approveSequence
+- apps/server/src/write/assemble.ts - tier C: the five emails from docs/09 (greeting, merge fields, swaps)
 - apps/server/src/write/merge.ts - firm_short, settings merge fields, signature block
-- apps/server/src/write/personal-line.ts - the one model call, its code checks, the fallback
 - apps/server/src/write/values.ts - verified values, grounding detection, DNS remark, approved sentence pick
-- apps/server/src/write/prompt.ts, generate.ts - prompts; tier/gate gating, repair to fallback, sequences
-  table, export blockers, approveSequence
-- apps/server/scripts/extract-live.ts, write-sequence.ts, smoke.ts, record-personal-lines.ts
-- apps/server/test/fixtures/generations/ - 5 recorded real personal-line generations; fixtures/replay.ts
-  replays a recorded live site offline; fixtures/write-deps.ts - test WriteDeps over a fake API
+- apps/server/scripts/extract-live.ts, write-sequence.ts, smoke.ts, record-sequences.ts
+- apps/server/test/fixtures/generations/ - 5 recorded real writer + judge answers (+ .md for the tone
+  check); fixtures/replay.ts replays a recorded live site offline; fixtures/write-deps.ts - test WriteDeps
+  over a fake API and a fake writer that answers like a well-behaved model
 - apps/server/test/fixtures/live/ - Pease Bell, cehcpas, innercircle, RBV, essentialacctg, metaxparma,
   mapaccountinggroup recordings (byte-exact)
 - apps/server/src/scoring/direct-contact.ts - no_named_contact warning, optional checklist, per-lead override
@@ -287,7 +323,7 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 - apps/server/src/server/app.ts - local JSON API (guarded: localhost Host/Origin + per-process token)
 - apps/server/src/server/services.ts, jobs.ts, views.ts, export.ts - deps (docs read fresh), p-queue
   jobs, lead/sequence views, export + suppression list
-- apps/server/src/write/edit.ts - save/check edits, judge on demand (edits), new personal line, sequence state
+- apps/server/src/write/edit.ts - save/check edits, judge on demand, rewrite one email, sequence state
 - apps/server/src/pipeline/stored-dossier.ts - reads saved dossiers (defaults for newer fields)
 - apps/web/src/ - App (hash routes, sidebar + top bar), api.ts, pages/ (Import, Leads, LeadDetail, Sequence +
   Sequences list, Export, Settings), components/ (ui.tsx: Icon, Badge, TierChip, StatusBadge, EmptyState,
@@ -301,16 +337,16 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
 ## Next steps
 1. Founder: review data/screenshots/ (and the live app after `npm run app`); report anything that
    still looks wrong with the screen name and window width.
-2. Founder: fill opt_out_line, physical_address, founding_client_offer, booking_link, and region in
-   Settings; confirm sender_title, company_name, company_website; turn on checklist_ready once the
-   checklist exists.
-3. Write every lead's sequence again (the stored ones use the old writer), review the personal lines,
-   approve, and do a first export (Ready to send, or Drafts for leads with no address).
-4. Optional: vary the personal-line shape in prompts/personal_line.md, then re-record
-   (`npm run record-personal-lines`) and run `npm test`.
-5. Decisions still open: "tax filing" keyword (Known issues 11), portal link-domain detection (Known issues 3),
+2. Founder: tone check of the 5 recordings (apps/server/test/fixtures/generations/*.md). If the voice
+   needs adjusting, edit the docs/03 examples or prompts/write.md, then `npm run record-sequences` and
+   `npm test`.
+3. Founder: a full postal address and a working opt-out line in Settings before sending.
+4. Decide Known issues 10 (the "what's usually expected" list vs the judge).
+5. Write every lead's sequence again (stored ones come from earlier versions), review, approve, and do a
+   first export (Ready to send, or Drafts for leads with no address).
+6. Decisions still open: "tax filing" keyword (Known issues 11), portal link-domain detection (Known issues 3),
    firm_type stability across runs (Known issues 4).
-6. M6 Results + settings, then M7 Hardening (persist job status across restarts, a real-browser test,
+7. M6 Results + settings, then M7 Hardening (persist job status across restarts, a real-browser test,
    Playwright fallback for JS-only sites).
 
 ## Never break
@@ -318,9 +354,9 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
   in code. services/software items: found in a fetched page's text, with that page's URL.
 - No proof claims unless in approved_proof; never claim DKIM status.
 - No penalty amounts or dollar figures in prompts, templates, or emails.
-- The personal-line model and the judge get values only, never evidence quotes or raw page text.
-- The model writes only {{personal_line}}; everything else is the founder's docs/09 copy or docs/02
-  approved sentences, inserted by code.
+- The writer and the judge get values only, never evidence quotes or raw page text.
+- The writer never states what a law or rule requires: only the exact VERIFIED docs/02 sentence, inserted
+  by code at [[APPROVED]]; any other such statement fails the validators.
 - Honest crawler: ClearPathLeadConsole/0.1 (+CONTACT_URL) user agent, never spoofed; obey robots.txt,
   1 req/s/host, stop on 403/429, SSRF guard on every hop; passive public data only.
 - Fetched/pasted text is untrusted data, only in delimited user-message blocks; hidden text never sent.

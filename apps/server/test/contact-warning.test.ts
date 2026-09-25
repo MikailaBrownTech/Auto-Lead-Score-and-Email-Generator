@@ -5,7 +5,9 @@ import { leads } from "../src/db/schema";
 import { contactWarning } from "../src/scoring/direct-contact";
 import { addSuppression, buildExport } from "../src/server/export";
 import { validateSequence } from "../src/validators/email";
-import { approveSequence, buildSequence, firstNameFor, generateSequence } from "../src/write/generate";
+import { approveSequence, firstNameFor, generateSequence, templateSequence } from "../src/write/generate";
+import { writerMessage } from "../src/write/prompt";
+import { writerInput } from "../src/write/writer";
 import { ev, strongDossier } from "./fixtures/dossiers";
 import { READY_OFFER, scripted, style, templates, testWriteDeps } from "./fixtures/write-deps";
 
@@ -15,7 +17,6 @@ const unattributed = strongDossier({ public_contact_email: ev({ address: "frontd
 const gmail = strongDossier({ public_contact_email: ev({ address: "smithtaxoffice@gmail.com", owner_name: null }, "smithtaxoffice@gmail.com"), public_email_kind: "unattributed" });
 const noEmail = strongDossier({ public_contact_email: NOT_FOUND, public_email_kind: NOT_FOUND });
 const mismatch = strongDossier({ public_contact_email: ev({ address: "john.phillips@smithtax.example", owner_name: null }, "john.phillips@smithtax.example"), public_email_kind: "named_person" });
-const LINE = "Smith Tax Services handles individual tax returns, which means holding a lot of sensitive client financial data.";
 
 let db: Db;
 beforeEach(() => {
@@ -31,12 +32,15 @@ describe("never a named greeting unless the address is tied to that person", () 
     ["an address tied to someone else", mismatch],
   ];
 
-  it.each(cases)("%s: email 1 opens with the role-based line, never 'Jane'", (_label, d) => {
+  it.each(cases)("%s: the writer is told no name and a role-based opener; the tier C copy opens with the role-based line", async (_label, d) => {
     expect(firstNameFor(d, null)).toBeNull();
     const { deps } = testWriteDeps(db);
-    const s = buildSequence("L1", d, "B", deps, { text: LINE, source: "model" }, null, null);
-    expect(s.emails[0]!.body.split("\n")[0]).toBe("Quick question for whoever looks after IT and client data at Smith Tax Services:");
-    for (const e of s.emails) expect(e.body).not.toMatch(/\bJane\b/);
+    expect(writerMessage(writerInput(d, deps, firstNameFor(d, null)))).toMatch(/greeting rule: no named contact/);
+    const c = templateSequence("L1", d, deps, null);
+    expect(c.emails[0]!.body.split("\n")[0]).toBe("Quick question for whoever looks after IT and client data at Smith Tax Services:");
+    db.insert(leads).values({ id: "L1", source: "web", status: "extracted", dossierJson: JSON.stringify(d) }).run();
+    const g = await generateSequence("L1", d, "B", deps);
+    for (const e of [...c.emails, ...g.sequence!.emails]) expect(e.body).not.toMatch(/\bJane\b/);
   });
 
   it("the tied first name only, and never after an override", () => {
@@ -47,7 +51,7 @@ describe("never a named greeting unless the address is tied to that person", () 
   it("the validator refuses a name on an untied address", () => {
     const { deps } = testWriteDeps(db);
     for (const d of [generic, unattributed, noEmail, mismatch]) {
-      const s: Sequence = buildSequence("L1", d, "B", deps, { text: LINE, source: "model" }, null, null);
+      const s: Sequence = templateSequence("L1", d, deps, null);
       s.emails[0] = { ...s.emails[0]!, body: s.emails[0]!.body.replace(/^[^\n]*/, "Hi Jane,") };
       expect(validateSequence(s, { style, offer: READY_OFFER, dossier: d }).issues.map((i) => i.code)).toContain("greeting_contact_mismatch");
     }
@@ -66,7 +70,7 @@ describe("no named contact: drafting, approval, and export proceed", () => {
 
   it("a lead with no email at all is written and approved", async () => {
     save("L-none", noEmail);
-    const { deps } = testWriteDeps(db, scripted([{ personal_line: LINE }]), { offer: READY_OFFER });
+    const { deps } = testWriteDeps(db, scripted(), { offer: READY_OFFER });
     const g = await generateSequence("L-none", noEmail, "B", deps);
     expect(g).toMatchObject({ status: "passed", contactWarning: "no public email; add before sending" });
     approveSequence(db, g.sequenceId!);
@@ -76,7 +80,7 @@ describe("no named contact: drafting, approval, and export proceed", () => {
     save("L-none", noEmail);
     save("L-generic", strongDossier({ ...generic, domain: "genericfirm.example" }));
     save("L-named", strongDossier({ domain: "namedfirm.example" }));
-    const { deps } = testWriteDeps(db, scripted([{ personal_line: LINE }]), { offer: READY_OFFER });
+    const { deps } = testWriteDeps(db, scripted(), { offer: READY_OFFER });
     for (const [id, d] of [["L-none", noEmail], ["L-generic", generic], ["L-named", strongDossier()]] as const) {
       const g = await generateSequence(id, d, "B", deps);
       approveSequence(db, g.sequenceId!);
@@ -100,14 +104,13 @@ describe("no named contact: drafting, approval, and export proceed", () => {
     expect(lines.find((l) => l.startsWith("L-none,"))).toMatch(/^L-none,Smith Tax Services,,N,no public email; add before sending,/);
     // Settings merge fields are filled in the CSV; the signature block follows docs/09.
     expect(drafts.csv).toContain(READY_OFFER.booking_link);
-    expect(drafts.csv).toContain("half off the first three months");
-    expect(drafts.csv).toContain("Founder, ClearPath IT");
+    expect(drafts.csv).toContain(`${READY_OFFER.sender_title}, ${READY_OFFER.company_name}`);
     expect(drafts.csv).not.toMatch(/\{\{/);
   });
 
   it("export is refused while offer, booking_link, or region is empty", async () => {
     save("L-named", strongDossier());
-    const { deps } = testWriteDeps(db, scripted([{ personal_line: LINE }]), { offer: READY_OFFER });
+    const { deps } = testWriteDeps(db, scripted(), { offer: READY_OFFER });
     approveSequence(db, (await generateSequence("L-named", strongDossier(), "B", deps)).sequenceId!);
     const r = buildExport(db, { offer: { ...READY_OFFER, founding_client_offer: null, booking_link: "", region: "" }, templates });
     expect(r.blocked.join(" ")).toMatch(/founding_client_offer \(the \{\{offer\}\} in email 4\), booking_link, region/);
@@ -115,7 +118,7 @@ describe("no named contact: drafting, approval, and export proceed", () => {
 
   it("the suppression list is still checked first in Drafts mode (by domain when there is no address)", async () => {
     save("L-none", noEmail);
-    const { deps } = testWriteDeps(db, scripted([{ personal_line: LINE }]), { offer: READY_OFFER });
+    const { deps } = testWriteDeps(db, scripted(), { offer: READY_OFFER });
     approveSequence(db, (await generateSequence("L-none", noEmail, "B", deps)).sequenceId!);
     addSuppression(db, noEmail.domain);
     const drafts = buildExport(db, { offer: READY_OFFER, templates }, "drafts");

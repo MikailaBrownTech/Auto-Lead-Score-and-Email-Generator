@@ -19,30 +19,30 @@ The app reads and writes only the block below (Settings screen). Leave a value e
 - opt_out_line: e.g. "If this isn't relevant, reply 'no' and I won't email again." Export is blocked while empty.
 - physical_address: your business mailing address. Export is blocked while empty.
 - approved_proof: only real pilot clients, real credentials, real results. While empty, emails make no proof claims.
-- founding_client_offer: the founding-client rate wording, filled into {{offer}} in email 4 (docs/09). Export is blocked while empty (null).
-- booking_link: your calendar link, filled into {{booking_link}} in email 4. The only link an email body may contain. Export is blocked while empty.
-- region: your target region as it reads in a sentence, e.g. "Cleveland-area" ({{region}} in email 4). Export is blocked while empty.
-- company_one_liner: one sentence about the company, for {{company_one_liner}} if a template uses it. Export is blocked while empty only if a sequence uses it.
-- sender_title, company_name, company_website: the signature block (docs/09) under sender_name on every email. The company name comes only from here ({{company}}). Export is blocked while any is empty.
+- founding_client_offer: the founding-client offer email 4 describes (given to the writer; {{offer}} in the Tier C copy, docs/09). Export is blocked while empty (null).
+- booking_link: your calendar link, used in email 4 (given to the writer; {{booking_link}} in docs/09). The only link an email body may contain. Export is blocked while empty.
+- region: your target region as it reads in a sentence, e.g. "Cleveland-area" (given to the writer; {{region}} in docs/09). Export is blocked while empty.
+- company_one_liner: one sentence about what the company does, given to the writer as a description (never quoted as proof), and {{company_one_liner}} if the docs/09 copy uses it. Optional.
+- sender_title, company_name, company_website: the signature block (docs/09 "Signature block") under sender_name on every email. The company name comes only from here. Export is blocked while any is empty.
 - checklist_ready: true once the one-page checklist exists and can be sent by reply. While false, a sequence that includes email 3 is blocked from export.
 - include_dns_observation: true lets an email mention one DNS observation (for example a DMARC record set to monitoring only), hedged, and only when the domain has email (MX records). Default false: no DNS remarks in emails. The docs/09 templates have no DNS slot, so emails carry none unless you add one by hand.
 
-Greeting (docs/09): with no named contact tied to the public address, email 1 opens with the role-based line; with a named contact, "Hi {{first_name}},". Emails 2 to 5 have no greeting. A lead without a named contact is never blocked.
+Greeting (docs/03, docs/09): with no named contact tied to the public address, email 1 opens with a role-based line (never "Hi there,"); with a named contact, "Hi {{first_name}},". Emails 2 to 5 have no greeting. A lead without a named contact is never blocked.
 
 ```json clearpath:offer
 {
   "sender_name": "Mikaila Brown",
   "sender_title": "Founder",
-  "company_name": "ClearPath IT",
+  "company_name": "Clear Path Secure",
   "company_website": "https://www.clearpathsecure.com",
-  "opt_out_line": "",
-  "physical_address": "",
+  "opt_out_line": "Click here to opt out",
+  "physical_address": "Cleveland, Ohio",
   "approved_proof": [],
-  "founding_client_offer": null,
-  "booking_link": "",
-  "region": "",
+  "founding_client_offer": "Get free security audit",
+  "booking_link": "https://www.clearpathsecure.com/contact",
+  "region": "Ohio",
   "company_one_liner": "",
   "include_dns_observation": false,
-  "checklist_ready": false
+  "checklist_ready": true
 }
 ```

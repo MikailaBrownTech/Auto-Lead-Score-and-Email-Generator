@@ -20,7 +20,7 @@ const MERGE_FIELDS: [keyof OfferSettingsView, string, string, boolean][] = [
   ["founding_client_offer", "Founding-client offer", "{{offer}} in email 4, e.g. half off the first three months. Export is blocked while empty.", true],
   ["booking_link", "Booking link", "{{booking_link}} in email 4: your calendar link, the only link an email may contain. Export is blocked while empty.", true],
   ["region", "Region", '{{region}} in email 4 and its subject, as it reads in a sentence, e.g. "Cleveland-area". Export is blocked while empty.', true],
-  ["company_one_liner", "Company one-liner", "{{company_one_liner}}, for a template that uses it. Optional unless a template uses it.", false],
+  ["company_one_liner", "Company one-liner", "One sentence on what the company does. The writer uses it as a description (never as proof); optional.", false],
 ];
 
 export function SettingsPage() {

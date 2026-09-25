@@ -1,38 +1,106 @@
 {
   "fixture": "mapaccountinggroup-com",
-  "model": "claude-haiku-4-5-20251001",
-  "captured_at": "2026-09-24T22:55:01.684Z",
-  "request": {
-    "facts": {
-      "firm_name": "M.A. Pawlowski Accounting Group LLC",
-      "firm_type": "cpa",
-      "city": "Strongsville",
-      "state": "OH",
-      "service": "Small Business Accounting"
+  "lead_id": "record-mapaccountinggroup-com",
+  "captured_at": "2026-09-25T03:05:49.904Z",
+  "offer": {
+    "sender_name": "Mikaila Brown",
+    "sender_title": "Founder",
+    "company_name": "Clear Path Secure",
+    "company_website": "https://www.clearpathsecure.com",
+    "opt_out_line": "Click here to opt out",
+    "physical_address": "Cleveland, Ohio",
+    "approved_proof": [],
+    "founding_client_offer": "Get free security audit",
+    "booking_link": "https://www.clearpathsecure.com/contact",
+    "region": "Ohio",
+    "company_one_liner": "",
+    "include_dns_observation": false,
+    "checklist_ready": true
+  },
+  "calls": [
+    {
+      "tool": "write_sequence",
+      "input": {
+        "emails": [
+          {
+            "n": 1,
+            "subject_a": "written security plan at M.A. Pawlowski?",
+            "subject_b": "a question for whoever handles this",
+            "body": "Quick question for whoever handles this at M.A. Pawlowski Accounting Group: with the mix of accounting, payroll, and tax prep work you do, is there a written plan in place for how client data is protected, especially with documents moving through your doc exchange?\n\nI ask because this tends to surface at renewal time, when insurers or clients want to see something in writing rather than just take your word for it.\n\nI run Clear Path Secure. I help small CPA firms put that plan together along with the basic security behind it, without needing to hire an IT person. If this lands on the wrong desk, any chance you could point me to who handles it?"
+          },
+          {
+            "n": 2,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Wanted to follow up with something more useful than a check-in.\n\nWhat's usually expected is fairly specific: a written data security plan, one person named as responsible for it, multi-factor authentication turned on across the firm, and a plan for what happens if something goes wrong.\n\n[[APPROVED]]\n\nWith payroll and tax prep both running through your office, a lot of the pieces are probably already there, just not written down in one place. Happy to help pull it together if that's useful."
+          },
+          {
+            "n": 3,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "I put together a one-page checklist that covers what's usually expected, written plainly, so you can hold M.A. Pawlowski Accounting Group up against it in about ten minutes.\n\nNo cost, no call needed. Just reply \"checklist\" and I'll send it over."
+          },
+          {
+            "n": 4,
+            "subject_a": "an offer for Ohio firms",
+            "subject_b": null,
+            "body": "I'm opening up a free security audit for a small first group of Ohio accounting firms right now, M.A. Pawlowski Accounting Group would qualify given the mix of accounting, payroll, and tax work you handle. All I ask in return is honest feedback on how it goes.\n\nIf that's worth a look, here's my booking link: {{booking_link}}. If timing's bad right now, just say so and I'll follow up later."
+          },
+          {
+            "n": 5,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Haven't heard back, so I'll leave this here for now.\n\nIf a written security plan ever comes up, at renewal or otherwise, feel free to reply and I'll send that checklist over.\n\nHope the rest of the season goes smoothly."
+          }
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 873,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7085,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 909,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     },
-    "theme": "",
-    "before": "Quick question for whoever looks after IT and client data at M.A. Pawlowski Accounting Group LLC:",
-    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
-    "subjects": {
-      "A": "written security plan at M.A. Pawlowski Accounting Group?",
-      "B": "quick question about client data"
+    {
+      "tool": "record_judgment",
+      "input": {
+        "unsupported_claims": []
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 1650,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 1973,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 39,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     }
-  },
-  "tool_input": {
-    "personal_line": "M.A. Pawlowski Accounting Group LLC provides Small Business Accounting, which means holding a lot of sensitive client financial data.",
-    "subject": "B"
-  },
-  "usage": {
-    "input_tokens": 1553,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 0,
-    "cache_creation": {
-      "ephemeral_5m_input_tokens": 0,
-      "ephemeral_1h_input_tokens": 0
+  ],
+  "result": {
+    "status": "passed",
+    "firstPassValid": true,
+    "writerCalls": 1,
+    "judge": {
+      "unsupported_claims": []
     },
-    "output_tokens": 79,
-    "service_tier": "standard",
-    "inference_geo": "not_available"
-  },
-  "cost_usd": 0.0019479999999999999
+    "cost_usd": 0.0163376
+  }
 }

@@ -13,10 +13,10 @@ import { contactWarning, leadOverride, namedContactChecklist, overrideDirectCont
 import { computeFreshness, urlPathDate } from "../src/scoring/freshness";
 import { scoreDossier } from "../src/scoring/score";
 import { approveSequence, generateSequence } from "../src/write/generate";
-import { lineRequest } from "../src/write/personal-line";
-import { personalLineMessage } from "../src/write/prompt";
+import { writerMessage } from "../src/write/prompt";
+import { writerInput } from "../src/write/writer";
 import { ev, HOME, strongDossier } from "./fixtures/dossiers";
-import { templates, testWriteDeps } from "./fixtures/write-deps";
+import { approved, personas, style, testWriteDeps } from "./fixtures/write-deps";
 
 const evidence = loadEvidence();
 const scoring = loadScoring();
@@ -140,10 +140,10 @@ describe("email_security_hint (internal only)", () => {
     expect(emailSecurityHint(null, "smithtax.example", vendors)).toBe(NOT_FOUND);
   });
 
-  it("never reaches the personal-line model", () => {
+  it("never reaches the writer", () => {
     const hint = emailSecurityHint(record, "smithtax.example", vendors);
     const d = strongDossier({ email_security_hint: hint });
-    expect(personalLineMessage(lineRequest(d, { offer, evidence, templates }, null))).not.toMatch(/mynetworkplace|IT provider/);
+    expect(writerMessage(writerInput(d, { offer, evidence, style, approved, personas }, null))).not.toMatch(/mynetworkplace|IT provider/);
   });
 });
 

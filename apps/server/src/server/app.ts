@@ -203,7 +203,7 @@ export function createApp(deps: AppDeps) {
     const edits = editsOf(await body(c));
     const r = checkEdits(db, id, edits, wd);
     const ctx = loadSequenceContext(db, id, wd);
-    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.personalLine));
+    return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.drafts));
   });
 
   app.put("/api/sequences/:id", async (c) => {

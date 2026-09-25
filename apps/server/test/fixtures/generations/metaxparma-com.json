@@ -1,38 +1,171 @@
 {
   "fixture": "metaxparma-com",
-  "model": "claude-haiku-4-5-20251001",
-  "captured_at": "2026-09-24T22:54:59.390Z",
-  "request": {
-    "facts": {
-      "firm_name": "M.E. & Associates Services",
-      "firm_type": "tax_preparer",
-      "city": "Parma",
-      "state": "OH",
-      "service": "Federal, State, and City"
+  "lead_id": "record-metaxparma-com",
+  "captured_at": "2026-09-25T03:05:36.672Z",
+  "offer": {
+    "sender_name": "Mikaila Brown",
+    "sender_title": "Founder",
+    "company_name": "Clear Path Secure",
+    "company_website": "https://www.clearpathsecure.com",
+    "opt_out_line": "Click here to opt out",
+    "physical_address": "Cleveland, Ohio",
+    "approved_proof": [],
+    "founding_client_offer": "Get free security audit",
+    "booking_link": "https://www.clearpathsecure.com/contact",
+    "region": "Ohio",
+    "company_one_liner": "",
+    "include_dns_observation": false,
+    "checklist_ready": true
+  },
+  "calls": [
+    {
+      "tool": "write_sequence",
+      "input": {
+        "emails": [
+          {
+            "n": 1,
+            "subject_a": "written security plan at M.E. & Associates Services?",
+            "subject_b": "a question for whoever handles client data",
+            "body": "Quick question for whoever handles this at M.E. & Associates Services: is there a written plan in place for how client tax information is protected, things like SSNs, prior returns, and bank details for direct deposit?\n\nWith the range of returns you handle, individual, corporate, partnership, trust, that's a lot of sensitive data moving through one office. It's become pretty common for this kind of documentation to get asked for at some point, whether from a bank, an insurer, or a client.\n\nI help small tax and payroll shops put a plan like this together without needing an in-house IT person. If someone else handles this side of things, could you point me their way?"
+          },
+          {
+            "n": 2,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Following up with something more specific than a check-in.\n\nWhat's usually expected is fairly concrete: a written data security plan, one person named as responsible for it, multi-factor authentication turned on for email and any tax or payroll software, and a plan for what to do if something goes wrong.\n\n[[APPROVED]]\n\nA lot of shops already have pieces of this in place, just nothing written down. If that's close to where things stand, I can help you pull it together, this doesn't need to wait until after season."
+          },
+          {
+            "n": 3,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "I put together a one-page checklist that covers what's expected, in plain language, so you can check M.E. & Associates Services against it in about ten minutes.\n\nNo cost, no call needed. Just reply \"checklist\" and I'll send it over."
+          },
+          {
+            "n": 4,
+            "subject_a": "a free audit offer for Ohio tax firms",
+            "subject_b": null,
+            "body": "I'm opening up a free security audit for a small first group of Ohio tax and payroll firms right now. I run through where things stand with your current setup and hand you a written plan and next steps, no cost. In exchange I just ask for honest feedback along the way.\n\nIf that's useful, you can grab time here: {{booking_link}}. If this time of year is too packed, totally understand, just let me know what works better."
+          },
+          {
+            "n": 5,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Haven't heard back, so I'll leave this here for now.\n\nIf a written security plan comes up down the road, just reply and I'll send that checklist over.\n\nHope filing season goes smoothly."
+          }
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 777,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7085,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 916,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     },
-    "theme": "emphasize SSNs, bank details, prior-year returns",
-    "before": "Quick question for whoever looks after IT and client data at M.E. & Associates Services:",
-    "after": "Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?",
-    "subjects": {
-      "A": "written security plan at M.E. & Associates Services?",
-      "B": "quick question about client data"
+    {
+      "tool": "write_sequence",
+      "input": {
+        "emails": [
+          {
+            "n": 1,
+            "subject_a": "written security plan at M.E. & Associates Services?",
+            "subject_b": "question about client data",
+            "body": "Quick question for whoever handles this at M.E. & Associates Services: is there a written plan in place for how client tax information is protected, things like SSNs, prior returns, and bank details for direct deposit?\n\nWith the range of returns you handle, individual, corporate, partnership, trust, that's a lot of sensitive data moving through one office. It's become pretty common for this kind of documentation to get asked for at some point, whether from a bank, an insurer, or a client.\n\nI help small tax and payroll shops put a plan like this together without needing an in-house IT person. If someone else handles this side of things, could you point me their way?"
+          },
+          {
+            "n": 2,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Following up with something more specific than a check-in.\n\nWhat's usually expected is fairly concrete: a written data security plan, one person named as responsible for it, multi-factor authentication turned on for email and any tax or payroll software, and a plan for what to do if something goes wrong.\n\n[[APPROVED]]\n\nA lot of shops already have pieces of this in place, just nothing written down. If that's close to where things stand, I can help you pull it together, this doesn't need to wait until after season."
+          },
+          {
+            "n": 3,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "I put together a one-page checklist that covers what's expected, in plain language, so you can check M.E. & Associates Services against it in about ten minutes.\n\nNo cost, no call needed. Just reply \"checklist\" and I'll send it over."
+          },
+          {
+            "n": 4,
+            "subject_a": "free audit for Ohio tax firms",
+            "subject_b": null,
+            "body": "I'm opening up a free security audit for a small first group of Ohio tax and payroll firms right now. It's a look at email, access, and backups, with a written plan and next steps at the end, no cost. In exchange I just ask for honest feedback along the way.\n\nIf that's useful, you can grab time here: {{booking_link}}. If this time of year is too packed, totally understand, just let me know what works better."
+          },
+          {
+            "n": 5,
+            "subject_a": null,
+            "subject_b": null,
+            "body": "Haven't heard back, so I'll leave this here for now.\n\nIf a written security plan comes up down the road, just reply and I'll send that checklist over.\n\nHope filing season goes smoothly."
+          }
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 1886,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 7085,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 908,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
+    },
+    {
+      "tool": "record_judgment",
+      "input": {
+        "unsupported_claims": [
+          {
+            "email": 2,
+            "claim": "this doesn't need to wait until after season",
+            "reason": "guarantee_or_fear"
+          }
+        ]
+      },
+      "model": "claude-sonnet-5",
+      "usage": {
+        "input_tokens": 1523,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 1973,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens": 80,
+        "output_tokens_details": {
+          "thinking_tokens": 0
+        },
+        "service_tier": "standard",
+        "inference_geo": "global"
+      }
     }
-  },
-  "tool_input": {
-    "personal_line": "M.E. & Associates Services prepares Federal, State, and City returns, which means storing SSNs, bank details, and prior-year tax records.",
-    "subject": "A"
-  },
-  "usage": {
-    "input_tokens": 1546,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 0,
-    "cache_creation": {
-      "ephemeral_5m_input_tokens": 0,
-      "ephemeral_1h_input_tokens": 0
+  ],
+  "result": {
+    "status": "blocked",
+    "firstPassValid": false,
+    "writerCalls": 2,
+    "judge": {
+      "unsupported_claims": [
+        {
+          "email": 2,
+          "claim": "this doesn't need to wait until after season",
+          "reason": "guarantee_or_fear"
+        }
+      ]
     },
-    "output_tokens": 84,
-    "service_tier": "standard",
-    "inference_geo": "not_available"
-  },
-  "cost_usd": 0.001966
+    "cost_usd": 0.030640599999999997
+  }
 }
