@@ -446,19 +446,6 @@ export function validateSequence(seq: Sequence, ctx: ValidationContext): Validat
     });
   }
 
-  seq.emails.forEach((e) => {
-    // Tier C is the docs/09 fixed copy only (no model call); tiers A and B are written by the model.
-    const mustBeTemplate = seq.tier === "C";
-    if (mustBeTemplate && !e.template) {
-      issues.push({
-        severity: "error",
-        email: e.n,
-        code: "tier_gating",
-        message: `tier ${seq.tier} email ${e.n} must come from the templates`,
-      });
-    }
-  });
-
   const o = ctx.offer;
   if ([o.opt_out_line, o.physical_address, o.sender_title, o.company_name, o.company_website, o.founding_client_offer ?? "", o.booking_link, o.region].some((v) => v.trim() === "")) {
     issues.push({

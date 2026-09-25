@@ -405,6 +405,60 @@ If you've got the portal locked down but nothing written on paper yet, that's a 
 
 ---
 
+## EXAMPLE D: the founder's original fixed-copy sequence, plainer and more direct
+
+Context: this is the sequence the app used to send as literal, unwritten copy before every tier was written by the model (docs/09). It is here as a style reference only, for its plainer, more direct register, not to be copied verbatim: generic address, no named contact.
+
+**Email 1 — day 0**
+Subject A: written security plan at [Firm Name]?
+Subject B: quick question about client data
+
+Quick question for whoever looks after IT and client data at [Firm Name]:
+
+Has anyone asked you for a written information security plan yet, whether an insurer, a bank, or a client?
+
+I ask because I help small accounting and tax firms get that paperwork, and the basic security behind it, sorted without hiring an IT team. If that's not your area, I'd be grateful if you could point me to who handles it.
+
+[Sender Name]
+
+**Email 2 — day 3, same thread**
+
+Here's something more useful than a "just checking in."
+
+Small firms are generally expected to have four things: a written plan for how client data is protected, one named person responsible for it, multi-factor authentication on email and key systems, and a plan for what happens if something goes wrong.
+
+[APPROVED SENTENCE — inserted verbatim from a VERIFIED docs/02 line]
+
+It's common for firms to have pieces of this in someone's head but not on paper. Is that close to where you are?
+
+[Sender Name]
+
+**Email 3 — day 7**
+
+I turned those four points into a one-page checklist in plain language, so you can check your firm against it in about ten minutes.
+
+It's free, with no call and no pitch attached. Want me to send it? Just reply "checklist."
+
+[Sender Name]
+
+**Email 4 — day 12**
+
+I'm launching [Sender Company] now, so I'm working with a small first group of [region] firms at a founding-client rate: [offer details]. In return, I ask for honest feedback along the way.
+
+If that sounds useful, would you be open to a 15-minute call? Here's my calendar: [booking link]. If the timing is bad with busy season coming, tell me when to circle back and I will.
+
+[Sender Name]
+
+**Email 5 — day 18, same thread**
+
+I haven't heard back, so I'll assume this isn't a priority right now. That's completely fine.
+
+If a client or insurer does ask about a security plan later, reply and I'll send the checklist right over. Either way, I hope busy season goes smoothly.
+
+[Sender Name]
+
+---
+
 ## What to feed the writer prompt
 
-Give the model 2 of these 3 examples (rotate which ones, so it doesn't over-fit to one), plus the current lead's verified dossier values, greeting rule, and the exact approved sentence to splice in. Instruct it explicitly: "Write new text in this voice and structure using the facts provided. Do not copy phrasing from the examples verbatim; they are style references only."
+Give the model 2 of these 4 examples (rotate which ones, so it doesn't over-fit to one), plus the current lead's verified dossier values, greeting rule, and the exact approved sentence to splice in. Instruct it explicitly: "Write new text in this voice and structure using the facts provided. Do not copy phrasing from the examples verbatim; they are style references only."

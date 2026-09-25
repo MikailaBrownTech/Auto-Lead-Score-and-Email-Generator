@@ -193,7 +193,7 @@ describe("no_named_contact (a warning) and the optional per-lead override", () =
     const { deps } = testWriteDeps(db);
     const named = strongDossier(); // would normally open "Hi Jane,"
     const r = await generateSequence("L1", named, "C", deps, { directContactOverride: o });
-    expect(r.sequence!.emails[0]!.body).toMatch(/^Quick question for whoever looks after IT/);
+    expect(r.sequence!.emails[0]!.body).toMatch(/^Quick question for whoever handles client data at/);
     for (const e of r.sequence!.emails) expect(e.body).not.toMatch(/\bJane\b/);
     const g = await generateSequence("L1", d, "C", deps, { directContactOverride: o });
     expect(g.contactWarning).toBe("generic inbox: lower reply odds");

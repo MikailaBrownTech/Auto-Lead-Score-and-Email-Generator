@@ -303,12 +303,12 @@ export function SequenceEditor(props: { initial: SequenceView }) {
         </NoticeBanner>
       )}
       {view.kind === "template" && (
-        <NoticeBanner tone="info">Tier C: the docs/09 fixed copy with the lead's details filled in. No model was used, so no judge is needed.</NoticeBanner>
+        <NoticeBanner tone="info">
+          An older sequence: the docs/09 fixed copy with the lead's details filled in, from before every tier was written by the model. No model was used, so no judge is needed. Edit it by hand, or choose Rewrite this email to have the model write it instead.
+        </NoticeBanner>
       )}
       {!view.validationPass && (
-        <NoticeBanner>
-          A validator error remains after the one rewrite. It is shown on the email below: edit it and save, or choose Rewrite this email{view.kind === "template" ? " (tier C: edit by hand or fix docs/09_sequences.md)" : ""}.
-        </NoticeBanner>
+        <NoticeBanner>A validator error remains after the one rewrite. It is shown on the email below: edit it and save, or choose Rewrite this email.</NoticeBanner>
       )}
       {view.issues
         .filter((i) => i.email === null)
@@ -437,7 +437,7 @@ export function SequencesPage() {
             </a>
           }
         >
-          Open a lead and choose Write sequence. Tier C leads get the docs/09 fixed copy (no model call).
+          Open a lead and choose Write sequence.
         </EmptyState>
       )}
       {data && data.length > 0 && (

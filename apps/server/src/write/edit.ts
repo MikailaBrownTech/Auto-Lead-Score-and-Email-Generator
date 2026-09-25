@@ -11,7 +11,6 @@ import {
   judgedContentHash,
   judgedEmails,
   judgeEmails,
-  modelEmailsFor,
   templateSequence,
   validationContext,
   type StoredJudge,
@@ -56,7 +55,7 @@ export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps)
   if (!lead?.dossierJson) throw new SequenceError(`Lead ${row.leadId} has no research yet.`);
   const dossier = readStoredDossier(lead.dossierJson);
   const override = leadOverride(db, row.leadId);
-  // Tier C: the docs/09 copy as first assembled stays allowed when the founder edits an email.
+  // Legacy sequences only: the docs/09 copy as first assembled stays allowed when the founder edits an email.
   const original = sequence.emails.some((e) => e.template) ? templateSequence(row.leadId, dossier, deps, override).emails : undefined;
   const stored = JSON.parse(row.validationJson) as { drafts?: Draft[] } | null;
   return {
@@ -156,14 +155,11 @@ export async function runJudge(db: Db, sequenceId: number, deps: WriteDeps): Pro
 const RewriteOutput = z.object({ emails: z.array(WriterEmailSchema.strip()).min(1) });
 
 /**
- * Rewrites one email (tiers A and B): the writer gets the same input, the current sequence as its draft,
- * and that email's validator problems, and rewrites only that email. The judge must run again after.
+ * Rewrites one email: the writer gets the same input, the current sequence as its draft, and that
+ * email's validator problems, and rewrites only that email. The judge must run again after.
  */
 export async function rewriteOne(db: Db, sequenceId: number, n: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
   const ctx = loadSequenceContext(db, sequenceId, deps);
-  if (!modelEmailsFor(ctx.tier).includes(n)) {
-    throw new SequenceError(`Tier ${ctx.tier} leads use the docs/09 fixed copy with no model call. Edit email ${n} by hand instead.`);
-  }
   const input = writerInput(ctx.dossier, deps, firstNameFor(ctx.dossier, ctx.override));
   const current = { emails: ctx.sequence.emails.map((e) => ({ n: e.n, subject_a: e.subject_a, subject_b: e.subject_b, body: e.body })) };
   const issues = sequenceState(ctx, ctx.sequence, ctx.judge, deps).validation.issues.filter((i) => i.email === n && i.severity === "error");

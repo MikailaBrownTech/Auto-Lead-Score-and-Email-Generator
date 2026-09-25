@@ -296,7 +296,6 @@ export function LeadDetailPage(props: { id: string }) {
           </button>
         </div>
       </div>
-      {lead.tier === "C" && !lead.notWrittenReason && <p className="small muted">Tier C: the docs/09 fixed copy, no model call.</p>}
       {/* Why nothing was (or can be) written, always in words next to the button. */}
       {lead.notWrittenReason && <NoticeBanner>{lead.notWrittenReason} (See the gate box below.)</NoticeBanner>}
       {lead.lastWriteAttempt && (

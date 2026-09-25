@@ -105,14 +105,14 @@ export interface SequenceView {
   exportBlockers: string[];
   /** Code-inserted approved sentences (docs/02), to show apart from other text. */
   approvedSentences: { id: string; text: string }[];
-  /** Emails the writer may rewrite (tiers A and B: all five; tier C: none). */
+  /** Emails the writer may rewrite: all five, every tier. */
   rewritable: number[];
   wordLimits: Record<string, number>;
   subjectMaxWords: number;
   signature: string[];
   /** Emails with settings merge fields ({{offer}}, {{booking_link}}, ...) filled in, as they will be sent. */
   rendered: { n: number; subject_a: string | null; subject_b: string | null; body: string }[];
-  /** "template": the docs/09 fixed copy (tier C, no model call). "custom": written by the model or edited by you. */
+  /** "template": the old docs/09 fixed copy, from before every tier was model-written. "custom": written by the model or edited by you. */
   kind: "template" | "custom";
   /** Every writer draft of this sequence (first draft, rewrite), with the validator errors it got. */
   drafts: { attempt: number; formatProblem: string | null; errors: ValidationIssueView[] }[];

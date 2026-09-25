@@ -18,11 +18,12 @@ export function leadSegment(d: Dossier, templates: TemplateSet): FirmType {
 }
 
 /**
- * Tier C: builds the five emails from the docs/09 fixed copy (no model call). Lead merge fields are
- * filled here (firm, firm_short, city, first_name, approved_sentence); settings merge fields stay as
- * placeholders until the email is shown, checked, or exported. Greeting: a first name tied to the
- * address replaces email 1's role-based line; otherwise the role-based line opens email 1. Emails 2-5
- * never greet.
+ * Builds the five emails from the docs/09 fixed copy (no model call). No longer used to generate new
+ * sequences (every tier is now written by the model); kept for edit.ts's legacy "original copy"
+ * allowlist. Lead merge fields are filled here (firm, firm_short, city, first_name, approved_sentence);
+ * settings merge fields stay as placeholders until the email is shown, checked, or exported. Greeting:
+ * a first name tied to the address replaces email 1's role-based line; otherwise the role-based line
+ * opens email 1. Emails 2-5 never greet.
  */
 export function assembleEmails(input: AssembleInput): SequenceEmail[] {
   const { dossier: d, templates, style } = input;

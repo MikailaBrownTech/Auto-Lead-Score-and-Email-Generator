@@ -246,10 +246,8 @@ ${sentence}` }))).toContain("dollar_amount");
     expect(codes(sequence({ angle: "busy_season" }))).toContain("angle"); // CPA angle, but this lead is a tax preparer
   });
 
-  it("enforces tier gating: C is the docs/09 fixed copy only; A and B are written by the model", () => {
-    expect(codes(sequence({ tier: "C" })).filter((c) => c === "tier_gating")).toHaveLength(5);
-    expect(codes(sequence({ tier: "B" }))).not.toContain("tier_gating");
-    expect(codes(sequence({ tier: "A" }))).not.toContain("tier_gating");
+  it("no tier gating: model-written (non-template) emails are fine on every tier, including C", () => {
+    for (const tier of ["A", "B", "C"] as const) expect(codes(sequence({ tier }))).not.toContain("tier_gating");
   });
 
   it("warns that export is blocked while the opt-out line or address is empty", () => {

@@ -5,9 +5,10 @@ import { BlockError } from "./blocks";
 import { DOC_FILES, DOCS_DIR } from "./loader";
 
 /**
- * docs/09_sequences.md: the human-written Tier C sequence (no model call). The code fills merge fields.
- * Tiers A and B are written by the model (write/writer.ts). This module reads the file as the founder
- * wrote it (plain Markdown, no JSON).
+ * docs/09_sequences.md: the founder's original fixed sequence and the signature block. Every tier is
+ * now written by the model (write/writer.ts; docs/03 carries this sequence too, as EXAMPLE D). This
+ * module still parses the file (plain Markdown, no JSON) for the signature block, and for the "original
+ * copy" allowlist used when hand-editing sequences that predate this change (write/edit.ts).
  */
 
 /** Filled per lead when the sequence is assembled. */

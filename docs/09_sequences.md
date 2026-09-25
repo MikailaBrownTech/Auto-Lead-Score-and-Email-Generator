@@ -1,6 +1,6 @@
-# Tier C fixed sequence (human-written, no model call)
+# Legacy fixed sequence, and the signature block
 
-Tier C leads get this copy with the merge fields filled in; no model is called. Tiers A and B get emails the writer model writes in full (docs/03 has the example sequences it follows). Edit anything in [brackets] before sending.
+Every tier is now written in full by the writer model (docs/03 has the example sequences it follows, including this sequence, copied there as EXAMPLE D). This file is kept for two things: the Signature block below, appended by code to every email regardless of tier, and the copy of sequences written by the app before this change (still shown and editable, but no longer produced for new sequences). Edit anything in [brackets] before sending.
 
 ## Merge fields
 

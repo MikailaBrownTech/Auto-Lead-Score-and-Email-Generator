@@ -180,7 +180,7 @@ export interface WriteResult {
 }
 
 /**
- * Writes all five emails (tiers A and B): one writer call. The draft goes through the validators and,
+ * Writes all five emails (every tier): one writer call. The draft goes through the validators and,
  * when they pass, the judge (`review`). On validator errors or judge claims, one rewrite gets its own
  * draft plus the specific problems and rewrites naturally. The best usable draft is kept (the judge runs
  * again on a rewrite); code-repairable problems (a missing marker, a missing name greeting) are

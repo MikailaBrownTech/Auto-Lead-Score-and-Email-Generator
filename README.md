@@ -27,12 +27,13 @@ Screens:
 - **Lead detail**: the scorecard (score, tier, one bar per criterion under Fit, Signals, Reachability;
   NOT_FOUND criteria show a gray "unknown" bar), every fact with its source and quote (or NOT_FOUND),
   DNS findings, pages fetched vs failed, the contact card, and "Internal notes: never used in emails".
-- **Sequences are written by the model** (tiers A and B): all five emails, in the voice of the example
-  sequences in docs/03, from the lead's verified values only. It never states what a law or rule
-  requires: it marks the spot in email 2 and the app inserts the exact VERIFIED docs/02 sentence. Code
-  validators run on the draft, a second model (the judge) checks for unsupported claims, and the writer
-  gets one rewrite with its own draft and the problems found. Tier C leads get the fixed copy in
-  docs/09_sequences.md (no model call).
+- **Sequences are written by the model, every tier**: all five emails, in the voice of the example
+  sequences in docs/03 (which include the app's old fixed copy as one more style example), from the
+  lead's verified values only. It never states what a law or rule requires: it marks the spot in email 2
+  and the app inserts the exact VERIFIED docs/02 sentence. Code validators run on the draft, a second
+  model (the judge) checks for unsupported claims, and the writer gets one rewrite with its own draft and
+  the problems found. (Sequences written before this change may still carry the old fixed copy from
+  docs/09_sequences.md; that file is now kept for the signature block and that legacy copy.)
 - **Contact without a named person** is a warning, never a block. A generic or unattributed inbox shows
   "lower reply odds"; a lead with no public email shows "no public email; add before sending". Email 1
   then opens with a role-based line (never "Hi there,"); with a named contact tied to the address it opens

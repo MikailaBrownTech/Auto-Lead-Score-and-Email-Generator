@@ -45,9 +45,9 @@ const codesOf = (s: Sequence, d: Dossier) => errorsOf(s, d).map((i) => i.code);
 const withBody = (n: number, text: string) => (b: string[]) => b.map((x, i) => (i === n - 1 ? text : x));
 
 describe("docs/03 example sequences (few-shot)", () => {
-  it("three founder examples, none with \"Hi there,\"; the tuning note is not an example", () => {
+  it("four founder examples (the fourth is the old docs/09 fixed copy), none with \"Hi there,\"; the tuning note is not an example", () => {
     const ex = loadExampleSequences();
-    expect(ex.examples.map((e) => e.id)).toEqual(["A", "B", "C"]);
+    expect(ex.examples.map((e) => e.id)).toEqual(["A", "B", "C", "D"]);
     for (const e of ex.examples) expect(e.text).not.toMatch(/hi there/i);
     expect(ex.examples.map((e) => e.text).join()).not.toMatch(/What to feed the writer prompt/);
     expect(ex.preamble).toMatch(/style examples, not templates to copy verbatim/);
@@ -68,7 +68,7 @@ describe("docs/03 example sequences (few-shot)", () => {
     const { deps } = testWriteDeps(db);
     const system = deps.writerSystem("lead-a");
     const ids = examplesFor("lead-a", loadExampleSequences());
-    for (const id of ["A", "B", "C"]) expect(system.includes(`## EXAMPLE ${id}:`)).toBe(ids.includes(id));
+    for (const id of ["A", "B", "C", "D"]) expect(system.includes(`## EXAMPLE ${id}:`)).toBe(ids.includes(id));
     expect(system).toMatch(/REGULATORY RULE/);
     expect(system).not.toMatch(/Smith Tax|evidence_quote/);
   });
@@ -202,14 +202,13 @@ describe("generateSequence", () => {
     expect(JSON.stringify(p.messages)).not.toMatch(/evidence_quote|evidence_url/);
   });
 
-  it("tier C: the docs/09 fixed copy, no model call", async () => {
+  it("tier C: also written by the model now (the tier/template split is gone)", async () => {
     saveLead("L1", generic());
     const { deps, create } = testWriteDeps(db);
     const g = await generateSequence("L1", generic(), "C", deps);
-    expect(create).not.toHaveBeenCalled();
-    expect(g.status).toBe("passed");
-    expect(g.sequence!.emails.every((e) => e.template)).toBe(true);
-    expect(g.sequence!.emails[0]!.body).toMatch(/^Quick question for whoever looks after IT and client data at Smith Tax Services:/);
+    expect(create).toHaveBeenCalled();
+    expect(g).toMatchObject({ status: "passed", writerCalls: 1, judgeCalls: 1 });
+    expect(g.sequence!.emails.every((e) => !e.template)).toBe(true);
   });
 
   it("validator errors: one rewrite that gets its own draft plus the specific errors", async () => {
@@ -323,10 +322,12 @@ describe("approval, edits, judge, rewrite one email", () => {
     expect(r.sequence.emails[2]!.body).toMatch(/^A fresh take/);
     expect(r.sequence.emails[0]).toEqual(g.sequence!.emails[0]);
     expect(userText(create.mock.calls.at(-1)![0])).toMatch(/Rewrite email 3/);
+    // Tier C is also model-written now, so rewriting one of its emails works the same way.
     const { deps: c } = testWriteDeps(db);
     saveLead("L2", generic());
     const t = await generateSequence("L2", generic(), "C", c);
-    await expect(rewriteOne(db, t.sequenceId!, 1, c)).rejects.toThrow(/Tier C/);
+    const rc = await rewriteOne(db, t.sequenceId!, 1, c);
+    expect(rc.sequence.emails[0]!.template).toBe(false);
   });
 
   it("rewrite email 1: accepted when the model returns only that one email (not all five)", async () => {

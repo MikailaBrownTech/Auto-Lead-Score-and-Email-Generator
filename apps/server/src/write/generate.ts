@@ -108,10 +108,8 @@ export function logWriteAttempt(db: Db, leadId: string, detail: string): void {
   db.insert(leadEvents).values({ leadId, kind: "write_attempt", detail: detail.slice(0, 1000) }).run();
 }
 
-/** Emails the writer model writes, by tier: A and B all five; C none (docs/09 fixed copy, no call). */
-export function modelEmailsFor(tier: Tier): number[] {
-  return tier === "C" ? [] : [1, 2, 3, 4, 5];
-}
+/** Every lead the writer can write for gets all five emails from the model (the tier/template split is gone). */
+export const ALL_EMAIL_NUMBERS = [1, 2, 3, 4, 5] as const;
 
 /** First name for email 1: only when the public address is tied to that person, and never after a contact override. */
 export function firstNameFor(d: Dossier, override: DirectContactOverride | null): string | null {
@@ -154,7 +152,7 @@ function splitCopy(body: string): string[] {
     .filter(Boolean);
 }
 
-/** Tier C: the docs/09 fixed copy for a lead (no model call). */
+/** The old docs/09 fixed copy for a lead (no model call). No longer used to generate new sequences (every tier is model-written); kept for edit.ts's legacy "original copy" allowlist. */
 export function templateSequence(leadId: string, d: Dossier, deps: WriteDeps, override: DirectContactOverride | null): Sequence {
   const segment = leadSegment(d, deps.templates);
   const emails = assembleEmails({ dossier: d, templates: deps.templates, style: deps.style, approved: deps.approved, firstName: firstNameFor(d, override) });
@@ -200,10 +198,10 @@ export async function judgeEmails(leadId: string, d: Dossier, emails: SequenceEm
 }
 
 /**
- * Generates a lead's sequence by tier and gate (docs/06):
+ * Generates a lead's sequence by fit gate (docs/06); the tier no longer decides template vs. AI:
  *  - out_of_icp or needs_review: nothing is written unless the founder approved the gate.
- *  - Tier C: the docs/09 fixed copy; no writer or judge call.
- *  - Tiers A and B: the writer model writes all five emails in the docs/03 examples' voice, from verified
+ *  - Any qualified tier (A, B, or C): the writer model writes all five emails in the docs/03 examples'
+ *    voice (which now include the old docs/09 fixed copy as one more style example), from verified
  *    values only. Code splices the approved docs/02 sentence at [[APPROVED]] in email 2 and runs the
  *    validators; on errors the writer rewrites once from its own draft and the errors. The judge then
  *    checks for unsupported claims. "passed" means validators and judge are both clean.
@@ -246,34 +244,30 @@ export async function generateSequence(
   let judgeCalls = 0;
   let note: string | null = null;
 
-  if (modelEmailsFor(tier).length === 0) {
-    sequence = templateSequence(leadId, dossier, deps, override);
-  } else {
-    const budgetSinceRunId = lastRunId(deps.db);
-    const input = writerInput(dossier, deps, firstNameFor(dossier, override));
-    try {
-      const w = await writeSequenceEmails(leadId, dossier, tier, deps, vctx, {
-        firstName: firstNameFor(dossier, override),
-        review: (emails) => judgeEmails(leadId, dossier, emails, deps, budgetSinceRunId),
-      });
-      drafts = w.drafts;
-      writerCalls = w.writerCalls;
-      note = w.note;
-      if (!w.emails) {
-        // Two unusable answers: nothing to show but the reason (the lead page keeps it).
-        const reason = `Not written: the writer's answers could not be used (${drafts.map((x) => x.formatProblem).filter(Boolean).join("; ")}). Write again.`;
-        logWriteAttempt(deps.db, leadId, reason);
-        return { ...base, reason, drafts, writerCalls };
-      }
-      sequence = SequenceSchema.parse({ lead_id: leadId, tier, persona: input.persona, angle: deps.style.firm_type_angles[writerType(dossier)][0]!, emails: w.emails });
-      judge = w.judge;
-      judgeCalls = w.judgeCalls;
-    } catch (err) {
-      if (!(err instanceof BudgetExceededError)) throw err;
-      const reason = `Not written: stopped by the lead's token budget (${err.message}).`;
+  const budgetSinceRunId = lastRunId(deps.db);
+  const input = writerInput(dossier, deps, firstNameFor(dossier, override));
+  try {
+    const w = await writeSequenceEmails(leadId, dossier, tier, deps, vctx, {
+      firstName: firstNameFor(dossier, override),
+      review: (emails) => judgeEmails(leadId, dossier, emails, deps, budgetSinceRunId),
+    });
+    drafts = w.drafts;
+    writerCalls = w.writerCalls;
+    note = w.note;
+    if (!w.emails) {
+      // Two unusable answers: nothing to show but the reason (the lead page keeps it).
+      const reason = `Not written: the writer's answers could not be used (${drafts.map((x) => x.formatProblem).filter(Boolean).join("; ")}). Write again.`;
       logWriteAttempt(deps.db, leadId, reason);
       return { ...base, reason, drafts, writerCalls };
     }
+    sequence = SequenceSchema.parse({ lead_id: leadId, tier, persona: input.persona, angle: deps.style.firm_type_angles[writerType(dossier)][0]!, emails: w.emails });
+    judge = w.judge;
+    judgeCalls = w.judgeCalls;
+  } catch (err) {
+    if (!(err instanceof BudgetExceededError)) throw err;
+    const reason = `Not written: stopped by the lead's token budget (${err.message}).`;
+    logWriteAttempt(deps.db, leadId, reason);
+    return { ...base, reason, drafts, writerCalls };
   }
 
   const validation = validateSequence(sequence, vctx);
@@ -282,7 +276,7 @@ export async function generateSequence(
   const status: SequenceStatus = validation.pass && judgePass ? "passed" : "blocked";
   const reason =
     status === "passed"
-      ? [tier === "C" ? "tier C: docs/09 fixed copy, no model call; validators passed" : "validators and judge passed", note].filter(Boolean).join("; ")
+      ? ["validators and judge passed", note].filter(Boolean).join("; ")
       : [note, !validation.pass ? "validator errors remain after the rewrite" : "", !judgePass ? "the judge still listed unsupported claims after the rewrite" : ""].filter(Boolean).join("; ");
   const row = deps.db
     .insert(sequences)

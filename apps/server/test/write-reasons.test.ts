@@ -47,7 +47,7 @@ describe("why no sequence was written: always visible on the lead page", { timeo
     }
   });
 
-  it("tier C: the docs/09 fixed copy (no model call), listed on the Sequences screen", async () => {
+  it("tier C: also written by the model now (no template/AI split), listed on the Sequences screen", async () => {
     const h = makeHarness();
     try {
       const c = strongDossier({ size_signal: NOT_FOUND, decision_maker: NOT_FOUND, people: [], services: NOT_FOUND, personal_email_domain_on_site: NOT_FOUND, client_portal_or_doc_exchange: NOT_FOUND, security_mention_search: "NOT_CHECKED" });
@@ -55,9 +55,9 @@ describe("why no sequence was written: always visible on the lead page", { timeo
       const w = await h.call("POST", "/api/leads/L-c/sequence");
       expect(w.status).toBe(200);
       const seq = (await h.call("GET", `/api/sequences/${w.json.id}`)).json;
-      expect(seq).toMatchObject({ kind: "template", judgeRequired: false, tier: "C", rewritable: [] });
-      expect((await h.call("GET", "/api/sequences")).json).toMatchObject([{ leadId: "L-c", kind: "template", tier: "C" }]);
-      expect(h.calls).toHaveLength(0);
+      expect(seq).toMatchObject({ kind: "custom", judgeRequired: true, tier: "C", rewritable: [1, 2, 3, 4, 5] });
+      expect((await h.call("GET", "/api/sequences")).json).toMatchObject([{ leadId: "L-c", kind: "custom", tier: "C" }]);
+      expect(writerCalls(h)).toHaveLength(1);
     } finally {
       h.cleanup();
     }

@@ -49,9 +49,9 @@ export function leadIdForLabel(label: string): string {
 }
 
 /**
- * Background jobs, one lead at a time (p-queue, concurrency 1): research, then the sequence (tier C
- * and gated leads make no model calls). Status is kept in memory and polled by the UI. Cancel stops
- * before the next step; a step already running finishes (its spend is logged either way).
+ * Background jobs, one lead at a time (p-queue, concurrency 1): research, then the sequence (gated
+ * leads make no model calls; every qualified tier does). Status is kept in memory and polled by the
+ * UI. Cancel stops before the next step; a step already running finishes (its spend is logged either way).
  */
 export class JobRunner {
   private readonly jobs = new Map<string, Job>();
@@ -127,7 +127,7 @@ export class JobRunner {
         return;
       }
       item.state = "writing";
-      item.message = r.score.tier === "C" ? "Filling in the docs/09 emails (no model call)" : "Writing the emails";
+      item.message = "Writing the emails";
       const gateApproved = s.db.select({ v: leads.gateApproved }).from(leads).where(eq(leads.id, item.leadId)).get()?.v ?? false;
       const g = await generateSequence(item.leadId, r.dossier, r.score.tier, writeDeps(s), { gateApproved, directContactOverride: leadOverride(s.db, item.leadId) });
       item.sequenceStatus = g.status;

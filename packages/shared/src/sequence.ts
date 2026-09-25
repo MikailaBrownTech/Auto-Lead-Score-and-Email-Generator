@@ -12,10 +12,10 @@ export const FactFieldSchema = z.enum(GROUNDING_FIELDS as unknown as [string, ..
 
 /**
  * One email. `body` runs from the greeting or opening line to the last sentence before the signature.
- * Tiers A and B: written by the writer model, with the approved docs/02 sentence spliced in by code.
- * Tier C: the docs/09 fixed copy, whose settings merge fields ({{company}}, {{offer}}, {{booking_link}},
- * {{region}}, {{company_one_liner}}) are filled from docs/01 when shown, checked, or exported. The
- * signature block is appended by code.
+ * Every tier: written by the writer model, with the approved docs/02 sentence spliced in by code.
+ * (Older sequences, from before this, may carry `template: true`: the docs/09 fixed copy, whose settings
+ * merge fields ({{company}}, {{offer}}, {{booking_link}}, {{region}}, {{company_one_liner}}) are filled
+ * from docs/01 when shown, checked, or exported.) The signature block is appended by code either way.
  */
 export const SequenceEmailSchema = z
   .object({
@@ -28,7 +28,7 @@ export const SequenceEmailSchema = z
     body: z.string().trim().min(1),
     /** Dossier fields this email relies on (found by code in the personal line). Every listed field must be found. */
     grounding: z.array(FactFieldSchema),
-    /** True for the docs/09 fixed copy (tier C); false when the writer model wrote it. */
+    /** True for the old docs/09 fixed copy (legacy sequences only); false when the writer model wrote it. */
     template: z.boolean(),
     /** Legacy: sequences built by the template-first version (2026-09-24) carry their personal line. */
     personal_line: z.object({ text: z.string().trim().min(1), source: z.enum(["model", "fallback"]) }).strict().optional(),

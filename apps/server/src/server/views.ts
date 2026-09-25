@@ -6,7 +6,7 @@ import { leadEvents, leads, runs, sequences } from "../db/schema";
 import { DOCS_DIR, loadScoring } from "../docs/loader";
 import { contactWarning, lacksNamedContact, leadOverride, namedContactChecklist, publicAddress } from "../scoring/direct-contact";
 import { scoreDossier } from "../scoring/score";
-import { firstNameFor, modelEmailsFor, notWrittenReason, type WriteDeps } from "../write/generate";
+import { ALL_EMAIL_NUMBERS, firstNameFor, notWrittenReason, type WriteDeps } from "../write/generate";
 import { renderSettings, renderSignature } from "../write/merge";
 import { loadSequenceContext, sequenceState } from "../write/edit";
 import type { Services } from "./services";
@@ -192,7 +192,7 @@ export function sequenceViewFrom(
     contactWarning: state.contactWarning,
     exportBlockers: state.exportBlockers,
     approvedSentences: deps.approved.map((a) => ({ id: a.id, text: a.text })),
-    rewritable: modelEmailsFor(tier),
+    rewritable: [...ALL_EMAIL_NUMBERS],
     wordLimits: deps.style.word_limits,
     subjectMaxWords: deps.style.subject_max_words,
     signature: renderSignature(deps.templates.signature, deps.offer),

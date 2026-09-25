@@ -1,11 +1,11 @@
 /**
- * Research leads and generate their sequences (tiers A/B: the writer model writes all five emails; tier C: docs/09 fixed copy), with the real API.
+ * Research leads and generate their sequences (the writer model writes all five emails, every tier), with the real API.
  *
  *   npm run write-sequence -- <url> [<url> ...] [--refresh]
  *
  * Research reuses the page, robots.txt, and extraction caches (--refresh ignores them). Sequences
- * follow tier and gate: tiers A and B make a writer call (plus one rewrite on validator errors) and a
- * judge call; Tier C and gated leads make none. Report mode: every writer draft with its validator
+ * follow the fit gate: every qualified tier makes a writer call (plus one rewrite on validator errors)
+ * and a judge call; gated leads make none. Report mode: every writer draft with its validator
  * errors, the final sequence as sent (approved sentence marked), the validator log, the judge, the
  * blockers, tokens, and cost go to data/reports/<lead>-sequence.txt. The console prints one summary
  * line per lead and the file paths.

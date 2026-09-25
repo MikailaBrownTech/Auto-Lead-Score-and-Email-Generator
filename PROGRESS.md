@@ -39,6 +39,16 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       splices the VERIFIED docs/02 sentence at [[APPROVED]]; lighter validators; one rewrite from its own
       draft plus the validator errors or judge claims; judge as the second check. Tier C keeps the docs/09
       fixed copy. 5 recorded real generations pass the validator set.
+- [x] Rewrite-one-email fix (2026-09-25): the real cause of "came back in the wrong shape" was the model
+      occasionally double-nesting its rewrite answer ({ emails: { emails: [...] } }); toolInput() now
+      unwraps that, and both failure paths log the raw model response.
+- [x] Tier/template split removed (2026-09-25, founder decision): every qualified tier (A, B, C) now gets
+      a full AI-written sequence through the same writer path; the old docs/09 fixed copy was folded into
+      docs/03 as EXAMPLE D (a style reference, not literal output). Fit/ICP gates (out_of_icp,
+      needs_review) are unchanged: gated leads still get no AI calls. templates.ts/assemble.ts and
+      templateSequence() stay only for the signature block and for hand-editing sequences written before
+      this change (they may still carry template: true emails). tier_gating validator and
+      modelEmailsFor() removed; rewriteOne no longer blocks by tier.
 - [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
 
 ## Current state (2026-09-24, after the full-writer revert)
