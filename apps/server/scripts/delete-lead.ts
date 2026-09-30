@@ -8,9 +8,7 @@
  * Without --yes, this only reports what each id would delete (a firm name, sequence count, pages that
  * would be removed) and changes nothing. Pass --yes to actually delete.
  */
-import { eq } from "drizzle-orm";
 import { bootstrapOrExit } from "../src/bootstrap";
-import { leads, sequences } from "../src/db/schema";
 import { deleteLeads } from "../src/pipeline/delete-lead";
 import { tryReadStoredDossier } from "../src/pipeline/stored-dossier";
 import { isFound } from "@clearpath/shared";
@@ -25,25 +23,25 @@ if (ids.length === 0) {
 }
 
 const ctx = bootstrapOrExit();
-const { db } = ctx;
+const { db, leadsDb, sequencesDb } = ctx;
 
-function describe(id: string): string {
-  const row = db.select().from(leads).where(eq(leads.id, id)).get();
+async function describe(id: string): Promise<string> {
+  const row = await leadsDb.get(id);
   if (!row) return `${id}: not found`;
   const d = row.dossierJson ? tryReadStoredDossier(row.dossierJson) : null;
   const firm = d && isFound(d.firm_name) ? d.firm_name.value : "(no research yet)";
-  const seqCount = db.select({ id: sequences.id }).from(sequences).where(eq(sequences.leadId, id)).all().length;
+  const seqCount = (await sequencesDb.listByLead(id)).length;
   return `${id}: "${firm}", ${seqCount} sequence(s)`;
 }
 
 if (!yes) {
   console.log("Dry run (pass --yes to delete). Would delete:");
-  for (const id of ids) console.log(`  ${describe(id)}`);
+  for (const id of ids) console.log(`  ${await describe(id)}`);
   process.exit(0);
 }
 
-for (const id of ids) console.log(`Deleting ${describe(id)}`);
-const result = deleteLeads(db, ids);
+for (const id of ids) console.log(`Deleting ${await describe(id)}`);
+const result = await deleteLeads(db, leadsDb, ids);
 const skipped = ids.filter((id) => !result.deleted.includes(id));
 console.log(`Deleted ${result.deleted.length} lead(s), ${result.pagesDeleted} cached page(s).`);
 if (skipped.length > 0) console.log(`Not found (skipped): ${skipped.join(", ")}`);

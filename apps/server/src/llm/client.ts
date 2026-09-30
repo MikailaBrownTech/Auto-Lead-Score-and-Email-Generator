@@ -1,8 +1,7 @@
 import crypto from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
-import { and, eq, gt, max, sql } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { runs, type CallType } from "../db/schema";
+import type { CallType } from "../db/schema";
+import type { RunsDb } from "../db/supa-runs";
 import { priceFor, type PriceTable } from "../config/prices";
 import { computeCostUsd, worstCaseCostUsd } from "./cost";
 import { withBackoff, type BackoffOptions } from "./retry";
@@ -43,7 +42,7 @@ export interface CallMeta {
 
 export interface LlmClientDeps {
   api: MessagesApi;
-  db: Db;
+  runsDb: RunsDb;
   prices: PriceTable;
   gate: SpendGate;
   leadTokenBudget: number;
@@ -64,20 +63,13 @@ export function createAnthropic(apiKey: string): MessagesApi {
 }
 
 /** The newest runs.id, used as the start mark for a research run's per-lead budget. */
-export function lastRunId(db: Db): number {
-  return db.select({ id: max(runs.id) }).from(runs).get()?.id ?? 0;
+export function lastRunId(runsDb: RunsDb): Promise<number> {
+  return runsDb.maxId();
 }
 
 /** Tokens a lead has consumed across all logged calls, from API usage numbers (every category counts). */
-export function leadTokensUsed(db: Db, leadId: string, sinceRunId = 0): number {
-  const row = db
-    .select({
-      total: sql<number>`coalesce(sum(${runs.inputTokens} + ${runs.outputTokens} + ${runs.cacheReadTokens} + ${runs.cacheWriteTokens}), 0)`,
-    })
-    .from(runs)
-    .where(and(eq(runs.leadId, leadId), gt(runs.id, sinceRunId)))
-    .get();
-  return row?.total ?? 0;
+export function leadTokensUsed(runsDb: RunsDb, leadId: string, sinceRunId = 0): Promise<number> {
+  return runsDb.tokensForLead(leadId, sinceRunId);
 }
 
 function hasCacheControl(value: unknown): boolean {
@@ -125,7 +117,7 @@ function describeError(err: unknown): string {
  *      reconciled to actual spend. Errors and timeouts are logged at zero cost and also release.
  */
 export function createLlmClient(deps: LlmClientDeps) {
-  const { api, db, prices, gate, leadTokenBudget } = deps;
+  const { api, runsDb, prices, gate, leadTokenBudget } = deps;
 
   async function call(meta: CallMeta, params: Anthropic.MessageCreateParamsNonStreaming): Promise<CallResult> {
     const price = priceFor(prices, params.model);
@@ -135,14 +127,14 @@ export function createLlmClient(deps: LlmClientDeps) {
     );
 
     if (meta.leadId) {
-      const used = leadTokensUsed(db, meta.leadId, meta.budgetSinceRunId ?? 0);
+      const used = await leadTokensUsed(runsDb, meta.leadId, meta.budgetSinceRunId ?? 0);
       const projected = used + inputTokens + params.max_tokens;
       if (projected > leadTokenBudget) {
         throw new BudgetExceededError(meta.leadId, used, projected, leadTokenBudget);
       }
     }
 
-    const reservation = gate.reserve(worstCaseCostUsd(inputTokens, params.max_tokens, price));
+    const reservation = await gate.reserve(worstCaseCostUsd(inputTokens, params.max_tokens, price));
     const base = {
       model: params.model,
       callType: meta.callType,
@@ -154,24 +146,22 @@ export function createLlmClient(deps: LlmClientDeps) {
       const message = await withBackoff(() => api.messages.create(params), deps.backoff);
       const usage = message.usage;
       const costUsd = computeCostUsd(usage, price);
-      db.insert(runs)
-        .values({
-          ...base,
-          status: "ok",
-          inputTokens: usage.input_tokens,
-          outputTokens: usage.output_tokens,
-          cacheReadTokens: usage.cache_read_input_tokens ?? 0,
-          cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
-          cacheWrite5mTokens: usage.cache_creation?.ephemeral_5m_input_tokens ?? null,
-          cacheWrite1hTokens: usage.cache_creation?.ephemeral_1h_input_tokens ?? null,
-          costUsd,
-          stopReason: message.stop_reason ?? null,
-          messageId: message.id,
-        })
-        .run();
+      await runsDb.insert({
+        ...base,
+        status: "ok",
+        inputTokens: usage.input_tokens,
+        outputTokens: usage.output_tokens,
+        cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+        cacheWrite5mTokens: usage.cache_creation?.ephemeral_5m_input_tokens ?? null,
+        cacheWrite1hTokens: usage.cache_creation?.ephemeral_1h_input_tokens ?? null,
+        costUsd,
+        stopReason: message.stop_reason ?? null,
+        messageId: message.id,
+      });
       return { message, costUsd };
     } catch (err) {
-      db.insert(runs).values({ ...base, status: "error", error: describeError(err) }).run();
+      await runsDb.insert({ ...base, status: "error", error: describeError(err) });
       throw err;
     } finally {
       reservation.release();

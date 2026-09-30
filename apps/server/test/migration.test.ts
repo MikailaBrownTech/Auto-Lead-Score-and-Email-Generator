@@ -88,6 +88,50 @@ describe("runMigration", () => {
     expect(report).toMatch(/leads\s+2\s+0\s+ERROR \(simulated failure inserting into leads\)/);
     expect(report).toMatch(/Some tables had errors/);
   });
+
+  it("--commit refuses and inserts nothing when a target table already has rows", async () => {
+    const { client, tables } = fakeClient();
+    tables.set("leads", [{ id: "lead-already-here" }]); // simulates a previous migration having run
+
+    const result = await runMigration(client, plans, { dryRun: false });
+
+    expect(result.refused?.existing).toEqual([{ table: "leads", count: 1 }]);
+    expect(result.hasErrors).toBe(true);
+    expect(result.tables).toEqual([]);
+    // Nothing new was inserted: the pre-existing row is still the only one there.
+    expect(tables.get("leads")).toEqual([{ id: "lead-already-here" }]);
+    expect(tables.get("lead_sequences") ?? []).toEqual([]);
+
+    const report = formatReport(result);
+    expect(report).toMatch(/REFUSED/);
+    expect(report).toMatch(/leads: 1 row\(s\) already there/);
+    expect(report).toMatch(/pass --force/);
+  });
+
+  it("a clean destination (dry run just cleaned up after itself) never refuses a following --commit", async () => {
+    const { client } = fakeClient();
+    await runMigration(client, plans, { dryRun: true }); // leaves the fake empty again
+    const result = await runMigration(client, plans, { dryRun: false });
+    expect(result.refused).toBeUndefined();
+    expect(result.tables.every((t) => !t.error)).toBe(true);
+  });
+
+  it("--commit --force proceeds over existing rows and says so loudly", async () => {
+    const { client, tables } = fakeClient();
+    tables.set("leads", [{ id: "lead-already-here" }]);
+
+    const result = await runMigration(client, plans, { dryRun: false, force: true });
+
+    expect(result.refused).toBeUndefined();
+    expect(result.forcedOverExisting).toEqual([{ table: "leads", count: 1 }]);
+    // Both the pre-existing row and the newly-migrated ones are there now (a real duplicate risk).
+    expect(tables.get("leads")).toHaveLength(3);
+
+    const report = formatReport(result);
+    expect(report).toMatch(/\*\*\* --force: proceeded even though these tables already had rows/);
+    expect(report).toMatch(/leads: had 1 row\(s\) before this run/);
+    expect(report).toMatch(/COMMITTED/);
+  });
 });
 
 describe("transform: SQLite rows -> Supabase rows", () => {

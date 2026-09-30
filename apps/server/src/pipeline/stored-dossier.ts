@@ -8,13 +8,15 @@ export class OutdatedDossierError extends Error {
 const CORE_FIELDS = ["gate", "us_location", "target_industry_fit", "dns", "decision_maker", "latest_dated_content", "security_mention_search"] as const;
 
 /**
- * Reads a dossier saved in the leads table. Dossiers saved before later schema additions lack the
- * newer code-derived fields; those get their empty defaults (the same defaults the schema applies),
- * so older leads still open. Facts are never invented: every added field is NOT_FOUND or empty.
- * A dossier missing core fields is refused with a plain message (research it again).
+ * Reads a dossier saved for a lead: a JSON string (the old SQLite dossier_json column, and still what
+ * some local scripts/caches hand in) or an already-parsed object (Supabase's lead_dossiers.dossier is
+ * jsonb, so supabase-js hands it back parsed, not as text). Dossiers saved before later schema
+ * additions lack the newer code-derived fields; those get their empty defaults (the same defaults the
+ * schema applies), so older leads still open. Facts are never invented: every added field is
+ * NOT_FOUND or empty. A dossier missing core fields is refused with a plain message (research it again).
  */
-export function readStoredDossier(json: string): Dossier {
-  const d = JSON.parse(json) as Partial<Dossier> & Record<string, unknown>;
+export function readStoredDossier(json: string | unknown): Dossier {
+  const d = (typeof json === "string" ? JSON.parse(json) : json) as Partial<Dossier> & Record<string, unknown>;
   const missing = CORE_FIELDS.filter((k) => d[k] === undefined);
   if (missing.length > 0) {
     throw new OutdatedDossierError("This lead was researched by an older version of the app. Import it again to refresh its research.");
@@ -32,7 +34,7 @@ export function readStoredDossier(json: string): Dossier {
 }
 
 /** Like readStoredDossier, but null for an outdated dossier (lists skip the details instead of failing). */
-export function tryReadStoredDossier(json: string): Dossier | null {
+export function tryReadStoredDossier(json: string | unknown): Dossier | null {
   try {
     return readStoredDossier(json);
   } catch (err) {

@@ -15,9 +15,11 @@ import {
   type ScoringConfig,
   type SecurityMentionSearch,
 } from "@clearpath/shared";
-import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { leads, type LeadStatus } from "../db/schema";
+import type { LeadStatus } from "../db/schema";
+import type { EventsDb } from "../db/supa-sequences";
+import type { LeadPatch, LeadsDb } from "../db/supa-leads";
+import type { RunsDb } from "../db/supa-runs";
 import { emailSecurityHint, loadDmarcVendors, lookupDns, mailDomainFor, type DnsResolver, type MxProvider } from "../dns/lookup";
 import { createPageCache, createRobotsStore, createTokenCounter } from "../extract/caches";
 import { extractFacts, type ExtractionResult } from "../extract/extract";
@@ -34,7 +36,11 @@ import { scoreDossier, type ScoreResult } from "../scoring/score";
 import { searchSecurityMentions } from "../scoring/security-search";
 
 export interface ResearchDeps {
+  /** The SQLite cache DB only (pages, robots_txt, token_counts, extractions). */
   db: Db;
+  leadsDb: LeadsDb;
+  eventsDb: EventsDb;
+  runsDb: RunsDb;
   llm: LlmClient;
   modelExtract: string;
   systemPrompt: string;
@@ -104,18 +110,8 @@ function emptyFacts(): ExtractedFacts {
   return Object.fromEntries(FACT_FIELDS.map((f) => [f, f === "people" || f === "exclusion_signals" ? [] : NOT_FOUND])) as unknown as ExtractedFacts;
 }
 
-function saveLead(db: Db, id: string, values: Partial<typeof leads.$inferInsert>): void {
-  db.update(leads)
-    .set({ ...values, updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` })
-    .where(eq(leads.id, id))
-    .run();
-}
-
-function startLead(db: Db, id: string, source: "web" | "pasted", inputUrl: string | null): void {
-  db.insert(leads)
-    .values({ id, source, inputUrl, status: "researching" })
-    .onConflictDoUpdate({ target: leads.id, set: { source, inputUrl, status: "researching", error: null } })
-    .run();
+function startLead(leadsDb: LeadsDb, id: string, source: "web" | "pasted", inputUrl: string | null): Promise<void> {
+  return leadsDb.upsert(id, { source, inputUrl, status: "researching", error: null });
 }
 
 /**
@@ -169,7 +165,7 @@ export function assembleDossier(
 
 /** Phase 1 for a website lead: fetch (cache-aware), DNS, and the full-text keyword search. No model calls. */
 export async function prepareWebLead(leadId: string, inputUrl: string, deps: ResearchDeps): Promise<PreparedLead> {
-  startLead(deps.db, leadId, "web", inputUrl);
+  await startLead(deps.leadsDb, leadId, "web", inputUrl);
   const cache = createPageCache(deps.db, deps.pageCacheDays, deps.now);
   const robotsStore = createRobotsStore(deps.db, deps.pageCacheDays, deps.now);
   const site = await fetchSite(inputUrl, {
@@ -234,7 +230,7 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
   let extraction: ExtractionResult | null = null;
   let sent: SentPage[] = [];
 
-  const budgetSinceRunId = lastRunId(deps.db);
+  const budgetSinceRunId = await lastRunId(deps.runsDb);
   try {
     const count = createTokenCounter(deps.db, deps.llm, deps.modelExtract);
     const capped = await applyTokenCaps(p.capInputs, deps.caps, count);
@@ -281,19 +277,19 @@ export async function completeLead(p: PreparedLead, deps: ResearchDeps): Promise
   const score = scoreDossier(dossier, deps.scoring, deps.now());
   // Without a person-tied public address (generic inbox, unattributed, or none) the lead is labeled
   // no_named_contact: a warning only (tier and score unchanged; drafting, approval, export proceed).
-  if (status === "extracted" && lacksNamedContact(dossier) && !leadOverride(deps.db, p.leadId)) {
+  if (status === "extracted" && lacksNamedContact(dossier) && !(await leadOverride(deps.leadsDb, p.leadId))) {
     status = "no_named_contact";
   }
-  saveLead(deps.db, p.leadId, {
+  const patch: LeadPatch = {
     status,
     error,
-    dossierJson: JSON.stringify(dossier),
     score: score.total,
     tier: score.tier,
     gateStatus: dossier.gate.status,
-    gateReasonsJson: JSON.stringify(dossier.gate.reasons),
+    gateReasons: dossier.gate.reasons,
     incompleteData: score.incompleteData.flag,
-  });
+  };
+  await deps.leadsDb.saveResearch(p.leadId, patch, dossier);
   return { leadId: p.leadId, status, error, dossier, score, sent, extraction, pages: p.pages, links: p.links, sitemap: p.sitemap };
 }
 
@@ -307,7 +303,7 @@ export async function researchWebLead(leadId: string, inputUrl: string, deps: Re
  * No fetching and no DNS; evidence_url is "pasted" for every fact.
  */
 export async function researchPastedLead(leadId: string, pastedText: string, deps: ResearchDeps): Promise<ResearchReport> {
-  startLead(deps.db, leadId, "pasted", null);
+  await startLead(deps.leadsDb, leadId, "pasted", null);
   const text = pastedText.replace(/\r\n/g, "\n").trim();
   return completeLead(
     {

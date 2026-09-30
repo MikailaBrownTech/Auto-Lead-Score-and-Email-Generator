@@ -1,7 +1,12 @@
 import type { Env } from "../config/env";
 import type { Db } from "../db/client";
+import type { EventsDb, SequencesDb } from "../db/supa-sequences";
+import type { LeadsDb } from "../db/supa-leads";
+import type { RunsDb } from "../db/supa-runs";
+import type { SettingsDb } from "../db/supa-settings";
+import type { SuppressionDb } from "../db/supa-suppression";
 import { loadMxProviders, systemDnsResolver, type DnsResolver } from "../dns/lookup";
-import { DOCS_DIR, loadApprovedSentences, loadEvidence, loadOffer, loadScoring, loadStyle, loadWriterFacts } from "../docs/loader";
+import { DOCS_DIR, loadApprovedSentences, loadEvidence, loadScoring, loadStyle, loadWriterFacts } from "../docs/loader";
 import { loadTemplates } from "../docs/templates";
 import { loadExtractionSystemPrompt, PROMPTS_DIR } from "../extract/prompt";
 import { loadInjectionPatterns } from "../extract/untrusted";
@@ -20,9 +25,16 @@ export type ServiceEnv = Pick<
   "MODEL_EXTRACT" | "MODEL_WRITE" | "MAX_TOKENS_PER_PAGE" | "MAX_INPUT_TOKENS_PER_LEAD" | "FETCH_TIMEOUT_MS" | "FETCH_MAX_BYTES" | "PAGE_CACHE_DAYS" | "CONTACT_URL"
 >;
 
-/** Everything the API needs to research and write. Tests replace the network, DNS, and model. */
+/** Everything the API needs to research and write. Tests replace the network, DNS, the model, and every *Db. */
 export interface Services {
+  /** The SQLite cache DB only (pages, robots_txt, token_counts, extractions). */
   db: Db;
+  leadsDb: LeadsDb;
+  sequencesDb: SequencesDb;
+  eventsDb: EventsDb;
+  runsDb: RunsDb;
+  suppressionDb: SuppressionDb;
+  settingsDb: SettingsDb;
   llm: LlmClient;
   gate: SpendGate;
   env: ServiceEnv;
@@ -44,6 +56,9 @@ export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): Res
   const docsDir = s.docsDir ?? DOCS_DIR;
   return {
     db: s.db,
+    leadsDb: s.leadsDb,
+    eventsDb: s.eventsDb,
+    runsDb: s.runsDb,
     llm: s.llm,
     modelExtract: s.env.MODEL_EXTRACT,
     systemPrompt: loadExtractionSystemPrompt(s.promptsDir ?? PROMPTS_DIR, docsDir),
@@ -74,13 +89,16 @@ export function researchDeps(s: Services, opts: { refresh?: boolean } = {}): Res
  * compact dossier values. The writer prompt holds two of the docs/03 example sequences, rotated by lead
  * id; each pair's prompt is built once per deps object.
  */
-export function writeDeps(s: Services): WriteDeps {
+export async function writeDeps(s: Services): Promise<WriteDeps> {
   const docsDir = s.docsDir ?? DOCS_DIR;
-  const offer = loadOffer(docsDir);
+  const offer = await s.settingsDb.getOffer();
   const facts = loadWriterFacts(docsDir);
   const style = loadStyle(docsDir);
   return {
-    db: s.db,
+    leadsDb: s.leadsDb,
+    sequencesDb: s.sequencesDb,
+    eventsDb: s.eventsDb,
+    runsDb: s.runsDb,
     llm: s.llm,
     modelWrite: s.env.MODEL_WRITE,
     writerSystem: writerSystemFor({ offer, facts, docsDir, style, ...(s.promptsDir ? { promptsDir: s.promptsDir } : {}) }),

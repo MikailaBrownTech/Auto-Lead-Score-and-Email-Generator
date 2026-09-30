@@ -5,8 +5,22 @@ import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm
 export const CALL_TYPES = ["smoke", "extract", "extract_retry", "write", "personal_line", "judge"] as const;
 export type CallType = (typeof CALL_TYPES)[number];
 
-/** One row per Anthropic API call (successful or failed). Cost is computed locally from config/prices.json. */
-export const runs = sqliteTable(
+/** no_named_contact: extracted, but no public address is tied to a named person (a warning only; nothing is blocked). */
+export const LEAD_STATUSES = ["new", "researching", "extracted", "no_named_contact", "budget_exceeded", "failed"] as const;
+export type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+export const SEQUENCE_STATUSES = ["blocked", "passed", "approved"] as const;
+export type SequenceStatus = (typeof SEQUENCE_STATUSES)[number];
+
+/**
+ * leads, sequences (lead_sequences), leadEvents (lead_events), runs, and suppressions (suppression)
+ * now live in Supabase -- see db/supa-*.ts, which the live app reads and writes through. The SQLite
+ * copies below ("...Legacy") are kept ONLY so migrate-to-supabase.ts can still read the original
+ * data/clearpath.db (the local backup) to (re-)run the one-time migration; nothing else should import
+ * them. If something won't compile because it still references one of these, that's this rename doing
+ * its job: it needs to move to the matching db/supa-*.ts module instead, not use these.
+ */
+export const runsLegacy = sqliteTable(
   "runs",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
@@ -34,11 +48,7 @@ export const runs = sqliteTable(
   (t) => [index("runs_created_at_idx").on(t.createdAt), index("runs_lead_id_idx").on(t.leadId), index("runs_prefix_key_idx").on(t.prefixKey)],
 );
 
-/** no_named_contact: extracted, but no public address is tied to a named person (a warning only; nothing is blocked). */
-export const LEAD_STATUSES = ["new", "researching", "extracted", "no_named_contact", "budget_exceeded", "failed"] as const;
-export type LeadStatus = (typeof LEAD_STATUSES)[number];
-
-export const leads = sqliteTable("leads", {
+export const leadsLegacy = sqliteTable("leads", {
   id: text("id").primaryKey(),
   inputUrl: text("input_url"),
   source: text("source", { enum: ["web", "pasted"] }).notNull(),
@@ -61,7 +71,7 @@ export const leads = sqliteTable("leads", {
   updatedAt: text("updated_at").notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
-/** Fetched and cleaned pages. Re-used on reruns within PAGE_CACHE_DAYS instead of re-fetching. */
+/** Fetched and cleaned pages. Re-used on reruns within PAGE_CACHE_DAYS instead of re-fetching. Stays local/SQLite (a performance cache, not user data). */
 export const pages = sqliteTable(
   "pages",
   {
@@ -86,7 +96,7 @@ export const pages = sqliteTable(
   (t) => [index("pages_requested_url_idx").on(t.requestedUrl), index("pages_url_hash_idx").on(t.url, t.rawSha256)],
 );
 
-/** robots.txt answers (2xx body or 4xx status only; 5xx/unreachable are never cached). */
+/** robots.txt answers (2xx body or 4xx status only; 5xx/unreachable are never cached). Stays local/SQLite. */
 export const robotsTxt = sqliteTable("robots_txt", {
   origin: text("origin").primaryKey(),
   status: integer("status").notNull(),
@@ -94,7 +104,7 @@ export const robotsTxt = sqliteTable("robots_txt", {
   fetchedAt: text("fetched_at").notNull(),
 });
 
-/** Token counts from the count_tokens API, keyed by text hash and model, so unchanged text is never recounted. */
+/** Token counts from the count_tokens API, keyed by text hash and model, so unchanged text is never recounted. Stays local/SQLite. */
 export const tokenCounts = sqliteTable(
   "token_counts",
   {
@@ -105,7 +115,7 @@ export const tokenCounts = sqliteTable(
   (t) => [primaryKey({ columns: [t.textSha256, t.model] })],
 );
 
-/** Verified extraction results keyed by model + prompt + tool schema + exact page text sent. */
+/** Verified extraction results keyed by model + prompt + tool schema + exact page text sent. Stays local/SQLite (a performance cache, not user data). */
 export const extractions = sqliteTable(
   "extractions",
   {
@@ -119,17 +129,13 @@ export const extractions = sqliteTable(
   (t) => [index("extractions_cache_key_idx").on(t.cacheKey)],
 );
 
-export type RunRow = typeof runs.$inferSelect;
-export type NewRunRow = typeof runs.$inferInsert;
-
-export const SEQUENCE_STATUSES = ["blocked", "passed", "approved"] as const;
-export type SequenceStatus = (typeof SEQUENCE_STATUSES)[number];
+export type RunRowLegacy = typeof runsLegacy.$inferSelect;
 
 /**
  * Generated sequences. status is "passed" only when the code validators and (for Tier A/B) the judge
  * both passed; approval is refused otherwise. One row per generation; the newest row is current.
  */
-export const sequences = sqliteTable(
+export const sequencesLegacy = sqliteTable(
   "sequences",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
@@ -148,7 +154,7 @@ export const sequences = sqliteTable(
 );
 
 /** Audit log of manual decisions on a lead (overrides and the reasons given). */
-export const leadEvents = sqliteTable(
+export const leadEventsLegacy = sqliteTable(
   "lead_events",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
@@ -164,7 +170,7 @@ export const leadEvents = sqliteTable(
  * Do-not-contact list: an exact email address or a whole domain. Checked before any export row is
  * written; a match excludes the lead from the export.
  */
-export const suppressions = sqliteTable("suppressions", {
+export const suppressionsLegacy = sqliteTable("suppressions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   kind: text("kind", { enum: ["email", "domain"] }).notNull(),
   /** Lowercased email address or bare domain (no @). Unique. */

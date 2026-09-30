@@ -1,13 +1,12 @@
-import type { RunRow } from "../db/schema";
-import type { leadEvents, leads, sequences, suppressions } from "../db/schema";
+import type { RunRowLegacy } from "../db/schema";
+import type { leadEventsLegacy, leadsLegacy, sequencesLegacy, suppressionsLegacy } from "../db/schema";
 import type { OfferConfig } from "@clearpath/shared";
 
-// Drizzle's inferred row types for the tables this migration reads. (LeadRow/RunRow above are the
-// ones schema.ts already exports; the rest are inferred here the same way.)
-export type SqliteLead = typeof leads.$inferSelect;
-export type SqliteSequence = typeof sequences.$inferSelect;
-export type SqliteLeadEvent = typeof leadEvents.$inferSelect;
-export type SqliteSuppression = typeof suppressions.$inferSelect;
+// Drizzle's inferred row types for the (legacy, SQLite-only) tables this migration reads.
+export type SqliteLead = typeof leadsLegacy.$inferSelect;
+export type SqliteSequence = typeof sequencesLegacy.$inferSelect;
+export type SqliteLeadEvent = typeof leadEventsLegacy.$inferSelect;
+export type SqliteSuppression = typeof suppressionsLegacy.$inferSelect;
 
 function parseJson<T>(text: string | null, fallback: T): T {
   if (!text) return fallback;
@@ -67,7 +66,7 @@ export function leadEventRow(e: SqliteLeadEvent): Record<string, unknown> {
  * for real, so on migration those references are nulled out here -- the same outcome the schema's own
  * `on delete set null` gives any lead deleted after the migration.
  */
-export function runRow(r: RunRow, validLeadIds: ReadonlySet<string>): Record<string, unknown> {
+export function runRow(r: RunRowLegacy, validLeadIds: ReadonlySet<string>): Record<string, unknown> {
   return {
     id: r.id,
     created_at: r.createdAt,

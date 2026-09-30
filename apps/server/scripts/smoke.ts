@@ -25,7 +25,7 @@ try {
       `cache read ${u.cache_read_input_tokens ?? 0}, cache write ${u.cache_creation_input_tokens ?? 0}`,
   );
   console.log(`cost:         $${costUsd.toFixed(6)}`);
-  console.log(`month total:  $${ctx.gate.spentThisMonthUsd().toFixed(6)} of $${ctx.gate.capUsd.toFixed(2)} cap`);
+  console.log(`month total:  $${(await ctx.gate.spentThisMonthUsd()).toFixed(6)} of $${ctx.gate.capUsd.toFixed(2)} cap`);
 } catch (err) {
   if (err instanceof SpendCapError) {
     console.error(`[smoke] ${err.message}`);

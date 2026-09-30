@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
 import PQueue from "p-queue";
-import { leads, type LeadStatus } from "../db/schema";
+import type { LeadStatus } from "../db/schema";
 import { researchPastedLead, researchWebLead } from "../pipeline/research";
 import { leadOverride } from "../scoring/direct-contact";
 import { generateSequence, logWriteAttempt } from "../write/generate";
@@ -128,15 +127,16 @@ export class JobRunner {
       }
       item.state = "writing";
       item.message = "Writing the emails";
-      const gateApproved = s.db.select({ v: leads.gateApproved }).from(leads).where(eq(leads.id, item.leadId)).get()?.v ?? false;
-      const g = await generateSequence(item.leadId, r.dossier, r.score.tier, writeDeps(s), { gateApproved, directContactOverride: leadOverride(s.db, item.leadId) });
+      const lead = await s.leadsDb.get(item.leadId);
+      const gateApproved = lead?.gateApproved ?? false;
+      const g = await generateSequence(item.leadId, r.dossier, r.score.tier, await writeDeps(s), { gateApproved, directContactOverride: await leadOverride(s.leadsDb, item.leadId) });
       item.sequenceStatus = g.status;
       item.state = "done";
       item.message = g.status === "no_sequence" ? `Researched; no sequence (${g.reason})` : `Done: sequence ${g.status === "passed" ? "ready for review" : "needs fixes"}`;
     } catch (err) {
       const wasWriting = item.state === "writing";
       // A failed write leaves its reason on the lead page, not only in this job's status.
-      if (wasWriting) logWriteAttempt(s.db, item.leadId, `Not written: ${plainError(err)}`);
+      if (wasWriting) await logWriteAttempt(s.eventsDb, item.leadId, `Not written: ${plainError(err)}`);
       item.state = "failed";
       item.message = wasWriting ? `Research done, but the sequence was not written: ${plainError(err)}` : plainError(err);
     }

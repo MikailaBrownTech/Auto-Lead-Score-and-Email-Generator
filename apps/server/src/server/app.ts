@@ -1,12 +1,8 @@
 import { Hono, type Context } from "hono";
-import type { CacheHealth, DeleteLeadsView, ExportView, JobView, OfferSettingsView, SpendView } from "@clearpath/shared";
-import { eq, sql } from "drizzle-orm";
-import { authGuard, type VerifyToken } from "../auth/guard";
+import type { CacheHealth, DeleteLeadsView, ExportView, JobView, OfferConfig, OfferSettingsView, SpendView } from "@clearpath/shared";
+import { authGuard, bearerToken, type VerifyToken } from "../auth/guard";
 import type { Db } from "../db/client";
-import { leadEvents, leads } from "../db/schema";
 import { BlockError } from "../docs/blocks";
-import { DOCS_DIR, loadOffer, saveBlock } from "../docs/loader";
-import { loadTemplates } from "../docs/templates";
 import { cacheHealth } from "../llm/cache-health";
 import { deleteLead, deleteLeads, LeadNotFoundError } from "../pipeline/delete-lead";
 import { OutdatedDossierError } from "../pipeline/stored-dossier";
@@ -25,7 +21,14 @@ export interface AppDeps {
   /** Verifies a request's Supabase bearer token. The real implementation (index.ts) calls Supabase; tests inject a fake. */
   verifyToken: VerifyToken;
   gate: SpendGate;
+  /** The SQLite cache DB only (pages, robots_txt, token_counts, extractions). */
   db: Db;
+  /**
+   * Saves the settings offer fields as the calling user, so Postgres's owner-only RLS
+   * (settings_update_owner) applies as that user, not the service role. The real implementation
+   * (index.ts) builds a request-scoped Supabase client from the token; tests inject a fake.
+   */
+  updateOfferSettings: (accessToken: string, patch: Partial<OfferConfig>) => Promise<OfferConfig>;
   services: Services;
   jobs: JobRunner;
 }
@@ -73,10 +76,14 @@ function editsOf(input: unknown): Edit[] {
   });
 }
 
+/** founding_client_offer is null in Supabase settings while empty; the form shows "". */
+function settingsView(offer: OfferConfig): OfferSettingsView {
+  return Object.fromEntries(OFFER_FIELDS.map((k) => [k, k === "founding_client_offer" ? (offer[k] ?? "") : offer[k]])) as unknown as OfferSettingsView;
+}
+
 export function createApp(deps: AppDeps) {
   const app = new Hono();
   const { db, services: s, jobs } = deps;
-  const docsDir = s.docsDir ?? DOCS_DIR;
 
   app.use("/api/*", localGuard(deps.guard));
   app.use("/api/*", authGuard(deps.verifyToken));
@@ -94,12 +101,12 @@ export function createApp(deps: AppDeps) {
 
   app.get("/api/health", (c) => c.json({ ok: true }));
 
-  app.get("/api/spend", (c) => {
-    const costs = [...costByLead(db).values()];
+  app.get("/api/spend", async (c) => {
+    const costs = [...(await costByLead(s.runsDb)).values()];
     const leadsWithSpend = costs.filter((x) => x > 0).length;
     const body: SpendView = {
       month: deps.gate.currentMonth(),
-      spentUsd: deps.gate.spentThisMonthUsd(),
+      spentUsd: await deps.gate.spentThisMonthUsd(),
       reservedUsd: deps.gate.reservedUsd(),
       capUsd: deps.gate.capUsd,
       leadsWithSpend,
@@ -108,8 +115,8 @@ export function createApp(deps: AppDeps) {
     return c.json(body);
   });
 
-  app.get("/api/cache-health", (c) => {
-    const body: CacheHealth = cacheHealth(db);
+  app.get("/api/cache-health", async (c) => {
+    const body: CacheHealth = await cacheHealth(s.runsDb);
     return c.json(body);
   });
 
@@ -134,8 +141,8 @@ export function createApp(deps: AppDeps) {
   });
 
   // ---- leads ----
-  app.get("/api/leads", (c) => c.json(listLeads(db)));
-  app.get("/api/leads/:id", (c) => c.json(leadDetail(s, c.req.param("id"))));
+  app.get("/api/leads", async (c) => c.json(await listLeads(s.leadsDb, s.sequencesDb, s.runsDb)));
+  app.get("/api/leads/:id", async (c) => c.json(await leadDetail(s, c.req.param("id"))));
 
   /** Re-runs the lead in paste mode with the owner's name, email, and page text. */
   app.post("/api/leads/:id/paste", async (c) => {
@@ -148,9 +155,9 @@ export function createApp(deps: AppDeps) {
     if (!text && !(name && email)) throw new UserError("Paste the owner's name and email, the page text, or both.");
     // Name and address on one line, so the evidence quote ties the address to the person.
     const composed = [name && email ? `${name}, owner: ${email}` : name || email, text].filter(Boolean).join("\n\n");
-    const lead = db.select({ id: leads.id }).from(leads).where(eq(leads.id, id)).get();
+    const lead = await s.leadsDb.get(id);
     if (!lead) throw new UserError(`Lead ${id} was not found.`, 404);
-    db.insert(leadEvents).values({ leadId: id, kind: "paste_rerun", detail: `re-run in paste mode (${composed.length} characters pasted)` }).run();
+    await s.eventsDb.insert({ leadId: id, kind: "paste_rerun", detail: `re-run in paste mode (${composed.length} characters pasted)` });
     const job = jobs.start({ kind: "paste", label: id, text: composed, leadId: id });
     return c.json(job satisfies JobView, 202);
   });
@@ -159,48 +166,48 @@ export function createApp(deps: AppDeps) {
     const id = c.req.param("id");
     const b = await body<{ reason?: unknown }>(c);
     try {
-      overrideDirectContact(db, id, reasonOf(b.reason));
+      await overrideDirectContact(s.leadsDb, s.eventsDb, id, reasonOf(b.reason));
     } catch (err) {
       if (err instanceof UserError) throw err;
       throw new UserError(plainError(err));
     }
-    return c.json(leadDetail(s, id));
+    return c.json(await leadDetail(s, id));
   });
 
   app.post("/api/leads/:id/gate-override", async (c) => {
     const id = c.req.param("id");
     const reason = reasonOf((await body<{ reason?: unknown }>(c)).reason);
-    const lead = db.select({ id: leads.id }).from(leads).where(eq(leads.id, id)).get();
+    const lead = await s.leadsDb.get(id);
     if (!lead) throw new UserError(`Lead ${id} was not found.`, 404);
-    db.update(leads).set({ gateApproved: true, updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` }).where(eq(leads.id, id)).run();
-    db.insert(leadEvents).values({ leadId: id, kind: "gate_override", detail: reason }).run();
-    return c.json(leadDetail(s, id));
+    await s.leadsDb.update(id, { gateApproved: true });
+    await s.eventsDb.insert({ leadId: id, kind: "gate_override", detail: reason });
+    return c.json(await leadDetail(s, id));
   });
 
   /** Writes (or rewrites) the whole sequence for a lead now. */
   app.post("/api/leads/:id/sequence", async (c) => {
     const id = c.req.param("id");
-    const l = db.select().from(leads).where(eq(leads.id, id)).get();
+    const l = await s.leadsDb.get(id);
     if (!l?.dossierJson || !l.tier) throw new UserError(`Lead ${id} has no research yet.`, 404);
-    const detail = leadDetail(s, id);
+    const detail = await leadDetail(s, id);
     let g;
     let wd;
     try {
-      wd = writeDeps(s);
-      g = await generateSequence(id, detail.dossier, detail.tier, wd, { gateApproved: l.gateApproved, directContactOverride: leadOverride(db, id) });
+      wd = await writeDeps(s);
+      g = await generateSequence(id, detail.dossier, detail.tier, wd, { gateApproved: l.gateApproved, directContactOverride: await leadOverride(s.leadsDb, id) });
     } catch (err) {
-      // Broken docs (settings, docs/09) or anything else the code cannot repair: keep the reason on the lead page, then report it.
-      logWriteAttempt(db, id, `Not written: ${plainError(err)}`);
+      // Broken settings or anything else the code cannot repair: keep the reason on the lead page, then report it.
+      await logWriteAttempt(s.eventsDb, id, `Not written: ${plainError(err)}`);
       throw err;
     }
     if (g.status === "no_sequence" || !g.sequenceId || !g.sequence) throw new UserError(g.reason, 409);
-    return c.json(sequenceView(db, g.sequenceId, wd));
+    return c.json(await sequenceView(g.sequenceId, wd));
   });
 
   /** Deletes one lead: its dossier (part of the lead row), sequences, and event log; cached pages too, if no other lead still uses that domain. */
-  app.delete("/api/leads/:id", (c) => {
+  app.delete("/api/leads/:id", async (c) => {
     const id = c.req.param("id");
-    const result = deleteLead(db, id);
+    const result = await deleteLead(db, s.leadsDb, id);
     return c.json({ deleted: [id], pagesDeleted: result.pagesDeleted } satisfies DeleteLeadsView);
   });
 
@@ -209,106 +216,103 @@ export function createApp(deps: AppDeps) {
     const b = await body<{ ids?: unknown }>(c);
     const ids = Array.isArray(b.ids) ? b.ids.filter((x): x is string => typeof x === "string" && x.length > 0) : [];
     if (ids.length === 0) throw new UserError("No leads were selected.");
-    const result = deleteLeads(db, ids);
+    const result = await deleteLeads(db, s.leadsDb, ids);
     return c.json(result satisfies DeleteLeadsView);
   });
 
   // ---- sequences ----
-  app.get("/api/sequences", (c) => c.json(listSequences(db)));
-  app.get("/api/sequences/:id", (c) => c.json(sequenceView(db, idParam(c), writeDeps(s))));
+  app.get("/api/sequences", async (c) => c.json(await listSequences(s.sequencesDb, s.leadsDb)));
+  app.get("/api/sequences/:id", async (c) => c.json(await sequenceView(idParam(c), await writeDeps(s))));
 
   /** Live check while typing: validates the edits without saving. */
   app.post("/api/sequences/:id/check", async (c) => {
     const id = idParam(c);
-    const wd = writeDeps(s);
+    const wd = await writeDeps(s);
     const edits = editsOf(await body(c));
-    const r = checkEdits(db, id, edits, wd);
-    const ctx = loadSequenceContext(db, id, wd);
+    const r = await checkEdits(id, edits, wd);
+    const ctx = await loadSequenceContext(id, wd);
     return c.json(sequenceViewFrom(id, ctx.leadId, ctx.tier, ctx.dossier, r.status, r.sequence, r, wd, ctx.drafts));
   });
 
   app.put("/api/sequences/:id", async (c) => {
     const id = idParam(c);
-    const wd = writeDeps(s);
-    saveEdits(db, id, editsOf(await body(c)), wd);
-    return c.json(sequenceView(db, id, wd));
+    const wd = await writeDeps(s);
+    await saveEdits(id, editsOf(await body(c)), wd);
+    return c.json(await sequenceView(id, wd));
   });
 
   app.post("/api/sequences/:id/judge", async (c) => {
     const id = idParam(c);
-    const wd = writeDeps(s);
-    await runJudge(db, id, wd);
-    return c.json(sequenceView(db, id, wd));
+    const wd = await writeDeps(s);
+    await runJudge(id, wd);
+    return c.json(await sequenceView(id, wd));
   });
 
   app.post("/api/sequences/:id/rewrite", async (c) => {
     const id = idParam(c);
     const n = Number((await body<{ n?: unknown }>(c)).n);
     if (![1, 2, 3, 4, 5].includes(n)) throw new UserError("Choose an email from 1 to 5.");
-    const wd = writeDeps(s);
-    await rewriteOne(db, id, n, wd);
-    return c.json(sequenceView(db, id, wd));
+    const wd = await writeDeps(s);
+    await rewriteOne(id, n, wd);
+    return c.json(await sequenceView(id, wd));
   });
 
   /** Approval re-checks the current content: validators and judge must both pass. A missing named contact never blocks. */
-  app.post("/api/sequences/:id/approve", (c) => {
+  app.post("/api/sequences/:id/approve", async (c) => {
     const id = idParam(c);
-    const wd = writeDeps(s);
-    const ctx = loadSequenceContext(db, id, wd);
+    const wd = await writeDeps(s);
+    const ctx = await loadSequenceContext(id, wd);
     const state = sequenceState(ctx, ctx.sequence, ctx.judge, wd);
     if (!state.validation.pass) throw new UserError("Fix the validator errors before approving.", 409);
     if (state.judgeRequired && !state.judge) throw new UserError("Run the judge on the current text before approving.", 409);
     if (state.status !== "passed") throw new UserError("The judge listed unsupported claims. Fix them and run the judge again.", 409);
-    approveSequence(db, id);
-    return c.json(sequenceView(db, id, wd));
+    await approveSequence(s.sequencesDb, id);
+    return c.json(await sequenceView(id, wd));
   });
 
   // ---- export ----
   const exportMode = (c: Context): ExportMode => (c.req.query("mode") === "drafts" ? "drafts" : "ready");
-  app.get("/api/export", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir), templates: loadTemplates(docsDir) }, exportMode(c));
+  app.get("/api/export", async (c) => {
+    const wd = await writeDeps(s);
+    const r = await buildExport(s.leadsDb, s.sequencesDb, s.suppressionDb, wd, exportMode(c));
     const view: ExportView = { mode: r.mode, blocked: r.blocked, rowCount: r.rows.length, readyCount: r.readyCount, draftCount: r.draftCount, excluded: r.excluded, csv: r.csv };
     return c.json(view);
   });
-  app.get("/api/export.csv", (c) => {
-    const r = buildExport(db, { offer: loadOffer(docsDir), templates: loadTemplates(docsDir) }, exportMode(c));
+  app.get("/api/export.csv", async (c) => {
+    const wd = await writeDeps(s);
+    const r = await buildExport(s.leadsDb, s.sequencesDb, s.suppressionDb, wd, exportMode(c));
     if (r.blocked.length > 0) throw new UserError(r.blocked.join(" "), 409);
     const name = `clearpath-${r.mode === "drafts" ? "drafts" : "ready-to-send"}-${new Date().toISOString().slice(0, 10)}.csv`;
     return c.body(r.csv, 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}"` });
   });
 
   // ---- settings ----
-  /** founding_client_offer is null in docs/01 while empty; the form shows "". */
-  const settingsView = (offer: ReturnType<typeof loadOffer>) =>
-    Object.fromEntries(OFFER_FIELDS.map((k) => [k, k === "founding_client_offer" ? (offer[k] ?? "") : offer[k]])) as unknown as OfferSettingsView;
-  app.get("/api/settings", (c) => c.json({ offer: settingsView(loadOffer(docsDir)), suppressions: listSuppressions(db) }));
-  /** Saves the footer fields through the safe docs/01 write-back (validated, backed up, round-tripped). */
+  app.get("/api/settings", async (c) => c.json({ offer: settingsView(await s.settingsDb.getOffer()), suppressions: await listSuppressions(s.suppressionDb) }));
+  /** A staff account's write is silently filtered to 0 rows by RLS (not an error); deps.updateOfferSettings turns that into a plain permission message. */
   app.put("/api/settings/offer", async (c) => {
     const b = await body<Partial<OfferSettingsView>>(c);
-    const current = loadOffer(docsDir);
-    const next = { ...current };
-    for (const k of OFFER_FIELDS) if (k in b) (next as Record<string, unknown>)[k] = (b as Record<string, unknown>)[k];
-    if (typeof next.founding_client_offer === "string" && next.founding_client_offer.trim() === "") next.founding_client_offer = null;
+    const patch: Partial<OfferConfig> = {};
+    for (const k of OFFER_FIELDS) if (k in b) (patch as Record<string, unknown>)[k] = (b as Record<string, unknown>)[k];
+    let saved: OfferConfig;
     try {
-      saveBlock("offer", next, { docsDir, ...(s.backupDir ? { backupDir: s.backupDir } : {}) });
+      saved = await deps.updateOfferSettings(bearerToken(c), patch);
     } catch (err) {
       throw new UserError(`Settings were not saved: ${plainError(err)}`);
     }
-    const saved = loadOffer(docsDir);
-    return c.json({ offer: settingsView(saved), suppressions: listSuppressions(db) });
+    return c.json({ offer: settingsView(saved), suppressions: await listSuppressions(s.suppressionDb) });
   });
   app.post("/api/suppressions", async (c) => {
     const value = String((await body<{ value?: unknown }>(c)).value ?? "");
     try {
-      addSuppression(db, value);
+      await addSuppression(s.suppressionDb, value);
     } catch (err) {
       throw new UserError(plainError(err));
     }
-    return c.json(listSuppressions(db));
+    return c.json(await listSuppressions(s.suppressionDb));
   });
-  app.delete("/api/suppressions/:id", (c) => {
-    removeSuppression(db, Number(c.req.param("id")));
-    return c.json(listSuppressions(db));
+  app.delete("/api/suppressions/:id", async (c) => {
+    await removeSuppression(s.suppressionDb, Number(c.req.param("id")));
+    return c.json(await listSuppressions(s.suppressionDb));
   });
 
   app.all("/api/*", (c) => c.json({ error: "Unknown API address." }, 404));

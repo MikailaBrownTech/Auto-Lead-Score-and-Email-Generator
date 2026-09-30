@@ -1,7 +1,6 @@
 import { isFound, type Dossier } from "@clearpath/shared";
-import { eq, sql } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { leadEvents, leads } from "../db/schema";
+import type { EventsDb } from "../db/supa-sequences";
+import type { LeadsDb } from "../db/supa-leads";
 
 /**
  * A lead without a named contact is a warning, never a block: drafting, approval, and export all
@@ -48,13 +47,9 @@ export function namedContactChecklist(d: Dossier): string[] {
   ];
 }
 
-export function leadOverride(db: Db, leadId: string): DirectContactOverride | null {
-  const row = db
-    .select({ reason: leads.directContactOverrideReason, at: leads.directContactOverrideAt })
-    .from(leads)
-    .where(eq(leads.id, leadId))
-    .get();
-  return row?.reason && row.at ? { reason: row.reason, at: row.at } : null;
+export async function leadOverride(leadsDb: LeadsDb, leadId: string): Promise<DirectContactOverride | null> {
+  const row = await leadsDb.get(leadId);
+  return row?.directContactOverrideReason && row.directContactOverrideAt ? { reason: row.directContactOverrideReason, at: row.directContactOverrideAt } : null;
 }
 
 /** Minimum length of an override reason, so the log says something useful. */
@@ -65,21 +60,17 @@ export const MIN_OVERRIDE_REASON = 10;
  * inbox): clears the no_named_contact label. Not required to proceed. The reason is required and
  * logged in lead_events. Sequences for the lead keep the neutral greeting.
  */
-export function overrideDirectContact(db: Db, leadId: string, reason: string, now: () => Date = () => new Date()): DirectContactOverride {
+export async function overrideDirectContact(leadsDb: LeadsDb, eventsDb: EventsDb, leadId: string, reason: string, now: () => Date = () => new Date()): Promise<DirectContactOverride> {
   const why = reason.trim();
   if (why.length < MIN_OVERRIDE_REASON) throw new Error(`an override needs a reason of at least ${MIN_OVERRIDE_REASON} characters`);
-  const lead = db.select({ id: leads.id, status: leads.status }).from(leads).where(eq(leads.id, leadId)).get();
+  const lead = await leadsDb.get(leadId);
   if (!lead) throw new Error(`lead ${leadId} not found`);
   const at = now().toISOString();
-  db.update(leads)
-    .set({
-      directContactOverrideReason: why,
-      directContactOverrideAt: at,
-      ...(lead.status === "no_named_contact" ? { status: "extracted" as const } : {}),
-      updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
-    })
-    .where(eq(leads.id, leadId))
-    .run();
-  db.insert(leadEvents).values({ leadId, kind: "direct_contact_override", detail: why }).run();
+  await leadsDb.update(leadId, {
+    directContactOverrideReason: why,
+    directContactOverrideAt: at,
+    ...(lead.status === "no_named_contact" ? { status: "extracted" as const } : {}),
+  });
+  await eventsDb.insert({ leadId, kind: "direct_contact_override", detail: why });
   return { reason: why, at };
 }

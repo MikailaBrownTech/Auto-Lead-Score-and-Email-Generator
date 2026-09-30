@@ -1,8 +1,6 @@
 import { SequenceSchema, type Dossier, type JudgeOutput, type Sequence, type SequenceEmail, type Tier } from "@clearpath/shared";
 import { readStoredDossier } from "../pipeline/stored-dossier";
-import { eq } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { leads, sequences, type SequenceStatus } from "../db/schema";
+import type { SequenceStatus } from "../db/schema";
 import { contactWarning, leadOverride, type DirectContactOverride } from "../scoring/direct-contact";
 import { validateSequence, type ValidationContext, type ValidationResult } from "../validators/email";
 import {
@@ -46,18 +44,18 @@ export interface SequenceContext {
   drafts: Draft[];
 }
 
-export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps): SequenceContext {
-  const row = db.select().from(sequences).where(eq(sequences.id, sequenceId)).get();
+export async function loadSequenceContext(sequenceId: number, deps: WriteDeps): Promise<SequenceContext> {
+  const row = await deps.sequencesDb.get(sequenceId);
   if (!row) throw new SequenceError(`Sequence ${sequenceId} was not found.`);
-  const sequence = row.sequenceJson ? (JSON.parse(row.sequenceJson) as Sequence | null) : null;
+  const sequence = row.sequenceJson ? (row.sequenceJson as Sequence | null) : null;
   if (!sequence) throw new SequenceError("This sequence has no emails. Write the sequence again.");
-  const lead = db.select().from(leads).where(eq(leads.id, row.leadId)).get();
+  const lead = await deps.leadsDb.get(row.leadId);
   if (!lead?.dossierJson) throw new SequenceError(`Lead ${row.leadId} has no research yet.`);
   const dossier = readStoredDossier(lead.dossierJson);
-  const override = leadOverride(db, row.leadId);
+  const override = await leadOverride(deps.leadsDb, row.leadId);
   // Legacy sequences only: the docs/09 copy as first assembled stays allowed when the founder edits an email.
   const original = sequence.emails.some((e) => e.template) ? templateSequence(row.leadId, dossier, deps, override).emails : undefined;
-  const stored = JSON.parse(row.validationJson) as { drafts?: Draft[] } | null;
+  const stored = (row.validationJson as { drafts?: Draft[] } | null) ?? null;
   return {
     id: row.id,
     leadId: row.leadId,
@@ -68,7 +66,7 @@ export function loadSequenceContext(db: Db, sequenceId: number, deps: WriteDeps)
     override,
     values: verifiedValues(dossier, deps.offer, deps.evidence).prospect_facts,
     vctx: validationContext(dossier, deps, original),
-    judge: row.judgeJson ? (JSON.parse(row.judgeJson) as StoredJudge) : null,
+    judge: (row.judgeJson as StoredJudge | null) ?? null,
     drafts: (stored?.drafts ?? []).map((d) => ({ attempt: d.attempt, formatProblem: d.formatProblem ?? null, errors: d.errors ?? [] })),
   };
 }
@@ -118,37 +116,35 @@ export function sequenceState(ctx: SequenceContext, seq: Sequence, judge: Stored
   };
 }
 
-function store(db: Db, id: number, seq: Sequence, state: SequenceState, judge: StoredJudge | null): void {
-  db.update(sequences)
-    .set({ sequenceJson: JSON.stringify(seq), status: state.status, judgeJson: judge ? JSON.stringify(judge) : null, approvedAt: null })
-    .where(eq(sequences.id, id))
-    .run();
+async function store(deps: WriteDeps, id: number, seq: Sequence, state: SequenceState, judge: StoredJudge | null): Promise<void> {
+  await deps.sequencesDb.update(id, { sequenceJson: seq, status: state.status, judgeJson: judge ?? null, approvedAt: null });
 }
 
 /** Saves edits. Any change clears an earlier approval; the judge result stays only if its content is unchanged. */
-export function saveEdits(db: Db, sequenceId: number, edits: Parameters<typeof applyEdits>[1], deps: WriteDeps): SequenceState & { sequence: Sequence } {
-  const ctx = loadSequenceContext(db, sequenceId, deps);
+export async function saveEdits(sequenceId: number, edits: Parameters<typeof applyEdits>[1], deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
+  const ctx = await loadSequenceContext(sequenceId, deps);
   const seq = applyEdits(ctx, edits);
   const judge = ctx.judge && ctx.judge.content_hash === judgedContentHash(seq.emails) ? ctx.judge : null;
   const state = sequenceState(ctx, seq, judge, deps);
-  store(db, sequenceId, seq, state, judge);
+  await store(deps, sequenceId, seq, state, judge);
   return { ...state, sequence: seq };
 }
 
 /** Validates edits without saving (the live check while typing). */
-export function checkEdits(db: Db, sequenceId: number, edits: Parameters<typeof applyEdits>[1], deps: WriteDeps): SequenceState & { sequence: Sequence } {
-  const ctx = loadSequenceContext(db, sequenceId, deps);
+export async function checkEdits(sequenceId: number, edits: Parameters<typeof applyEdits>[1], deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
+  const ctx = await loadSequenceContext(sequenceId, deps);
   const seq = applyEdits(ctx, edits);
   return { ...sequenceState(ctx, seq, ctx.judge, deps), sequence: seq };
 }
 
 /** Runs the judge on demand over the model-written and edited emails, and stores the result. */
-export async function runJudge(db: Db, sequenceId: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
-  const ctx = loadSequenceContext(db, sequenceId, deps);
+export async function runJudge(sequenceId: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
+  const ctx = await loadSequenceContext(sequenceId, deps);
   const seq = ctx.sequence;
-  const judge: StoredJudge | null = judgedEmails(seq.emails).length > 0 ? { result: await judgeEmails(ctx.leadId, ctx.dossier, seq.emails, deps), content_hash: judgedContentHash(seq.emails) } : null;
+  const budgetSinceRunId = await lastRunId(deps.runsDb);
+  const judge: StoredJudge | null = judgedEmails(seq.emails).length > 0 ? { result: await judgeEmails(ctx.leadId, ctx.dossier, seq.emails, deps, budgetSinceRunId), content_hash: judgedContentHash(seq.emails) } : null;
   const state = sequenceState(ctx, seq, judge, deps);
-  store(db, sequenceId, seq, state, judge);
+  await store(deps, sequenceId, seq, state, judge);
   return { ...state, sequence: seq };
 }
 
@@ -158,15 +154,16 @@ const RewriteOutput = z.object({ emails: z.array(WriterEmailSchema.strip()).min(
  * Rewrites one email: the writer gets the same input, the current sequence as its draft, and that
  * email's validator problems, and rewrites only that email. The judge must run again after.
  */
-export async function rewriteOne(db: Db, sequenceId: number, n: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
-  const ctx = loadSequenceContext(db, sequenceId, deps);
+export async function rewriteOne(sequenceId: number, n: number, deps: WriteDeps): Promise<SequenceState & { sequence: Sequence }> {
+  const ctx = await loadSequenceContext(sequenceId, deps);
   const input = writerInput(ctx.dossier, deps, firstNameFor(ctx.dossier, ctx.override));
   const current = { emails: ctx.sequence.emails.map((e) => ({ n: e.n, subject_a: e.subject_a, subject_b: e.subject_b, body: e.body })) };
   const issues = sequenceState(ctx, ctx.sequence, ctx.judge, deps).validation.issues.filter((i) => i.email === n && i.severity === "error");
   const problems = issues.length ? issues.map((i) => i.message) : ["the founder asked for a fresh version of this email"];
+  const budgetSinceRunId = await lastRunId(deps.runsDb);
   const message = (
     await deps.llm.call(
-      { callType: "write", leadId: ctx.leadId, budgetSinceRunId: lastRunId(db) },
+      { callType: "write", leadId: ctx.leadId, budgetSinceRunId },
       {
         model: deps.modelWrite,
         max_tokens: MAX_OUTPUT_TOKENS.write,
@@ -203,6 +200,6 @@ export async function rewriteOne(db: Db, sequenceId: number, n: number, deps: Wr
     throw new SequenceError(`The rewrite of email ${n} came back in the wrong shape. Nothing was changed; try again.`);
   }
   const state = sequenceState(ctx, seq, null, deps);
-  store(db, sequenceId, seq, state, null);
+  await store(deps, sequenceId, seq, state, null);
   return { ...state, sequence: seq };
 }

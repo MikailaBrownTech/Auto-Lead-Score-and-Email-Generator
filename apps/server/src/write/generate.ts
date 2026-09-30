@@ -16,9 +16,10 @@ import {
   type StyleConfig,
   type Tier,
 } from "@clearpath/shared";
-import { desc, eq } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { leadEvents, sequences, type SequenceStatus } from "../db/schema";
+import type { SequenceStatus } from "../db/schema";
+import type { EventsDb, SequencesDb } from "../db/supa-sequences";
+import type { LeadsDb } from "../db/supa-leads";
+import type { RunsDb } from "../db/supa-runs";
 import type { TemplateSet } from "../docs/templates";
 import { BudgetExceededError, lastRunId, type LlmClient } from "../llm/client";
 import { MAX_OUTPUT_TOKENS } from "../llm/limits";
@@ -36,7 +37,10 @@ export class ApprovalBlockedError extends Error {
 }
 
 export interface WriteDeps {
-  db: Db;
+  leadsDb: LeadsDb;
+  sequencesDb: SequencesDb;
+  eventsDb: EventsDb;
+  runsDb: RunsDb;
   llm: LlmClient;
   /** Writer and judge model (MODEL_WRITE). The writer sees only the compact dossier values. */
   modelWrite: string;
@@ -104,8 +108,8 @@ export function notWrittenReason(gate: Dossier["gate"]): string {
 }
 
 /** Keeps the outcome of a write attempt in the lead's log, so the lead page can say what happened. */
-export function logWriteAttempt(db: Db, leadId: string, detail: string): void {
-  db.insert(leadEvents).values({ leadId, kind: "write_attempt", detail: detail.slice(0, 1000) }).run();
+export function logWriteAttempt(eventsDb: EventsDb, leadId: string, detail: string): Promise<void> {
+  return eventsDb.insert({ leadId, kind: "write_attempt", detail: detail.slice(0, 1000) });
 }
 
 /** Every lead the writer can write for gets all five emails from the model (the tier/template split is gone). */
@@ -171,8 +175,8 @@ export function senderSettings(o: OfferConfig): Record<string, string> {
   };
 }
 
-/** Runs the judge over the model-written and edited emails (dossier values only). */
-export async function judgeEmails(leadId: string, d: Dossier, emails: SequenceEmail[], deps: WriteDeps, budgetSinceRunId = lastRunId(deps.db)): Promise<JudgeOutput> {
+/** Runs the judge over the model-written and edited emails (dossier values only). budgetSinceRunId: await lastRunId(deps.runsDb) at the call site (it can't default-await an async value here). */
+export async function judgeEmails(leadId: string, d: Dossier, emails: SequenceEmail[], deps: WriteDeps, budgetSinceRunId: number): Promise<JudgeOutput> {
   const toJudge = judgedEmails(emails);
   const values = verifiedValues(d, deps.offer, deps.evidence).prospect_facts;
   const message: Anthropic.Message = (
@@ -232,7 +236,7 @@ export async function generateSequence(
   };
   if (dossier.gate.status !== "qualified" && !opts.gateApproved) {
     const reason = notWrittenReason(dossier.gate);
-    logWriteAttempt(deps.db, leadId, reason);
+    await logWriteAttempt(deps.eventsDb, leadId, reason);
     return { ...base, reason };
   }
 
@@ -244,7 +248,7 @@ export async function generateSequence(
   let judgeCalls = 0;
   let note: string | null = null;
 
-  const budgetSinceRunId = lastRunId(deps.db);
+  const budgetSinceRunId = await lastRunId(deps.runsDb);
   const input = writerInput(dossier, deps, firstNameFor(dossier, override));
   try {
     const w = await writeSequenceEmails(leadId, dossier, tier, deps, vctx, {
@@ -257,7 +261,7 @@ export async function generateSequence(
     if (!w.emails) {
       // Two unusable answers: nothing to show but the reason (the lead page keeps it).
       const reason = `Not written: the writer's answers could not be used (${drafts.map((x) => x.formatProblem).filter(Boolean).join("; ")}). Write again.`;
-      logWriteAttempt(deps.db, leadId, reason);
+      await logWriteAttempt(deps.eventsDb, leadId, reason);
       return { ...base, reason, drafts, writerCalls };
     }
     sequence = SequenceSchema.parse({ lead_id: leadId, tier, persona: input.persona, angle: deps.style.firm_type_angles[writerType(dossier)][0]!, emails: w.emails });
@@ -266,7 +270,7 @@ export async function generateSequence(
   } catch (err) {
     if (!(err instanceof BudgetExceededError)) throw err;
     const reason = `Not written: stopped by the lead's token budget (${err.message}).`;
-    logWriteAttempt(deps.db, leadId, reason);
+    await logWriteAttempt(deps.eventsDb, leadId, reason);
     return { ...base, reason, drafts, writerCalls };
   }
 
@@ -278,19 +282,15 @@ export async function generateSequence(
     status === "passed"
       ? ["validators and judge passed", note].filter(Boolean).join("; ")
       : [note, !validation.pass ? "validator errors remain after the rewrite" : "", !judgePass ? "the judge still listed unsupported claims after the rewrite" : ""].filter(Boolean).join("; ");
-  const row = deps.db
-    .insert(sequences)
-    .values({
-      leadId,
-      tier,
-      status,
-      sequenceJson: JSON.stringify(sequence),
-      validationJson: JSON.stringify({ validation, drafts }),
-      judgeJson: judge ? JSON.stringify({ result: judge, content_hash: judgedContentHash(sequence.emails) } satisfies StoredJudge) : null,
-    })
-    .returning({ id: sequences.id })
-    .get();
-  if (status !== "passed" || note) logWriteAttempt(deps.db, leadId, `${status === "passed" ? "Written" : "Written, needs fixes"}: ${reason}.`);
+  const sequenceId = await deps.sequencesDb.insert({
+    leadId,
+    tier,
+    status,
+    sequenceJson: sequence,
+    validationJson: { validation, drafts },
+    judgeJson: judge ? ({ result: judge, content_hash: judgedContentHash(sequence.emails) } satisfies StoredJudge) : null,
+  });
+  if (status !== "passed" || note) await logWriteAttempt(deps.eventsDb, leadId, `${status === "passed" ? "Written" : "Written, needs fixes"}: ${reason}.`);
   return {
     ...base,
     status,
@@ -302,7 +302,7 @@ export async function generateSequence(
     firstPassValid: drafts[0] ? !drafts[0].formatProblem && drafts[0].errors.length === 0 : null,
     writerCalls,
     judgeCalls,
-    sequenceId: row.id,
+    sequenceId,
     exportBlockers: exportBlockers(deps.offer, sequence),
   };
 }
@@ -311,11 +311,11 @@ export async function generateSequence(
  * Approval is refused unless the sequence is the lead's newest and passed the code validators and the
  * judge. A missing named contact never blocks approval.
  */
-export function approveSequence(db: Db, sequenceId: number, now: () => Date = () => new Date()): void {
-  const row = db.select().from(sequences).where(eq(sequences.id, sequenceId)).get();
+export async function approveSequence(sequencesDb: SequencesDb, sequenceId: number, now: () => Date = () => new Date()): Promise<void> {
+  const row = await sequencesDb.get(sequenceId);
   if (!row) throw new ApprovalBlockedError(`sequence ${sequenceId} not found`);
-  const newest = db.select({ id: sequences.id }).from(sequences).where(eq(sequences.leadId, row.leadId)).orderBy(desc(sequences.id)).limit(1).get();
-  if (newest?.id !== row.id) throw new ApprovalBlockedError(`sequence ${sequenceId} is not the lead's newest sequence`);
+  const newestId = await sequencesDb.newestIdForLead(row.leadId);
+  if (newestId !== row.id) throw new ApprovalBlockedError(`sequence ${sequenceId} is not the lead's newest sequence`);
   if (row.status !== "passed") throw new ApprovalBlockedError(`sequence ${sequenceId} is ${row.status}; approval needs the code validators and the judge to pass`);
-  db.update(sequences).set({ status: "approved", approvedAt: now().toISOString() }).where(eq(sequences.id, sequenceId)).run();
+  await sequencesDb.update(sequenceId, { status: "approved", approvedAt: now().toISOString() });
 }

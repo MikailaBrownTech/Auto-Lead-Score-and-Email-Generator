@@ -16,8 +16,6 @@ import { bootstrapOrExit } from "../src/bootstrap";
 import { fromRoot } from "../src/config/paths";
 import { loadApprovedSentences, loadEvidence, loadOffer, loadStyle, loadWriterFacts } from "../src/docs/loader";
 import { loadTemplates } from "../src/docs/templates";
-import { and, eq, gt, sql } from "drizzle-orm";
-import { leadEvents, runs, sequences } from "../src/db/schema";
 import { lastRunId, type MessagesApi } from "../src/llm/client";
 import { writerSystemFor } from "../src/server/services";
 import { renderEmail } from "../src/validators/email";
@@ -58,10 +56,16 @@ for (const name of names.length ? names : RECORDED_FIXTURES) {
   const r = await replay(name);
   const d = r.dossier;
   const leadId = `record-${name}`;
-  // The real DB, so the per-lead token budget counts only this run; the sequence and event rows written
-  // for record-<fixture> are deleted afterwards (nothing appears in the app). Runs and cost stay logged.
+  // The real DB, so the per-lead token budget counts only this run; a throwaway lead row (and the
+  // sequence/event rows the generation writes under it) is deleted afterwards (nothing appears in the
+  // app). Runs stay logged with lead_id nulled out by the same on-delete-set-null Postgres applies to
+  // any deleted lead -- the cost is captured below, before the delete, either way.
+  await ctx.leadsDb.upsert(leadId, { source: "pasted", status: "new" });
   const deps: WriteDeps = {
-    db: ctx.db,
+    leadsDb: ctx.leadsDb,
+    sequencesDb: ctx.sequencesDb,
+    eventsDb: ctx.eventsDb,
+    runsDb: ctx.runsDb,
     llm: ctx.llm,
     modelWrite: ctx.env.MODEL_WRITE,
     writerSystem: writerSystemFor({ offer, facts, style }),
@@ -80,15 +84,14 @@ for (const name of names.length ? names : RECORDED_FIXTURES) {
   }
   calls.length = 0;
   // Tiers A and B both get all five emails from the writer; the gate is approved so any fixture writes.
-  const before = lastRunId(ctx.db);
+  const before = await lastRunId(ctx.runsDb);
   const g = await generateSequence(leadId, d, "B", deps, { gateApproved: true });
-  const cost = ctx.db.select({ c: sql<number>`coalesce(sum(${runs.costUsd}), 0)` }).from(runs).where(and(eq(runs.leadId, leadId), gt(runs.id, before))).get()!;
-  total += cost.c;
-  ctx.db.delete(sequences).where(eq(sequences.leadId, leadId)).run();
-  ctx.db.delete(leadEvents).where(eq(leadEvents.leadId, leadId)).run();
+  const cost = (await ctx.runsDb.listSince(before)).filter((r) => r.leadId === leadId).reduce((sum, r) => sum + r.costUsd, 0);
+  total += cost;
+  await ctx.leadsDb.delete(leadId);
   fs.writeFileSync(
     path.join(outDir, `${name}.json`),
-    JSON.stringify({ fixture: name, lead_id: leadId, captured_at: new Date().toISOString(), offer, calls, result: { status: g.status, firstPassValid: g.firstPassValid, writerCalls: g.writerCalls, judge: g.judge, cost_usd: cost.c } }, null, 2) + "\n",
+    JSON.stringify({ fixture: name, lead_id: leadId, captured_at: new Date().toISOString(), offer, calls, result: { status: g.status, firstPassValid: g.firstPassValid, writerCalls: g.writerCalls, judge: g.judge, cost_usd: cost } }, null, 2) + "\n",
   );
   const signature = renderSignature(deps.templates.signature, offer);
   const md = [
@@ -102,4 +105,4 @@ for (const name of names.length ? names : RECORDED_FIXTURES) {
   console.log(`${name}: ${g.status}, first pass ${g.firstPassValid ? "VALID" : "invalid"}, writer calls ${g.writerCalls}, judge ${g.judge?.unsupported_claims.length ?? "n/a"} claim(s)`);
   for (const dr of g.drafts) for (const i of dr.errors) console.log(`   draft ${dr.attempt}: email ${i.email ?? "-"} ${i.code}: ${i.message}`);
 }
-console.log(`month to date $${ctx.gate.spentThisMonthUsd().toFixed(4)} of $${ctx.gate.capUsd.toFixed(2)} (this run about $${total.toFixed(4)})`);
+console.log(`month to date $${(await ctx.gate.spentThisMonthUsd()).toFixed(4)} of $${ctx.gate.capUsd.toFixed(2)} (this run about $${total.toFixed(4)})`);

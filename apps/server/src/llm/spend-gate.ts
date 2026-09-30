@@ -1,6 +1,4 @@
-import { and, gte, lt, sql } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { runs } from "../db/schema";
+import type { RunsDb } from "../db/supa-runs";
 
 export class SpendCapError extends Error {
   override name = "SpendCapError";
@@ -25,13 +23,20 @@ function monthBounds(d: Date): { start: string; end: string } {
 /**
  * Enforces the monthly spend cap. Before each call a worst-case cost is reserved; the call only
  * proceeds if logged spend this month + all open reservations + this reservation stays within the cap.
- * better-sqlite3 is synchronous, so check-and-reserve cannot interleave with another reservation.
+ *
+ * `spentThisMonthUsd` now reads from Supabase over the network, so it's async -- but the check-then-
+ * reserve sequence must still never interleave with another one (two concurrent research jobs, from
+ * p-queue's QUEUE_CONCURRENCY, could otherwise both read the same "spent so far" during their own
+ * await and both pass a check that, combined, blows the cap). `reserve()` chains onto a single
+ * in-process promise queue so only one check-then-reserve runs at a time, same guarantee
+ * better-sqlite3's synchronous access gave for free before.
  */
 export class SpendGate {
   private reserved = 0;
+  private queue: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly db: Db,
+    private readonly runsDb: RunsDb,
     readonly capUsd: number,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -40,22 +45,26 @@ export class SpendGate {
     return monthKey(this.now());
   }
 
-  spentThisMonthUsd(): number {
+  async spentThisMonthUsd(): Promise<number> {
     const { start, end } = monthBounds(this.now());
-    const row = this.db
-      .select({ total: sql<number>`coalesce(sum(${runs.costUsd}), 0)` })
-      .from(runs)
-      .where(and(gte(runs.createdAt, start), lt(runs.createdAt, end)))
-      .get();
-    return row?.total ?? 0;
+    return this.runsDb.costInRange(start, end);
   }
 
   reservedUsd(): number {
     return this.reserved;
   }
 
-  reserve(amountUsd: number): Reservation {
-    const spent = this.spentThisMonthUsd();
+  /** Serializes check-then-reserve across concurrent callers; see the class comment. */
+  reserve(amountUsd: number): Promise<Reservation> {
+    const next = this.queue.then(() => this.reserveNow(amountUsd));
+    // Advance the queue even on failure (a rejected reservation must not wedge later callers), but
+    // never let that internal chain surface an unhandled rejection.
+    this.queue = next.catch(() => undefined);
+    return next;
+  }
+
+  private async reserveNow(amountUsd: number): Promise<Reservation> {
+    const spent = await this.spentThisMonthUsd();
     if (spent + this.reserved + amountUsd > this.capUsd) {
       throw new SpendCapError(
         `Monthly spend cap reached: $${spent.toFixed(4)} spent + $${this.reserved.toFixed(4)} reserved + ` +

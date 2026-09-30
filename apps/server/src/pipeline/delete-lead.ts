@@ -1,16 +1,17 @@
-import { eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "../db/client";
-import { leadEvents, leads, pages, sequences } from "../db/schema";
+import { pages } from "../db/schema";
+import type { LeadsDb } from "../db/supa-leads";
 
 export class LeadNotFoundError extends Error {
   override name = "LeadNotFoundError";
 }
 
-/** The dossier's `domain` field, read without requiring the full current dossier shape (best-effort). */
-function domainOf(dossierJson: string | null): string {
+/** The dossier's `domain` field, read without requiring the full current dossier shape (best-effort). Accepts a parsed object (Supabase's jsonb) or a JSON string (legacy). */
+function domainOf(dossierJson: unknown): string {
   if (!dossierJson) return "";
   try {
-    const d = JSON.parse(dossierJson) as { domain?: unknown };
+    const d = (typeof dossierJson === "string" ? JSON.parse(dossierJson) : dossierJson) as { domain?: unknown };
     return typeof d.domain === "string" ? d.domain.trim().toLowerCase() : "";
   } catch {
     return "";
@@ -26,30 +27,25 @@ function hostnameOf(url: string): string {
 }
 
 /**
- * Deletes one lead: its row (which holds the dossier), every sequence, and its event log.
- * Also deletes cached pages (the `pages` table) whose domain matches this lead's, but only when no
- * other lead's dossier still has that same domain — `pages` is a shared cache keyed by URL, reused
- * across reruns, so a page is removed only when it is truly tied to this lead alone. `runs` (the cost
- * ledger) and `extractions` (also a shared, content-hash-keyed cache) are left alone: deleting them
- * would corrupt the monthly spend record or throw away cache other leads can still use.
+ * Deletes one lead: its row (which now just references the dossier, sequences, and events; Postgres's
+ * own FK constraints cascade those and null out runs.lead_id -- see supabase/migrations).
+ * Also deletes cached pages (the SQLite `pages` table, unaffected by the cutover -- still a local
+ * cache) whose domain matches this lead's, but only when no other lead's dossier still has that same
+ * domain -- `pages` is shared, reused across reruns, so a page is removed only when it is truly tied
+ * to this lead alone. `extractions` (also a shared, content-hash-keyed cache) is left alone, same
+ * reasoning as before.
  */
-export function deleteLead(db: Db, leadId: string): { pagesDeleted: number } {
-  const lead = db.select({ id: leads.id, dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, leadId)).get();
+export async function deleteLead(db: Db, leadsDb: LeadsDb, leadId: string): Promise<{ pagesDeleted: number }> {
+  const lead = await leadsDb.get(leadId);
   if (!lead) throw new LeadNotFoundError(`Lead ${leadId} was not found.`);
   const domain = domainOf(lead.dossierJson);
 
-  db.delete(sequences).where(eq(sequences.leadId, leadId)).run();
-  db.delete(leadEvents).where(eq(leadEvents.leadId, leadId)).run();
-  db.delete(leads).where(eq(leads.id, leadId)).run();
+  await leadsDb.delete(leadId);
 
   let pagesDeleted = 0;
   if (domain) {
-    const stillUsed = db
-      .select({ dossierJson: leads.dossierJson })
-      .from(leads)
-      .where(ne(leads.id, leadId))
-      .all()
-      .some((r) => domainOf(r.dossierJson) === domain);
+    const others = await leadsDb.list();
+    const stillUsed = others.some((r) => r.id !== leadId && domainOf(r.dossierJson) === domain);
     if (!stillUsed) {
       const rows = db.select({ id: pages.id, requestedUrl: pages.requestedUrl, url: pages.url }).from(pages).all();
       const ids = rows.filter((r) => hostnameOf(r.requestedUrl) === domain || hostnameOf(r.url) === domain).map((r) => r.id);
@@ -63,12 +59,12 @@ export function deleteLead(db: Db, leadId: string): { pagesDeleted: number } {
 }
 
 /** Deletes several leads. Ids that no longer exist are skipped rather than failing the whole batch. */
-export function deleteLeads(db: Db, leadIds: string[]): { deleted: string[]; pagesDeleted: number } {
+export async function deleteLeads(db: Db, leadsDb: LeadsDb, leadIds: string[]): Promise<{ deleted: string[]; pagesDeleted: number }> {
   const deleted: string[] = [];
   let pagesDeleted = 0;
   for (const id of leadIds) {
     try {
-      pagesDeleted += deleteLead(db, id).pagesDeleted;
+      pagesDeleted += (await deleteLead(db, leadsDb, id)).pagesDeleted;
       deleted.push(id);
     } catch (err) {
       if (!(err instanceof LeadNotFoundError)) throw err;

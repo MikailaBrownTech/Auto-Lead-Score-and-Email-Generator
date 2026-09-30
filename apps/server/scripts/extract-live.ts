@@ -16,13 +16,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { FACT_FIELDS, isFound } from "@clearpath/shared";
-import { and, gt, inArray, max } from "drizzle-orm";
 import { bootstrapOrExit } from "../src/bootstrap";
 import { leadOverride } from "../src/scoring/direct-contact";
 import { exitForLeads, installExitHandlers } from "./exit";
 import { leadNotes } from "./lead-notes";
 import { fromRoot } from "../src/config/paths";
-import { runs } from "../src/db/schema";
 import { loadMxProviders, systemDnsResolver } from "../src/dns/lookup";
 import { loadEvidence, loadOffer, loadScoring } from "../src/docs/loader";
 import { loadExtractionSystemPrompt } from "../src/extract/prompt";
@@ -52,6 +50,9 @@ const scoring = loadScoring();
 const offer = loadOffer();
 const deps: ResearchDeps = {
   db: ctx.db,
+  leadsDb: ctx.leadsDb,
+  eventsDb: ctx.eventsDb,
+  runsDb: ctx.runsDb,
   llm: ctx.llm,
   modelExtract: ctx.env.MODEL_EXTRACT,
   systemPrompt: loadExtractionSystemPrompt(),
@@ -98,7 +99,7 @@ function printEvidence(url: string, quote: string, texts: Map<string, string>, i
   log(`${indent}quote : ${q(quote)}   (found in cleaned text: ${found})`);
 }
 
-function report(r: ResearchReport, firstRunId: number) {
+async function report(r: ResearchReport, firstRunId: number) {
   const d = r.dossier;
   const texts = new Map(r.pages.map((p) => [p.url, p.text]));
   log(RULE);
@@ -107,7 +108,7 @@ function report(r: ResearchReport, firstRunId: number) {
   if (d.declined_automated_access) log("ACCESS: the site declined automated access (HTTP 403/429). PASTE-TEXT PROMPT: paste the About/Team/Contact page text to research this lead.");
   log(`GATE: ${d.gate.status.toUpperCase()}${d.gate.reasons.length ? `   (${d.gate.reasons.join("; ")})` : ""}`);
   log(`score: ${r.score.total} (tier ${r.score.tier}${r.score.tierCapped ? `, capped at C: fit ${r.score.fitPoints} < ${scoring.fit_threshold}` : ""})   fit points ${r.score.fitPoints}`);
-  for (const line of leadNotes(d, r.score, offer, leadOverride(ctx.db, r.leadId))) log(line);
+  for (const line of leadNotes(d, r.score, offer, await leadOverride(ctx.leadsDb, r.leadId))) log(line);
 
   log(THIN);
   log("INTERNAL LINKS DISCOVERED ON THE HOMEPAGE (decision -> fetch result)");
@@ -209,13 +210,13 @@ function report(r: ResearchReport, firstRunId: number) {
   log("SCORE BREAKDOWN");
   for (const b of r.score.breakdown) log(`  ${String(b.points).padStart(2)}/${String(b.max).padEnd(2)} ${b.group.padEnd(12)} ${b.key.padEnd(28)} ${b.reason}`);
 
-  const rows = ctx.db.select().from(runs).where(and(inArray(runs.leadId, [r.leadId]), gt(runs.id, firstRunId))).all();
+  const rows = (await ctx.runsDb.listSince(firstRunId)).filter((x) => x.leadId === r.leadId);
   const cost = rows.reduce((s, x) => s + x.costUsd, 0);
-  return { filled, notFound: FACT_FIELDS.length - filled, retries: r.extraction?.retriesUsed ?? 0, cost, rows };
+  return { filled, notFound: FACT_FIELDS.length - filled, retries: r.extraction?.retriesUsed ?? 0, cost };
 }
 
 // Phase 1: fetch every site (no model calls).
-const firstRunId = ctx.db.select({ id: max(runs.id) }).from(runs).get()?.id ?? 0;
+const firstRunId = await ctx.runsDb.maxId();
 const prepared: PreparedLead[] = [];
 for (const url of urls) {
   const name = siteName(url);
@@ -237,7 +238,7 @@ const reportFiles: string[] = [];
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
 for (const r of reports) {
   buffer = [];
-  const s = report(r, firstRunId);
+  const s = await report(r, firstRunId);
   const file = path.join(REPORTS_DIR, `${r.leadId.replace(/^live-/, "")}.txt`);
   fs.writeFileSync(file, buffer.join("\n") + "\n");
   reportFiles.push(file);
@@ -251,7 +252,7 @@ log(RULE);
 log(`WISP KEYWORDS (docs/06, ${scoring.wisp_keywords.length}): ${scoring.wisp_keywords.map((k) => q(k)).join(", ")}`);
 log(RULE);
 log("RUN COST SUMMARY (this command)");
-const all = ctx.db.select().from(runs).where(gt(runs.id, firstRunId)).all();
+const all = await ctx.runsDb.listSince(firstRunId);
 const byType = new Map<string, { calls: number; input: number; output: number; read: number; write: number; cost: number }>();
 for (const row of all) {
   const t = byType.get(row.callType) ?? { calls: 0, input: 0, output: 0, read: 0, write: 0, cost: 0 };
@@ -269,7 +270,7 @@ for (const [type, t] of byType) {
 }
 for (const x of all.filter((y) => y.status === "error")) log(`  error: ${x.leadId} ${x.callType}: ${x.error}`);
 const total = all.reduce((s, x) => s + x.costUsd, 0);
-log(`  total ${usd(total)} for ${reports.length} lead(s)   month to date ${usd(ctx.gate.spentThisMonthUsd())} of $${ctx.gate.capUsd.toFixed(2)} cap`);
+log(`  total ${usd(total)} for ${reports.length} lead(s)   month to date ${usd(await ctx.gate.spentThisMonthUsd())} of $${ctx.gate.capUsd.toFixed(2)} cap`);
 log(RULE);
 log("SUMMARY");
 for (const s of summaries) log(`  ${s}`);

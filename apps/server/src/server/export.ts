@@ -1,8 +1,8 @@
 import { isFound, type Dossier, type Sequence } from "@clearpath/shared";
 import { tryReadStoredDossier } from "../pipeline/stored-dossier";
-import { asc, eq } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { leads, sequences, suppressions } from "../db/schema";
+import type { LeadsDb } from "../db/supa-leads";
+import type { SequencesDb } from "../db/supa-sequences";
+import type { SuppressionDb } from "../db/supa-suppression";
 import { contactWarning, publicAddress } from "../scoring/direct-contact";
 import { renderEmail } from "../validators/email";
 import type { WriteDeps } from "../write/generate";
@@ -27,20 +27,20 @@ export function normalizeSuppression(input: string): { kind: "email" | "domain";
   return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) ? { kind: "domain", value: host } : null;
 }
 
-export function listSuppressions(db: Db): Suppression[] {
-  return db.select({ id: suppressions.id, kind: suppressions.kind, value: suppressions.value }).from(suppressions).orderBy(asc(suppressions.value)).all();
+export function listSuppressions(suppressionDb: SuppressionDb): Promise<Suppression[]> {
+  return suppressionDb.list();
 }
 
-export function addSuppression(db: Db, input: string): Suppression {
+export async function addSuppression(suppressionDb: SuppressionDb, input: string): Promise<Suppression> {
   const n = normalizeSuppression(input);
   if (!n) throw new Error(`"${input}" is not an email address or a domain.`);
-  const existing = db.select().from(suppressions).where(eq(suppressions.value, n.value)).get();
-  if (existing) return { id: existing.id, kind: existing.kind, value: existing.value };
-  return db.insert(suppressions).values(n).returning({ id: suppressions.id, kind: suppressions.kind, value: suppressions.value }).get();
+  const existing = await suppressionDb.findByValue(n.value);
+  if (existing) return existing;
+  return suppressionDb.insert(n);
 }
 
-export function removeSuppression(db: Db, id: number): void {
-  db.delete(suppressions).where(eq(suppressions.id, id)).run();
+export function removeSuppression(suppressionDb: SuppressionDb, id: number): Promise<void> {
+  return suppressionDb.delete(id);
 }
 
 /** The matching suppression entry for an address (exact email, or its domain or a parent domain), if any. */
@@ -123,11 +123,17 @@ export function toCsv(rows: ExportRow[]): string {
  * only the rendered emails, the address, and the contact note, never dossier notes. "ready" exports
  * rows with an address; "drafts" exports every approved row (send_ready N without an address).
  */
-export function buildExport(db: Db, deps: Pick<WriteDeps, "offer" | "templates">, mode: ExportMode = "ready"): ExportResult {
+export async function buildExport(
+  leadsDb: LeadsDb,
+  sequencesDb: SequencesDb,
+  suppressionDb: SuppressionDb,
+  deps: Pick<WriteDeps, "offer" | "templates">,
+  mode: ExportMode = "ready",
+): Promise<ExportResult> {
   const offer = deps.offer;
   const latest = new Map<string, { status: string; sequence: Sequence | null }>();
-  for (const row of db.select().from(sequences).orderBy(asc(sequences.id)).all()) {
-    latest.set(row.leadId, { status: row.status, sequence: row.sequenceJson ? (JSON.parse(row.sequenceJson) as Sequence | null) : null });
+  for (const row of await sequencesDb.listAll()) {
+    latest.set(row.leadId, { status: row.status, sequence: (row.sequenceJson as Sequence | null) ?? null });
   }
   const approved = [...latest.entries()].filter(([, v]) => v.status === "approved" && v.sequence);
 
@@ -149,11 +155,11 @@ export function buildExport(db: Db, deps: Pick<WriteDeps, "offer" | "templates">
   if (approved.length === 0) blocked.push("No approved sequences yet. Approve a sequence first.");
   if (blocked.length > 0) return { blocked, rows: [], excluded: [], csv: "", mode, readyCount: 0, draftCount: 0 };
 
-  const list = listSuppressions(db);
+  const list = await listSuppressions(suppressionDb);
   const all: ExportRow[] = [];
   const excluded: ExportResult["excluded"] = [];
   for (const [leadId, v] of approved) {
-    const lead = db.select().from(leads).where(eq(leads.id, leadId)).get();
+    const lead = await leadsDb.get(leadId);
     const d = lead?.dossierJson ? tryReadStoredDossier(lead.dossierJson) : null;
     const firm = d && isFound(d.firm_name) ? d.firm_name.value : leadId;
     if (!d) {

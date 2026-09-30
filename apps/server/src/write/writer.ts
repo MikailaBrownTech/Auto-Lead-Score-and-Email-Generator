@@ -196,7 +196,7 @@ export async function writeSequenceEmails(
 ): Promise<WriteResult> {
   const input = writerInput(d, deps, opts.firstName);
   const system = deps.writerSystem(opts.exampleKey ?? leadId);
-  const budgetSinceRunId = lastRunId(deps.db);
+  const budgetSinceRunId = await lastRunId(deps.runsDb);
   const call = async (text: string) =>
     (
       await deps.llm.call(

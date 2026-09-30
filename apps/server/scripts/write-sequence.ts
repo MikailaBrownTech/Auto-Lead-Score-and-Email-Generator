@@ -13,13 +13,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { isFound } from "@clearpath/shared";
-import { and, eq, gt } from "drizzle-orm";
 import { bootstrapOrExit } from "../src/bootstrap";
 import { leadOverride } from "../src/scoring/direct-contact";
 import { exitForLeads, installExitHandlers } from "./exit";
 import { leadNotes } from "./lead-notes";
 import { fromRoot } from "../src/config/paths";
-import { leads, runs, type LeadStatus } from "../src/db/schema";
+import type { LeadStatus } from "../src/db/schema";
 import { loadMxProviders, systemDnsResolver } from "../src/dns/lookup";
 import { loadApprovedSentences, loadEvidence, loadOffer, loadScoring, loadStyle, loadWriterFacts } from "../src/docs/loader";
 import { loadTemplates } from "../src/docs/templates";
@@ -54,6 +53,9 @@ const evidence = loadEvidence();
 const approved = loadApprovedSentences();
 const research: ResearchDeps = {
   db: ctx.db,
+  leadsDb: ctx.leadsDb,
+  eventsDb: ctx.eventsDb,
+  runsDb: ctx.runsDb,
   llm: ctx.llm,
   modelExtract: ctx.env.MODEL_EXTRACT,
   systemPrompt: loadExtractionSystemPrompt(),
@@ -78,7 +80,10 @@ const research: ResearchDeps = {
 };
 const style = loadStyle();
 const writeDeps: WriteDeps = {
-  db: ctx.db,
+  leadsDb: ctx.leadsDb,
+  sequencesDb: ctx.sequencesDb,
+  eventsDb: ctx.eventsDb,
+  runsDb: ctx.runsDb,
   llm: ctx.llm,
   modelWrite: ctx.env.MODEL_WRITE,
   writerSystem: writerSystemFor({ offer, facts, style }),
@@ -103,12 +108,12 @@ const files: string[] = [];
 for (const url of urls) {
   const site = url.replace(/^[a-z]+:\/\//i, "").split("/")[0]!.toLowerCase().replace(/^www\./, "").replace(/[^a-z0-9]+/g, "-");
   const leadId = `live-${site}`;
-  const firstRunId = lastRunId(ctx.db);
+  const firstRunId = await lastRunId(ctx.runsDb);
   console.error(`researching ${url} ...`);
   const r = await researchWebLead(leadId, url, research);
-  const gateApproved = ctx.db.select({ v: leads.gateApproved }).from(leads).where(eq(leads.id, leadId)).get()?.v ?? false;
+  const gateApproved = (await ctx.leadsDb.get(leadId))?.gateApproved ?? false;
   console.error(`generating sequence for ${leadId} (tier ${r.score.tier}, gate ${r.dossier.gate.status}) ...`);
-  const override = leadOverride(ctx.db, leadId);
+  const override = await leadOverride(ctx.leadsDb, leadId);
   const g = await generateSequence(leadId, r.dossier, r.score.tier, writeDeps, { gateApproved, directContactOverride: override });
   results.push({ leadId, status: r.status, error: r.error });
 
@@ -163,7 +168,7 @@ for (const url of urls) {
 
   log(RULE);
   log("TOKENS AND COST (this command, this lead)");
-  const rows = ctx.db.select().from(runs).where(and(eq(runs.leadId, leadId), gt(runs.id, firstRunId))).all();
+  const rows = (await ctx.runsDb.listSince(firstRunId)).filter((x) => x.leadId === leadId);
   log("  call type        model                        input  output  cache read  cache write        cost");
   for (const x of rows) {
     log(`  ${x.callType.padEnd(15)} ${x.model.padEnd(26)} ${String(x.inputTokens).padStart(7)} ${String(x.outputTokens).padStart(7)} ${String(x.cacheReadTokens).padStart(11)} ${String(x.cacheWriteTokens).padStart(12)} ${usd(x.costUsd).padStart(11)}${x.status === "error" ? `  ERROR ${x.error}` : ""}`);
@@ -188,6 +193,6 @@ function summaryLine(leadId: string, tier: string, g: GenerateResult, cost: numb
 console.log(RULE);
 console.log("SUMMARY");
 for (const s of summaries) console.log(`  ${s}`);
-console.log(`  month to date ${usd(ctx.gate.spentThisMonthUsd())} of $${ctx.gate.capUsd.toFixed(2)} cap`);
+console.log(`  month to date ${usd(await ctx.gate.spentThisMonthUsd())} of $${ctx.gate.capUsd.toFixed(2)} cap`);
 for (const f of files) console.log(`  report: ${f}`);
 exitForLeads(results);

@@ -1,10 +1,16 @@
-import type { MiddlewareHandler } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import type { AuthedUser } from "./supabase";
 
 const BEARER_RE = /^Bearer (.+)$/;
 
 /** Verifies one bearer token against Supabase, or returns null. Injected so tests never need a live Supabase project. */
 export type VerifyToken = (accessToken: string) => Promise<AuthedUser | null>;
+
+/** The request's own bearer token (already verified by authGuard by the time a route runs) -- for building a request-scoped Supabase client so RLS applies as this user (see db/supa-settings.ts). */
+export function bearerToken(c: Context): string {
+  const header = c.req.header("authorization") ?? "";
+  return BEARER_RE.exec(header)?.[1] ?? "";
+}
 
 /**
  * Requires a valid Supabase session on every /api/* request (runs after local-guard's origin/token

@@ -1,8 +1,8 @@
 import { isFound, type Dossier, type LeadDetail, type LeadFlags, type LeadRow, type Sequence, type SequenceListItem, type SequenceView } from "@clearpath/shared";
 import { readStoredDossier, tryReadStoredDossier } from "../pipeline/stored-dossier";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type { Db } from "../db/client";
-import { leadEvents, leads, runs, sequences } from "../db/schema";
+import type { EventsDb, SequenceRecord, SequencesDb } from "../db/supa-sequences";
+import type { LeadsDb } from "../db/supa-leads";
+import type { RunsDb } from "../db/supa-runs";
 import { DOCS_DIR, loadScoring } from "../docs/loader";
 import { buildBriefing, loadBriefingConfig } from "../pipeline/briefing";
 import { contactWarning, lacksNamedContact, leadOverride, namedContactChecklist, publicAddress } from "../scoring/direct-contact";
@@ -17,24 +17,15 @@ export class NotFoundError extends Error {
 }
 
 /** Total logged spend per lead (from the runs table). */
-export function costByLead(db: Db): Map<string, number> {
-  const rows = db
-    .select({ leadId: runs.leadId, cost: sql<number>`coalesce(sum(${runs.costUsd}), 0)` })
-    .from(runs)
-    .groupBy(runs.leadId)
-    .all();
-  return new Map(rows.filter((r) => r.leadId).map((r) => [r.leadId!, r.cost]));
+export function costByLead(runsDb: RunsDb): Promise<Map<string, number>> {
+  return runsDb.costByLead();
 }
 
-function latestSequences(db: Db): Map<string, { id: number; status: string; createdAt: string }> {
-  const out = new Map<string, { id: number; status: string; createdAt: string }>();
-  for (const row of db
-    .select({ id: sequences.id, leadId: sequences.leadId, status: sequences.status, createdAt: sequences.createdAt, json: sequences.sequenceJson })
-    .from(sequences)
-    .orderBy(asc(sequences.id))
-    .all()) {
-    // A row without usable emails (an old unusable draft) is not a sequence to open.
-    if (row.json && row.json !== "null") out.set(row.leadId, { id: row.id, status: row.status, createdAt: row.createdAt });
+/** Each lead's newest sequence with usable emails (a row without any -- an old unusable draft -- is skipped). */
+async function latestSequenceRows(sequencesDb: SequencesDb): Promise<Map<string, SequenceRecord>> {
+  const out = new Map<string, SequenceRecord>();
+  for (const row of await sequencesDb.listAll()) {
+    if (row.sequenceJson != null) out.set(row.leadId, row);
   }
   return out;
 }
@@ -45,15 +36,15 @@ export function sequenceKind(seq: Sequence): "template" | "custom" {
 }
 
 /** The Sequences screen: each lead's newest sequence, templates included. */
-export function listSequences(db: Db): SequenceListItem[] {
-  const latest = latestSequences(db);
+export async function listSequences(sequencesDb: SequencesDb, leadsDb: LeadsDb): Promise<SequenceListItem[]> {
+  const latest = await latestSequenceRows(sequencesDb);
+  const byId = new Map((await leadsDb.list()).map((l) => [l.id, l]));
   const out: SequenceListItem[] = [];
-  for (const [leadId, s] of latest) {
-    const row = db.select().from(sequences).where(eq(sequences.id, s.id)).get()!;
-    const seq = JSON.parse(row.sequenceJson) as Sequence;
-    const lead = db.select({ dossierJson: leads.dossierJson }).from(leads).where(eq(leads.id, leadId)).get();
+  for (const [leadId, row] of latest) {
+    const seq = row.sequenceJson as Sequence;
+    const lead = byId.get(leadId);
     const d = lead?.dossierJson ? tryReadStoredDossier(lead.dossierJson) : null;
-    out.push({ id: s.id, leadId, firm: d && isFound(d.firm_name) ? d.firm_name.value : null, tier: row.tier, status: row.status, kind: sequenceKind(seq), createdAt: row.createdAt });
+    out.push({ id: row.id, leadId, firm: d && isFound(d.firm_name) ? d.firm_name.value : null, tier: row.tier, status: row.status, kind: sequenceKind(seq), createdAt: row.createdAt });
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -68,14 +59,13 @@ function flagsFor(d: Dossier | null, incompleteData: boolean): LeadFlags {
   };
 }
 
-export function listLeads(db: Db): LeadRow[] {
-  const costs = costByLead(db);
-  const seqs = latestSequences(db);
-  return db
-    .select()
-    .from(leads)
-    .orderBy(desc(leads.updatedAt))
-    .all()
+export async function listLeads(leadsDb: LeadsDb, sequencesDb: SequencesDb, runsDb: RunsDb): Promise<LeadRow[]> {
+  const costs = await costByLead(runsDb);
+  const seqs = await latestSequenceRows(sequencesDb);
+  const rows = await leadsDb.list();
+  return rows
+    .slice()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map((l): LeadRow => {
       const d = l.dossierJson ? tryReadStoredDossier(l.dossierJson) : null;
       return {
@@ -97,16 +87,18 @@ export function listLeads(db: Db): LeadRow[] {
     });
 }
 
-export function leadDetail(s: Services, id: string): LeadDetail {
-  const l = s.db.select().from(leads).where(eq(leads.id, id)).get();
+export async function leadDetail(s: Services, id: string): Promise<LeadDetail> {
+  const l = await s.leadsDb.get(id);
   if (!l?.dossierJson) throw new NotFoundError(`Lead ${id} was not found, or its research has not finished.`);
   const dossier = readStoredDossier(l.dossierJson);
   const docsDir = s.docsDir ?? DOCS_DIR;
   const score = scoreDossier(dossier, loadScoring(docsDir), (s.now ?? (() => new Date()))());
   const briefing = buildBriefing(dossier, score, loadBriefingConfig());
-  const override = leadOverride(s.db, id);
-  const seq = latestSequences(s.db).get(id);
+  const override = await leadOverride(s.leadsDb, id);
+  const seq = (await latestSequenceRows(s.sequencesDb)).get(id);
   const hint = dossier.email_security_hint;
+  const costs = await costByLead(s.runsDb);
+  const events = await s.eventsDb.listByLead(id);
   return {
     id,
     source: l.source,
@@ -120,7 +112,7 @@ export function leadDetail(s: Services, id: string): LeadDetail {
     gateApproved: l.gateApproved,
     dossier,
     breakdown: score.breakdown.map((b) => ({ key: b.key, label: b.label, group: b.group, points: b.points, max: b.max, reason: b.reason, dataMissing: b.dataMissing })),
-    costUsd: costByLead(s.db).get(id) ?? 0,
+    costUsd: costs.get(id) ?? 0,
     flags: flagsFor(dossier, score.incompleteData.flag),
     contact: {
       named: !lacksNamedContact(dossier),
@@ -134,38 +126,34 @@ export function leadDetail(s: Services, id: string): LeadDetail {
       emailSecurityHint: hint === "NOT_FOUND" ? null : hint.note,
       clientCount: isFound(dossier.client_count_signal) ? dossier.client_count_signal.value.text : null,
     },
-    events: s.db
-      .select({ kind: leadEvents.kind, detail: leadEvents.detail, createdAt: leadEvents.createdAt })
-      .from(leadEvents)
-      .where(eq(leadEvents.leadId, id))
-      .orderBy(asc(leadEvents.id))
-      .all(),
+    events: events.map((e) => ({ kind: e.kind, detail: e.detail, createdAt: e.createdAt })),
     sequenceId: seq?.id ?? null,
     sequenceStatus: seq?.status ?? null,
     notWrittenReason: dossier.gate.status !== "qualified" && !l.gateApproved ? notWrittenReason(dossier.gate) : null,
-    lastWriteAttempt: lastAttempt(s.db, id, seq?.createdAt ?? null),
+    lastWriteAttempt: lastAttempt(events, seq?.createdAt ?? null),
     briefing,
   };
 }
 
-/** The newest logged write attempt, when it is newer than the lead's current sequence. */
-function lastAttempt(db: Db, leadId: string, sequenceAt: string | null): { at: string; detail: string } | null {
-  const e = db
-    .select({ at: leadEvents.createdAt, detail: leadEvents.detail })
-    .from(leadEvents)
-    .where(and(eq(leadEvents.leadId, leadId), eq(leadEvents.kind, "write_attempt")))
-    .orderBy(desc(leadEvents.id))
-    .limit(1)
-    .get();
-  if (!e) return null;
+/** The newest logged write attempt, when it is newer than the lead's current sequence. `events` is oldest-first (EventsDb.listByLead). */
+function lastAttempt(events: Awaited<ReturnType<EventsDb["listByLead"]>>, sequenceAt: string | null): { at: string; detail: string } | null {
+  let found: { at: string; detail: string } | null = null;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i]!;
+    if (e.kind === "write_attempt") {
+      found = { at: e.createdAt, detail: e.detail };
+      break;
+    }
+  }
+  if (!found) return null;
   // Notes are logged after the sequence they describe; an older note belongs to an older attempt.
-  if (sequenceAt && e.at < sequenceAt) return null;
-  return e;
+  if (sequenceAt && found.at < sequenceAt) return null;
+  return found;
 }
 
 /** The sequence screen's data: content, live validator issues, judge state, blockers, approved sentences. */
-export function sequenceView(db: Db, sequenceId: number, deps: WriteDeps): SequenceView {
-  const ctx = loadSequenceContext(db, sequenceId, deps);
+export async function sequenceView(sequenceId: number, deps: WriteDeps): Promise<SequenceView> {
+  const ctx = await loadSequenceContext(sequenceId, deps);
   const state = sequenceState(ctx, ctx.sequence, ctx.judge, deps);
   return sequenceViewFrom(ctx.id, ctx.leadId, ctx.tier, ctx.dossier, ctx.status === "approved" && state.status === "passed" ? "approved" : state.status, ctx.sequence, state, deps, ctx.drafts);
 }

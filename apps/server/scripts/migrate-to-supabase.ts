@@ -3,13 +3,18 @@
  * lead_sequences, lead_events, runs, suppression, settings; candidates has no SQLite source, so
  * there is nothing to migrate for it).
  *
- *   npm run migrate-to-supabase [-- --sqlite-path <path>] [-- --commit]
+ *   npm run migrate-to-supabase [-- --sqlite-path <path>] [-- --commit] [-- --force]
  *
  * Default is a dry run: every row is inserted into the real Supabase tables via the service role key
  * (bypassing RLS), the row counts are reported, and then every row this run just inserted is deleted
  * again, leaving Supabase exactly as it was. This is deliberate: comparing against a destination that
  * was empty the whole time would not actually prove the insert path (field mapping, type conversions,
  * foreign keys) works. Nothing is written to Supabase for good until --commit is passed.
+ *
+ * --commit refuses to insert anything (and exits non-zero) if any target table already has rows --
+ * this is a one-time historical import, and a second accidental --commit on the same source data
+ * would duplicate every row rather than update or skip what's already there. Pass --force alongside
+ * --commit to insert anyway (a loud warning is still printed either way).
  *
  * The original SQLite file is never written to (only ever opened for read) and is never deleted --
  * it stays as a local backup either way. --sqlite-path lets you point this at a copy of it instead of
@@ -32,6 +37,7 @@ import { leadEventRow, leadRows, runRow, sequenceRow, settingsRow, suppressionRo
 
 const args = process.argv.slice(2);
 const commit = args.includes("--commit");
+const force = args.includes("--force");
 const sqlitePathArg = args.indexOf("--sqlite-path");
 const sqlitePath = sqlitePathArg >= 0 ? args[sqlitePathArg + 1] : undefined;
 
@@ -41,11 +47,11 @@ console.log(`Reading (read-only): ${sourcePath}`);
 const sqlite = new Database(sourcePath, { readonly: true, fileMustExist: true });
 const source = drizzle(sqlite, { schema });
 
-const leadRowsFromSqlite = source.select().from(schema.leads).all();
+const leadRowsFromSqlite = source.select().from(schema.leadsLegacy).all();
 const leadsPlan = leadRowsFromSqlite.map((l) => leadRows(l));
 const validLeadIds = new Set(leadRowsFromSqlite.map((l) => l.id));
 
-const allRuns = source.select().from(schema.runs).all();
+const allRuns = source.select().from(schema.runsLegacy).all();
 const orphanedRunLeadIds = new Set(allRuns.map((r) => r.leadId).filter((id): id is string => !!id && !validLeadIds.has(id)));
 if (orphanedRunLeadIds.size > 0) {
   console.log(`Note: ${orphanedRunLeadIds.size} lead id(s) referenced by runs no longer exist (deleted leads, or old record-sequences.ts fixtures); those runs' lead_id migrates as null, same as this app's own delete-lead behavior. Ids: ${[...orphanedRunLeadIds].join(", ")}`);
@@ -54,10 +60,10 @@ if (orphanedRunLeadIds.size > 0) {
 const plans: TablePlan[] = [
   { table: "leads", idColumn: "id", rows: leadsPlan.map((p) => p.lead) },
   { table: "lead_dossiers", idColumn: "lead_id", rows: leadsPlan.map((p) => p.dossier).filter((d): d is Record<string, unknown> => d !== null) },
-  { table: "lead_sequences", idColumn: "id", rows: source.select().from(schema.sequences).all().map(sequenceRow) },
-  { table: "lead_events", idColumn: "id", rows: source.select().from(schema.leadEvents).all().map(leadEventRow) },
+  { table: "lead_sequences", idColumn: "id", rows: source.select().from(schema.sequencesLegacy).all().map(sequenceRow) },
+  { table: "lead_events", idColumn: "id", rows: source.select().from(schema.leadEventsLegacy).all().map(leadEventRow) },
   { table: "runs", idColumn: "id", rows: allRuns.map((r) => runRow(r, validLeadIds)) },
-  { table: "suppression", idColumn: "id", rows: source.select().from(schema.suppressions).all().map(suppressionRow) },
+  { table: "suppression", idColumn: "id", rows: source.select().from(schema.suppressionsLegacy).all().map(suppressionRow) },
   { table: "settings", idColumn: "id", rows: [settingsRow(loadOffer(), ctx.env.MONTHLY_SPEND_CAP_USD)] },
 ];
 
@@ -69,7 +75,7 @@ console.log();
 
 const supabase = createServiceRoleClient(ctx.env);
 const client = supabaseMigrationClient(supabase);
-const result = await runMigration(client, plans, { dryRun: !commit });
+const result = await runMigration(client, plans, { dryRun: !commit, force });
 
 console.log(formatReport(result));
 process.exit(result.hasErrors ? 1 : 0);
