@@ -1,12 +1,14 @@
 # ClearPath Lead Console
 
 Local app that researches prospect firms from their public websites, scores them, and drafts
-evidence-checked email sequences for review. Runs only on your machine (127.0.0.1).
+evidence-checked email sequences for review. The API only binds to your machine (127.0.0.1); who may
+sign in is controlled separately, by Supabase Auth (see below).
 
 ## Run the app
 
 Requirements: Node 20+ (22 recommended), and a `.env` in the repo root (copy `.env.example`, add your
-Anthropic API key and `MONTHLY_SPEND_CAP_USD`). The key stays on the server; the browser never sees it.
+Anthropic API key, `MONTHLY_SPEND_CAP_USD`, and the Supabase settings below). The Anthropic key and the
+Supabase service role key stay on the server; the browser never sees either.
 
 ```
 npm install          # once
@@ -16,9 +18,30 @@ npm run app          # starts the API (127.0.0.1:8787) and the UI (127.0.0.1:517
 Open http://127.0.0.1:5173. Ctrl+C stops both. (Or run `npm run dev:server` and `npm run dev:web` in two
 terminals.) If the API says the port is in use, the app is already running in another terminal.
 
+### Sign in (Supabase Auth)
+
+This app shares one Supabase project with the companion `clearpath-proposal-generator` app (same
+`profiles` table, the same owner/staff roles, the same first-signup-becomes-owner rule) -- it never
+creates its own separate project or its own parallel role system.
+
+1. Root `.env`: fill in `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (Project
+   Settings -> API in the Supabase dashboard). The server won't start without these.
+2. `apps/web/.env.local` (copy `apps/web/.env.example`): fill in `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY` (the anon key only -- never the service role key here; Vite bundles
+   `VITE_`-prefixed vars into the browser).
+3. Open the app and create an account. The first account ever created in that Supabase project becomes
+   the owner; everyone after starts as staff (promote someone by editing `profiles.role`, same as the
+   companion app).
+
+Every screen is behind sign-in; there is no way to reach the app or its API without a valid session.
+Auth happens entirely in the browser (`supabase.auth.signInWithPassword/signUp/signOut`, session kept
+client-side) -- there's no Next.js middleware or Server Actions layer here to hold it, since this app is
+a Vite SPA plus a separate Hono API, not Next.js. The API re-validates the session's bearer token
+against Supabase on every request (`apps/server/src/auth/guard.ts`).
+
 Layout: left sidebar navigation, a top bar with the spend meter (month to date vs cap, average per
-lead), content in a centered column. Light and dark themes follow the system setting. Works down to
-about 900px wide (the sidebar becomes an icon rail).
+lead), content in a centered column. Dark only (the ClearPath brand theme). Works down to about 900px
+wide (the sidebar becomes an icon rail).
 
 Screens:
 - **Import**: up to 5 website addresses, or paste text (a lead label + pasted text as the only source).
@@ -71,6 +94,28 @@ Other commands (from the repo root):
   editing prompts/write.md or the docs/03 examples.
 - `npm run delete-lead -- <lead_id> [<lead_id> ...] [--yes]` deletes leads from the command line (a
   CLI fallback for the UI's delete buttons). Without `--yes` it only reports what would be deleted.
+
+## Moving to Supabase
+
+The app's operational data still lives in SQLite (`data/clearpath.db`) day to day; only auth has
+cut over to Supabase so far. `supabase/migrations/*.sql` adds eight tables to the shared project
+(`leads`, `lead_dossiers`, `lead_sequences`, `lead_events`, `candidates`, `runs`, `suppression`,
+`settings`) with RLS on every one: operational tables are full read/write for any signed-in user
+(matching the companion app's `clients`); `settings` is read for anyone signed in but write-restricted
+to an owner (matching how its `plans`/`add_ons` already work). `candidates` is new -- a pre-import
+queue, staff can submit a URL or firm name before it becomes a researched lead -- and has no SQLite
+source, so the migration script below has nothing to move into it. Apply the migration files to the
+Supabase project yourself (same way as the companion app's own migrations) before running the script.
+
+`npm run migrate-to-supabase [-- --sqlite-path <path>] [-- --commit]` reads every row out of SQLite
+(read-only; the file is never modified or deleted) and, by default, does a dry run: it inserts
+everything into the real Supabase tables via the service role key, prints a source-vs-destination row
+count for every table, and then deletes every row it just inserted again, leaving Supabase exactly as
+it was. Passing `--commit` inserts the rows for real and leaves them there -- run the dry run first and
+check the counts match before doing that. Needs `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
+
+Rewiring the app's own routes/services to read and write Supabase instead of SQLite (the actual
+cutover of leads/sequences/etc.) is a separate, larger follow-up, not done yet.
 
 ---
 

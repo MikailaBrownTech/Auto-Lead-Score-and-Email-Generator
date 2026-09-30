@@ -13,13 +13,15 @@
     "write-sequence": "tsx scripts/write-sequence.ts",
     "screenshots": "tsx scripts/screenshots.ts",
     "record-sequences": "tsx scripts/record-sequences.ts",
-    "delete-lead": "tsx scripts/delete-lead.ts"
+    "delete-lead": "tsx scripts/delete-lead.ts",
+    "migrate-to-supabase": "tsx scripts/migrate-to-supabase.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@clearpath/shared": "*",
     "@hono/node-server": "^2.1.1",
     "@mozilla/readability": "^0.6.0",
+    "@supabase/supabase-js": "^2.117.2",
     "better-sqlite3": "^13.0.3",
     "dotenv": "^18.0.3",
     "drizzle-orm": "^0.45.3",

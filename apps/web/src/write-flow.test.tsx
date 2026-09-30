@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { JobView } from "@clearpath/shared";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { leads } from "../../server/src/db/schema";
 import { strongDossier } from "../../server/test/fixtures/dossiers";
 import { makeHarness } from "../../server/test/fixtures/app-harness";
 import { App } from "./App";
 import { JobStatus } from "./pages/Import";
+
+// Renders as an already-signed-in user; wireFetch below bypasses the browser's real Authorization
+// header anyway (it routes straight into the harness's own fixed headers).
+vi.mock("./auth", () => ({
+  AuthProvider: ({ children }: { children: ReactNode }) => children,
+  useAuth: () => ({ session: { user: { email: "founder@example.com" } } }),
+}));
 
 type Harness = ReturnType<typeof makeHarness>;
 

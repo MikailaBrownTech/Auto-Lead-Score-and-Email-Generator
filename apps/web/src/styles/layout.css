@@ -122,6 +122,13 @@
   color: var(--muted);
 }
 
+.sidebar-account {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
 .main {
   display: flex;
   flex-direction: column;

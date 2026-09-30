@@ -23,7 +23,8 @@
     "build:web": "npm run build -w @clearpath/web",
     "screenshots": "npm run screenshots -w @clearpath/server",
     "record-sequences": "npm run record-sequences -w @clearpath/server --",
-    "delete-lead": "npm run delete-lead -w @clearpath/server --"
+    "delete-lead": "npm run delete-lead -w @clearpath/server --",
+    "migrate-to-supabase": "npm run migrate-to-supabase -w @clearpath/server --"
   },
   "devDependencies": {
     "@types/node": "^22.20.4",

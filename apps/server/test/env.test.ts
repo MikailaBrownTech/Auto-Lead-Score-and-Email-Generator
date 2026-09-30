@@ -7,6 +7,9 @@ const valid = {
   MODEL_WRITE: "claude-sonnet-5",
   MONTHLY_SPEND_CAP_USD: "10",
   CONTACT_URL: "https://www.clearpathsecure.com/contact",
+  SUPABASE_URL: "https://pqejkprfilamahyfvtqf.supabase.co",
+  SUPABASE_ANON_KEY: "test-anon-key",
+  SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key",
 };
 
 describe("parseEnv", () => {

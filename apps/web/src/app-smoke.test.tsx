@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DOE_TEXT, makeHarness } from "../../server/test/fixtures/app-harness";
 import { App } from "./App";
+
+// Every screen renders as an already-signed-in user; the fetch mock below bypasses the browser's
+// real Authorization header anyway (it routes straight into the harness's own fixed headers).
+vi.mock("./auth", () => ({
+  AuthProvider: ({ children }: { children: ReactNode }) => children,
+  useAuth: () => ({ session: { user: { email: "founder@example.com" } } }),
+}));
 
 /**
  * Every screen rendered against the real in-process API (saved HTML fixtures, recorded model

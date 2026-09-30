@@ -1,3 +1,31 @@
+/* ---------- Login ---------- */
+.login-shell {
+  display: block;
+  min-height: 100vh;
+}
+
+.login-center {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--space-6) var(--space-5);
+}
+
+.login-brand {
+  padding: 0;
+  margin-bottom: var(--space-5);
+  pointer-events: none;
+}
+
 /* ---------- Toolbars and filters ---------- */
 .filters {
   display: flex;

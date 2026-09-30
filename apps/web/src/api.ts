@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { currentAccessToken } from "./lib/supabase";
 
 /** An API error, already in plain words (the server never sends stack traces). */
 export class ApiError extends Error {
@@ -6,10 +7,14 @@ export class ApiError extends Error {
 }
 
 /**
- * One plain sentence for a failed request. The guard's short codes (unauthorized, forbidden_origin,
- * forbidden_host) and proxy errors become instructions; the server's own messages are already plain.
+ * One plain sentence for a failed request. The guard's short codes (unauthorized, unauthenticated,
+ * forbidden_origin, forbidden_host) and proxy errors become instructions; the server's own messages
+ * are already plain.
  */
 export function plainApiError(status: number, error: string | undefined): string {
+  if (error === "unauthenticated") {
+    return "Your session has expired or is no longer valid (401). Sign out and sign in again.";
+  }
   if (status === 401 || error === "unauthorized") {
     return "The local server refused this request because its security token did not match (401). Restart the app with npm run app, then reload this page.";
   }
@@ -26,11 +31,15 @@ export function plainApiError(status: number, error: string | undefined): string
  * browser. Errors become one readable sentence.
  */
 export async function api<T>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+  const token = await currentAccessToken();
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
       method: opts.method ?? "GET",
-      headers: opts.body !== undefined ? { "content-type": "application/json" } : {},
+      headers: {
+        ...(opts.body !== undefined ? { "content-type": "application/json" } : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
       ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
     });
   } catch {

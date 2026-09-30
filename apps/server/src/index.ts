@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { verifyAccessToken } from "./auth/supabase";
 import { bootstrapOrExit } from "./bootstrap";
 import { fromRoot } from "./config/paths";
 import { createApp } from "./server/app";
@@ -13,6 +14,7 @@ const token = newLocalToken();
 const services: Services = { db: ctx.db, llm: ctx.llm, gate: ctx.gate, env: ctx.env };
 const app = createApp({
   guard: { port: ctx.env.PORT, token, allowedOrigins: ctx.env.WEB_ORIGINS },
+  verifyToken: (accessToken) => verifyAccessToken(ctx.env, accessToken),
   gate: ctx.gate,
   db: ctx.db,
   services,

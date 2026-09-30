@@ -19,6 +19,9 @@ import { writerAnswerFor } from "./write-deps";
 
 export const PORT = 8787;
 export const TOKEN = "t".repeat(64);
+/** Fake Supabase access token the harness's fake verifyToken accepts; never a real session. */
+export const SUPABASE_TOKEN = "fake-supabase-access-token";
+export const SUPABASE_USER = { id: "11111111-1111-1111-1111-111111111111", email: "founder@example.com" };
 export const NOW = new Date("2026-09-24T12:00:00.000Z");
 
 /** docs/01 settings for the harness: signature filled, footer and merge settings empty (tests fill them). */
@@ -134,8 +137,15 @@ export function makeHarness(opts: { judge?: unknown | unknown[]; writer?: unknow
     now,
   };
   const jobs = new JobRunner(services);
-  const app = createApp({ guard: { port: PORT, token: TOKEN, allowedOrigins: [] }, gate, db, services, jobs });
-  const headers = { host: `127.0.0.1:${PORT}`, [TOKEN_HEADER]: TOKEN, "content-type": "application/json" };
+  const app = createApp({
+    guard: { port: PORT, token: TOKEN, allowedOrigins: [] },
+    verifyToken: async (t) => (t === SUPABASE_TOKEN ? SUPABASE_USER : null),
+    gate,
+    db,
+    services,
+    jobs,
+  });
+  const headers = { host: `127.0.0.1:${PORT}`, [TOKEN_HEADER]: TOKEN, authorization: `Bearer ${SUPABASE_TOKEN}`, "content-type": "application/json" };
   const call = async (method: string, url: string, body?: unknown) => {
     const res = await app.request(`http://127.0.0.1:${PORT}${url}`, { method, headers, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     const type = res.headers.get("content-type") ?? "";

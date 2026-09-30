@@ -96,7 +96,66 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       theme) the "dark" variant; iterated twice (an initial round of AA fixes before ever screenshotting,
       then a visual pass that added a glow to the score-glass card for more hero presence, confirmed by
       re-screenshotting and cropping it for a close look). No horizontal scroll on any screen.
-- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings).
+- [x] Supabase Auth + new tables, auth flow only (2026-09-30, founder decision; investigation +
+      clarifying questions before writing anything, since the request depended on a companion app and
+      credentials this repo had no access to; findings below). STOPPED before the real migration runs,
+      as asked -- see "Not done / blocked" below for exactly why it can't run yet.
+      - Found the companion app on disk (D:\clearpath-app\clearpath-proposal-generator) and read its
+        actual auth code and schema rather than guessing: @supabase/ssr cookie sessions, `profiles`
+        (id -> auth.users, role enum owner/staff, first signup becomes owner), `public.is_owner()`
+        (security definer, used inside RLS), `handle_new_user`/`prevent_role_self_escalation`
+        triggers, `set_updated_at()`. None of that is redefined here -- the new tables only reference
+        it. Confirmed the same project: pqejkprfilamahyfvtqf.supabase.co.
+      - Since this app is a Vite SPA + a separate Hono API (not Next.js, which is what "middleware"/
+        "Server Actions" in the request implied), auth is wired differently, not ported literally: the
+        browser calls supabase.auth.signInWithPassword/signUp/signOut directly (session client-side,
+        apps/web/src/lib/supabase.ts, apps/web/src/auth.tsx), and the Hono API re-validates the bearer
+        token against Supabase on every /api/* request (apps/server/src/auth/guard.ts, after
+        local-guard, which is unchanged -- both layers run: local-guard for origin/process-token,
+        authGuard for who). LoginPage.tsx matches the ClearPath brand theme. App.tsx carries its own
+        AuthProvider so it's self-contained (renders the login page or the shell depending on session).
+      - Founder's clarifications: `candidates` = a pre-import queue (no SQLite source, new table
+        only); settings (docs/01 + MONTHLY_SPEND_CAP_USD) move into Supabase now, owner-only writes,
+        same shape as plans/add_ons; the fetch/extraction caches (pages, robots_txt, token_counts,
+        extractions) stay SQLite-only (pure performance cache, not user data); auth wiring = browser-
+        side + bearer token (not cookies/SSR).
+      - supabase/migrations/*.sql (8 files): leads, lead_dossiers (the dossier JSON split out, 1:1),
+        lead_sequences, lead_events, candidates, runs, suppression, settings. RLS: operational tables
+        get "authenticated_all" (matching clients); settings gets select-for-authenticated + owner-only
+        insert/update (matching plans/add_ons); runs gets select+insert only, no update/delete
+        (matching audit_log -- an append-only ledger). leads.id stays the app's existing text id (not
+        a uuid), so every reference the migration carries over still matches exactly.
+      - Migration script (apps/server/scripts/migrate-to-supabase.ts): reads SQLite read-only (never
+        modified, never deleted -- stays the local backup), default is a dry run that inserts every
+        row via the service role key, prints a source-vs-destination count per table, then deletes
+        everything it just inserted so Supabase is left exactly as it was (a permanently-empty
+        destination wouldn't actually prove the insert path works); `--commit` inserts for real.
+        Orchestration (apps/server/src/migration/run.ts) and the Supabase calls
+        (apps/server/src/migration/client.ts) are separated behind a small interface so this is
+        testable with an in-memory fake, the same way this codebase already fakes the Anthropic API/
+        DNS/fetch, rather than needing a live project.
+      - Not done / blocked, and why:
+        - **No Supabase credentials in this repo yet.** apps/server/.env has no SUPABASE_* vars
+          (checked names only). Cannot create a live connection, cannot verify the migration SQL
+          actually applies cleanly to the real project, and cannot produce a real row-count report --
+          the whole reason this milestone stops here rather than at "after the dry-run report."
+        - The migration SQL files are written but **not yet applied** to the live Supabase project;
+          that has to happen (same way the companion app's own migrations were applied) before the
+          migration script's tables exist to insert into.
+        - **The app's own routes/services still read/write SQLite**, not the new Supabase tables --
+          intentionally scoped out of this pass (auth + schema + migration script only) given the
+          size of rewiring every existing route; the cutover is a separate, larger follow-up once the
+          founder has reviewed real dry-run counts.
+        - No UI/API routes for `candidates` or the new `settings` table yet (same reason).
+      - Tests: 44 new (auth-guard.test.ts: missing/malformed/wrong/good bearer token, user context,
+        empty-token short-circuit; migration.test.ts: dry-run insert+cleanup, --commit leaves rows,
+        a table's insert error is reported not swallowed, formatReport's match/ERROR/MISMATCH text,
+        every transform function). local-guard.test.ts and app-harness.ts updated for the new
+        bearer-token requirement (a fake verifyToken, never real Supabase). 528 passing (36 files),
+        typecheck clean, web build clean.
+- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings,
+      adding the Supabase env vars + applying the migrations, and deciding on the full SQLite ->
+      Supabase cutover for the app's own routes).
 
 ## Current state (2026-09-24, after the full-writer revert)
 - Tests: 482 passing in 32 files (vitest: unit, component, offline end-to-end API, UI end-to-end,

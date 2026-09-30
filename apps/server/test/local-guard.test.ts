@@ -8,6 +8,7 @@ import { TOKEN_HEADER } from "../src/server/local-guard";
 
 const PORT = 8787;
 const TOKEN = "a".repeat(64);
+const SUPABASE_TOKEN = "fake-supabase-access-token";
 
 const db = openDb(":memory:");
 const gate = new SpendGate(db, 5);
@@ -15,6 +16,7 @@ const gate = new SpendGate(db, 5);
 const services = { db, gate } as unknown as Services;
 const app = createApp({
   guard: { port: PORT, token: TOKEN, allowedOrigins: ["http://localhost:5173"] },
+  verifyToken: async (t) => (t === SUPABASE_TOKEN ? { id: "test-user", email: "test@example.com" } : null),
   gate,
   db,
   services,
@@ -25,7 +27,7 @@ function get(path: string, headers: Record<string, string>) {
   return app.request(`http://127.0.0.1:${PORT}${path}`, { headers });
 }
 
-const good = { host: `127.0.0.1:${PORT}`, [TOKEN_HEADER]: TOKEN };
+const good = { host: `127.0.0.1:${PORT}`, [TOKEN_HEADER]: TOKEN, authorization: `Bearer ${SUPABASE_TOKEN}` };
 
 describe("local guard", () => {
   it("allows a local request with the right token", async () => {

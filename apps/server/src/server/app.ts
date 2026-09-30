@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import type { CacheHealth, DeleteLeadsView, ExportView, JobView, OfferSettingsView, SpendView } from "@clearpath/shared";
 import { eq, sql } from "drizzle-orm";
+import { authGuard, type VerifyToken } from "../auth/guard";
 import type { Db } from "../db/client";
 import { leadEvents, leads } from "../db/schema";
 import { BlockError } from "../docs/blocks";
@@ -21,6 +22,8 @@ import { costByLead, leadDetail, listLeads, listSequences, NotFoundError, sequen
 
 export interface AppDeps {
   guard: LocalGuardOptions;
+  /** Verifies a request's Supabase bearer token. The real implementation (index.ts) calls Supabase; tests inject a fake. */
+  verifyToken: VerifyToken;
   gate: SpendGate;
   db: Db;
   services: Services;
@@ -76,6 +79,7 @@ export function createApp(deps: AppDeps) {
   const docsDir = s.docsDir ?? DOCS_DIR;
 
   app.use("/api/*", localGuard(deps.guard));
+  app.use("/api/*", authGuard(deps.verifyToken));
 
   // Plain one-line errors only; never a stack trace.
   app.onError((err, c) => {

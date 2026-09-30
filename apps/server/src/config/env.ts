@@ -39,6 +39,17 @@ export const EnvSchema = z.object({
   PAGE_CACHE_DAYS: intFromString(7),
   DB_PATH: z.string().default("data/clearpath.db"),
   PRICES_PATH: z.string().default("config/prices.json"),
+
+  /**
+   * Same Supabase project as the companion clearpath-proposal-generator app (its profiles table,
+   * is_owner(), and role model are reused as-is -- never redefined here).
+   */
+  SUPABASE_URL: z
+    .string({ required_error: "is required (Project Settings -> API in the Supabase dashboard; the same project the proposal-generator app uses)" })
+    .url("must be a full URL, e.g. https://pqejkprfilamahyfvtqf.supabase.co"),
+  SUPABASE_ANON_KEY: z.string({ required_error: "is required (Project Settings -> API)" }).min(1, "is required (Project Settings -> API)"),
+  /** Bypasses RLS. Server-only: never sent to the browser, never used on a path a signed-in user's own request reaches unscoped. */
+  SUPABASE_SERVICE_ROLE_KEY: z.string({ required_error: "is required (Project Settings -> API; keep this out of the browser)" }).min(1, "is required (Project Settings -> API)"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
