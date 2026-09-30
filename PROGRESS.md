@@ -96,10 +96,12 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       theme) the "dark" variant; iterated twice (an initial round of AA fixes before ever screenshotting,
       then a visual pass that added a glow to the score-glass card for more hero presence, confirmed by
       re-screenshotting and cropping it for a close look). No horizontal scroll on any screen.
-- [x] Supabase Auth + new tables, auth flow only (2026-09-30, founder decision; investigation +
-      clarifying questions before writing anything, since the request depended on a companion app and
-      credentials this repo had no access to; findings below). A clean real dry run has run (below);
-      `--commit` (the actual migration) has not, as asked.
+- [x] Supabase Auth + new tables + the migration, committed (2026-09-30, founder decision;
+      investigation + clarifying questions before writing anything, since the request depended on a
+      companion app and credentials this repo had no access to; findings below). The founder backed
+      up data/clearpath.db outside the repo, confirmed the dry-run counts, and said to `--commit`;
+      done -- every row is now live in Supabase, independently re-verified with a fresh count query
+      after the fact (same numbers). data/clearpath.db is untouched and stays the local backup.
       - Found the companion app on disk (D:\clearpath-app\clearpath-proposal-generator) and read its
         actual auth code and schema rather than guessing: @supabase/ssr cookie sessions, `profiles`
         (id -> auth.users, role enum owner/staff, first signup becomes owner), `public.is_owner()`
@@ -153,14 +155,18 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
         Final real dry-run report (data/clearpath.db as it stood 2026-09-30): leads 5/5,
         lead_dossiers 5/5, lead_sequences 4/4, lead_events 5/5, runs 236/236, suppression 0/0,
         settings 1/1 -- every table matched, nothing dropped, nothing left behind (dry run deletes
-        what it inserts). Not yet run with `--commit`.
-      - Not done / blocked, and why:
-        - **`--commit` has not been run.** The dry run above passed cleanly; the founder has not yet
-          said to write the rows for real.
+        what it inserts).
+      - **`--commit` run (2026-09-30):** same source data, same command, real inserts left in place
+        this time. Result was identical to the dry run -- leads 5/5, lead_dossiers 5/5,
+        lead_sequences 4/4, lead_events 5/5, runs 236/236, suppression 0/0, settings 1/1, no errors.
+        Independently re-checked afterward with a fresh count query (not just trusting the script's
+        own report) and a sample of leads.id/status/tier: same numbers, real rows. data/clearpath.db
+        was opened read-only throughout and is untouched; the founder additionally made an out-of-
+        repo backup of it before this ran.
+      - Not done yet:
         - **The app's own routes/services still read/write SQLite**, not the new Supabase tables --
           intentionally scoped out of this pass (auth + schema + migration script only) given the
-          size of rewiring every existing route; the cutover is a separate, larger follow-up, once
-          `--commit` has run.
+          size of rewiring every existing route; the cutover is a separate, larger follow-up.
         - No UI/API routes for `candidates` or the new `settings` table yet (same reason).
       - Tests: 46 new (auth-guard.test.ts: missing/malformed/wrong/good bearer token, user context,
         empty-token short-circuit; migration.test.ts: dry-run insert+cleanup, --commit leaves rows,
@@ -169,9 +175,9 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
         every transform function). local-guard.test.ts and app-harness.ts updated for the new
         bearer-token requirement (a fake verifyToken, never real Supabase). 530 passing (36 files),
         typecheck clean, web build clean.
-- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings, the
-      go-ahead to `--commit` the migration for real, and deciding on the full SQLite -> Supabase
-      cutover for the app's own routes).
+- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings, and
+      deciding on the full SQLite -> Supabase cutover for the app's own routes -- the data has been
+      migrated; the app just doesn't read/write it there yet).
 
 ## Current state (2026-09-24, after the full-writer revert)
 - Tests: 482 passing in 32 files (vitest: unit, component, offline end-to-end API, UI end-to-end,

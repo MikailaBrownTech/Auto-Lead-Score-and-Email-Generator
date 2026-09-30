@@ -97,22 +97,30 @@ Other commands (from the repo root):
 
 ## Moving to Supabase
 
-The app's operational data still lives in SQLite (`data/clearpath.db`) day to day; only auth has
-cut over to Supabase so far. `supabase/migrations/*.sql` adds eight tables to the shared project
-(`leads`, `lead_dossiers`, `lead_sequences`, `lead_events`, `candidates`, `runs`, `suppression`,
-`settings`) with RLS on every one: operational tables are full read/write for any signed-in user
-(matching the companion app's `clients`); `settings` is read for anyone signed in but write-restricted
-to an owner (matching how its `plans`/`add_ons` already work). `candidates` is new -- a pre-import
-queue, staff can submit a URL or firm name before it becomes a researched lead -- and has no SQLite
-source, so the migration script below has nothing to move into it. Apply the migration files to the
-Supabase project yourself (same way as the companion app's own migrations) before running the script.
+The app's operational data has been migrated into Supabase (see below), but the app's own routes and
+services still read and write SQLite (`data/clearpath.db`) day to day -- only auth and the data itself
+have cut over so far; the app doesn't query Supabase for any of this yet. `supabase/migrations/*.sql`
+adds eight tables to the shared project (`leads`, `lead_dossiers`, `lead_sequences`, `lead_events`,
+`candidates`, `runs`, `suppression`, `settings`) with RLS on every one: operational tables are full
+read/write for any signed-in user (matching the companion app's `clients`); `settings` is read for
+anyone signed in but write-restricted to an owner (matching how its `plans`/`add_ons` already work).
+`candidates` is new -- a pre-import queue, staff can submit a URL or firm name before it becomes a
+researched lead -- and has no SQLite source, so the migration script never had anything to move into
+it. Apply the migration files to the Supabase project yourself (same way as the companion app's own
+migrations) before running the script; after applying them, PostgREST's schema cache can be stale until
+you run `NOTIFY pgrst, 'reload schema';` in the SQL editor (or use the dashboard's reload-schema
+control) -- it'll report "could not find the table" until you do.
 
 `npm run migrate-to-supabase [-- --sqlite-path <path>] [-- --commit]` reads every row out of SQLite
-(read-only; the file is never modified or deleted) and, by default, does a dry run: it inserts
-everything into the real Supabase tables via the service role key, prints a source-vs-destination row
-count for every table, and then deletes every row it just inserted again, leaving Supabase exactly as
-it was. Passing `--commit` inserts the rows for real and leaves them there -- run the dry run first and
-check the counts match before doing that. Needs `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
+(read-only; the file is never modified or deleted, and stays the local backup) and, by default, does a
+dry run: it inserts everything into the real Supabase tables via the service role key, prints a
+source-vs-destination row count for every table, and then deletes every row it just inserted again,
+leaving Supabase exactly as it was. Passing `--commit` inserts the rows for real and leaves them there
+-- run the dry run first and check the counts match before doing that. Needs
+`SUPABASE_SERVICE_ROLE_KEY` in `.env`. Already run for real once (2026-09-30): every table matched,
+nothing dropped; re-running it (dry run or `--commit`) on an unchanged SQLite file would insert the
+same rows again (the script does not check for an existing migration), so don't `--commit` a second
+time without clearing the destination tables first.
 
 Rewiring the app's own routes/services to read and write Supabase instead of SQLite (the actual
 cutover of leads/sequences/etc.) is a separate, larger follow-up, not done yet.
