@@ -43,13 +43,20 @@ const source = drizzle(sqlite, { schema });
 
 const leadRowsFromSqlite = source.select().from(schema.leads).all();
 const leadsPlan = leadRowsFromSqlite.map((l) => leadRows(l));
+const validLeadIds = new Set(leadRowsFromSqlite.map((l) => l.id));
+
+const allRuns = source.select().from(schema.runs).all();
+const orphanedRunLeadIds = new Set(allRuns.map((r) => r.leadId).filter((id): id is string => !!id && !validLeadIds.has(id)));
+if (orphanedRunLeadIds.size > 0) {
+  console.log(`Note: ${orphanedRunLeadIds.size} lead id(s) referenced by runs no longer exist (deleted leads, or old record-sequences.ts fixtures); those runs' lead_id migrates as null, same as this app's own delete-lead behavior. Ids: ${[...orphanedRunLeadIds].join(", ")}`);
+}
 
 const plans: TablePlan[] = [
   { table: "leads", idColumn: "id", rows: leadsPlan.map((p) => p.lead) },
   { table: "lead_dossiers", idColumn: "lead_id", rows: leadsPlan.map((p) => p.dossier).filter((d): d is Record<string, unknown> => d !== null) },
   { table: "lead_sequences", idColumn: "id", rows: source.select().from(schema.sequences).all().map(sequenceRow) },
   { table: "lead_events", idColumn: "id", rows: source.select().from(schema.leadEvents).all().map(leadEventRow) },
-  { table: "runs", idColumn: "id", rows: source.select().from(schema.runs).all().map(runRow) },
+  { table: "runs", idColumn: "id", rows: allRuns.map((r) => runRow(r, validLeadIds)) },
   { table: "suppression", idColumn: "id", rows: source.select().from(schema.suppressions).all().map(suppressionRow) },
   { table: "settings", idColumn: "id", rows: [settingsRow(loadOffer(), ctx.env.MONTHLY_SPEND_CAP_USD)] },
 ];

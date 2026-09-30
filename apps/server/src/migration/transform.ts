@@ -59,13 +59,21 @@ export function leadEventRow(e: SqliteLeadEvent): Record<string, unknown> {
   return { id: e.id, lead_id: e.leadId, kind: e.kind, detail: e.detail, created_at: e.createdAt };
 }
 
-export function runRow(r: RunRow): Record<string, unknown> {
+/**
+ * `runs.lead_id` was never a real foreign key in SQLite, so the cost ledger can (and does) hold rows
+ * referencing a lead that no longer exists -- deleted leads (delete-lead.ts deliberately keeps their
+ * runs rows: the money was spent either way), or the temporary "record-<fixture>" leads
+ * record-sequences.ts cleans up after itself but leaves the runs rows for. Postgres enforces the FK
+ * for real, so on migration those references are nulled out here -- the same outcome the schema's own
+ * `on delete set null` gives any lead deleted after the migration.
+ */
+export function runRow(r: RunRow, validLeadIds: ReadonlySet<string>): Record<string, unknown> {
   return {
     id: r.id,
     created_at: r.createdAt,
     model: r.model,
     call_type: r.callType,
-    lead_id: r.leadId,
+    lead_id: r.leadId && validLeadIds.has(r.leadId) ? r.leadId : null,
     status: r.status,
     input_tokens: r.inputTokens,
     output_tokens: r.outputTokens,

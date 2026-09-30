@@ -159,12 +159,39 @@ describe("transform: SQLite rows -> Supabase rows", () => {
     });
 
     expect(
-      runRow({
-        id: 1,
+      runRow(
+        {
+          id: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          model: "claude-sonnet-5",
+          callType: "write",
+          leadId: "lead-a",
+          status: "ok",
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          cacheWrite5mTokens: null,
+          cacheWrite1hTokens: null,
+          prefixKey: null,
+          costUsd: 0.01,
+          stopReason: "end_turn",
+          messageId: "msg_1",
+          error: null,
+        },
+        new Set(["lead-a"]),
+      ),
+    ).toMatchObject({ id: 1, call_type: "write", cost_usd: 0.01, lead_id: "lead-a" });
+  });
+
+  it("runRow: nulls out lead_id when it no longer matches any migrated lead (deleted lead, or an old record-sequences.ts fixture)", () => {
+    const row = runRow(
+      {
+        id: 2,
         createdAt: "2026-01-01T00:00:00.000Z",
         model: "claude-sonnet-5",
-        callType: "write",
-        leadId: "lead-a",
+        callType: "extract",
+        leadId: "record-essentialacctg-com",
         status: "ok",
         inputTokens: 100,
         outputTokens: 50,
@@ -173,13 +200,17 @@ describe("transform: SQLite rows -> Supabase rows", () => {
         cacheWrite5mTokens: null,
         cacheWrite1hTokens: null,
         prefixKey: null,
-        costUsd: 0.01,
+        costUsd: 0.02,
         stopReason: "end_turn",
-        messageId: "msg_1",
+        messageId: "msg_2",
         error: null,
-      }),
-    ).toMatchObject({ id: 1, call_type: "write", cost_usd: 0.01 });
+      },
+      new Set(["lead-a", "lead-b"]), // "record-essentialacctg-com" is not among the leads being migrated
+    );
+    expect(row).toMatchObject({ id: 2, call_type: "extract", cost_usd: 0.02, lead_id: null });
+  });
 
+  it("suppressionRow", () => {
     expect(suppressionRow({ id: 1, kind: "domain", value: "example.com", createdAt: "2026-01-01T00:00:00.000Z" })).toEqual({
       id: 1,
       kind: "domain",

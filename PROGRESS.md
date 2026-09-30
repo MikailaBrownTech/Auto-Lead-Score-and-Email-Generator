@@ -98,8 +98,8 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
       re-screenshotting and cropping it for a close look). No horizontal scroll on any screen.
 - [x] Supabase Auth + new tables, auth flow only (2026-09-30, founder decision; investigation +
       clarifying questions before writing anything, since the request depended on a companion app and
-      credentials this repo had no access to; findings below). STOPPED before the real migration runs,
-      as asked -- see "Not done / blocked" below for exactly why it can't run yet.
+      credentials this repo had no access to; findings below). A clean real dry run has run (below);
+      `--commit` (the actual migration) has not, as asked.
       - Found the companion app on disk (D:\clearpath-app\clearpath-proposal-generator) and read its
         actual auth code and schema rather than guessing: @supabase/ssr cookie sessions, `profiles`
         (id -> auth.users, role enum owner/staff, first signup becomes owner), `public.is_owner()`
@@ -134,28 +134,44 @@ Status snapshot for resuming work. Rules and stack are in CLAUDE.md; this file d
         (apps/server/src/migration/client.ts) are separated behind a small interface so this is
         testable with an in-memory fake, the same way this codebase already fakes the Anthropic API/
         DNS/fetch, rather than needing a live project.
+      - **2026-09-30, keys added, real dry run completed successfully:** founder added SUPABASE_URL/
+        SUPABASE_ANON_KEY/SUPABASE_SERVICE_ROLE_KEY to .env and applied the migrations to the live
+        project. Found and fixed one real bug along the way (not the schema-cache issue below, an
+        actual data problem): `runs.lead_id` was never a real foreign key in SQLite, so 17 lead ids
+        referenced by historical runs rows no longer exist (deleted leads -- delete-lead.ts
+        deliberately keeps their cost rows -- and old record-sequences.ts fixture leads it cleans up
+        after itself but leaves the runs rows for). Postgres enforces the FK for real, so
+        transform.ts's runRow() now nulls out any lead_id that isn't among the leads actually being
+        migrated (runRow(r, validLeadIds); the migration script builds that set and logs which ids
+        were orphaned) -- the same outcome the schema's own `on delete set null` gives any lead
+        deleted after the migration. Also hit (and documented, not a code bug): after applying the
+        SQL, PostgREST's schema cache was stale and returned "Could not find the table ... in the
+        schema cache" for every new table until `NOTIFY pgrst, 'reload schema';` was run in the SQL
+        editor. Also fixed in passing: the anon key had been pasted into apps/web/.env.example (a
+        tracked file) instead of apps/web/.env.local (gitignored) -- moved it and reverted the
+        example back to an empty template before it could be committed.
+        Final real dry-run report (data/clearpath.db as it stood 2026-09-30): leads 5/5,
+        lead_dossiers 5/5, lead_sequences 4/4, lead_events 5/5, runs 236/236, suppression 0/0,
+        settings 1/1 -- every table matched, nothing dropped, nothing left behind (dry run deletes
+        what it inserts). Not yet run with `--commit`.
       - Not done / blocked, and why:
-        - **No Supabase credentials in this repo yet.** apps/server/.env has no SUPABASE_* vars
-          (checked names only). Cannot create a live connection, cannot verify the migration SQL
-          actually applies cleanly to the real project, and cannot produce a real row-count report --
-          the whole reason this milestone stops here rather than at "after the dry-run report."
-        - The migration SQL files are written but **not yet applied** to the live Supabase project;
-          that has to happen (same way the companion app's own migrations were applied) before the
-          migration script's tables exist to insert into.
+        - **`--commit` has not been run.** The dry run above passed cleanly; the founder has not yet
+          said to write the rows for real.
         - **The app's own routes/services still read/write SQLite**, not the new Supabase tables --
           intentionally scoped out of this pass (auth + schema + migration script only) given the
-          size of rewiring every existing route; the cutover is a separate, larger follow-up once the
-          founder has reviewed real dry-run counts.
+          size of rewiring every existing route; the cutover is a separate, larger follow-up, once
+          `--commit` has run.
         - No UI/API routes for `candidates` or the new `settings` table yet (same reason).
-      - Tests: 44 new (auth-guard.test.ts: missing/malformed/wrong/good bearer token, user context,
+      - Tests: 46 new (auth-guard.test.ts: missing/malformed/wrong/good bearer token, user context,
         empty-token short-circuit; migration.test.ts: dry-run insert+cleanup, --commit leaves rows,
         a table's insert error is reported not swallowed, formatReport's match/ERROR/MISMATCH text,
+        runRow() nulling an orphaned lead_id,
         every transform function). local-guard.test.ts and app-harness.ts updated for the new
-        bearer-token requirement (a fake verifyToken, never real Supabase). 528 passing (36 files),
+        bearer-token requirement (a fake verifyToken, never real Supabase). 530 passing (36 files),
         typecheck clean, web build clean.
-- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings,
-      adding the Supabase env vars + applying the migrations, and deciding on the full SQLite ->
-      Supabase cutover for the app's own routes).
+- [ ] M6 Results + settings, M7 Hardening. NEXT (after the founder's tone check of the recordings, the
+      go-ahead to `--commit` the migration for real, and deciding on the full SQLite -> Supabase
+      cutover for the app's own routes).
 
 ## Current state (2026-09-24, after the full-writer revert)
 - Tests: 482 passing in 32 files (vitest: unit, component, offline end-to-end API, UI end-to-end,
